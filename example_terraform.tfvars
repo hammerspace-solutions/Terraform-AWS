@@ -125,3 +125,30 @@ hammerspace_dsx_ebs_size 	 	= 1000
 hammerspace_dsx_ebs_type		= "gp3"
 hammerspace_dsx_ebs_iops		= 6000
 hammerspace_dsx_ebs_throughput		= 1000
+
+# Ansible specific variables (ansible_ prefix)
+#
+# The only thing that might be confusing are the variables:
+# "ansible_user_data" and "ansible_target_user". In AWS, the login
+# to a EC2 instance is usually of the form:
+# "ssh -i PEM_FILE OS_NAME@IP_ADDRESS
+#
+# So, the ansible_target_user is the OS_NAME for the login. Once you
+# have logged in once, you can create as many users as you want. But,
+# the first default user is the OS_NAME (or in this case "ubuntu")
+#
+# The ansible_user_data is a location where a bash shell script is stored.
+# You can modify that script as it is passed to the EC2 instance during
+# instantiation. It can be used for further configuration. Remember that
+# the script MUST conform to the OS that you are instantiating. Today,
+# we only have a script for ubuntu.
+
+ansible_instance_count			= 1
+ansible_ami				= "ami-075686beab831bb7f"
+ansible_isntance_type			= "t3.medium"
+ansible_boot_volume_size		= 40
+ansible_boot_volume_type		= "gp2"
+ansible_user_data			= "./templates/ansible_config_ubuntu.sh"
+ansible_target_user			= "ubuntu"
+volume_group_name			= "vg_auto"
+share_name				= "test01"
