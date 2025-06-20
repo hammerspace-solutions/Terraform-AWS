@@ -1,7 +1,7 @@
 # Setup the provider
 
 provider "aws" {
-  region = var.region
+  region				= var.region
 
   # If you plan on using the $HOME/.aws/credentials file, then please modify the
   # file local_override.tf in order to put in the profile variable.
@@ -12,103 +12,110 @@ provider "aws" {
 # Conditionally create the placement group if a name is provided
 
 resource "aws_placement_group" "this" {
-  count = var.placement_group_name != "" ? 1 : 0
+  count					= var.placement_group_name != "" ? 1 : 0
 
-  name     = var.placement_group_name
-  strategy = var.placement_group_strategy
-  tags     = var.tags
+  name     				= var.placement_group_name
+  strategy 				= var.placement_group_strategy
+  tags     				= var.tags
 }
 
 # Determine which components to deploy based on input list
 
 locals {
-  deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
-  deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
-  deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
+  deploy_clients			= contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
+  deploy_storage     			= contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
+  deploy_hammerspace 			= contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
+  deploy_ansible     			= contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
 }
 
 # Deploy the clients module if requested
 
 module "clients" {
-  count  = local.deploy_clients ? 1 : 0
-  source = "./modules/clients"
+  count					= local.deploy_clients ? 1 : 0
+  source 				= "./modules/clients"
 
   # Global variables
-  region               = var.region
-  availability_zone    = var.availability_zone
-  vpc_id               = var.vpc_id
-  subnet_id            = var.subnet_id
-  key_name             = var.key_name
-  tags                 = var.tags
-  project_name         = var.project_name
-  ssh_keys_dir         = var.ssh_keys_dir
-  placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
+  
+  region				= var.region
+  availability_zone    			= var.availability_zone
+  vpc_id               			= var.vpc_id
+  subnet_id            			= var.subnet_id
+  key_name             			= var.key_name
+  tags                 			= var.tags
+  project_name         			= var.project_name
+  ssh_keys_dir         			= var.ssh_keys_dir
+  placement_group_name 			= var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Client-specific variables
-  instance_count   = var.clients_instance_count
-  ami              = var.clients_ami
-  instance_type    = var.clients_instance_type
-  boot_volume_size = var.clients_boot_volume_size
-  boot_volume_type = var.clients_boot_volume_type
-  ebs_count        = var.clients_ebs_count
-  ebs_size         = var.clients_ebs_size
-  ebs_type         = var.clients_ebs_type
-  ebs_throughput   = var.clients_ebs_throughput
-  ebs_iops         = var.clients_ebs_iops
-  user_data        = var.clients_user_data
-  target_user      = var.clients_target_user
+  
+  instance_count			= var.clients_instance_count
+  ami              			= var.clients_ami
+  instance_type    			= var.clients_instance_type
+  boot_volume_size 			= var.clients_boot_volume_size
+  boot_volume_type 			= var.clients_boot_volume_type
+  ebs_count        			= var.clients_ebs_count
+  ebs_size         			= var.clients_ebs_size
+  ebs_type         			= var.clients_ebs_type
+  ebs_throughput   			= var.clients_ebs_throughput
+  ebs_iops         			= var.clients_ebs_iops
+  user_data        			= var.clients_user_data
+  target_user      			= var.clients_target_user
 }
 
 # Deploy the storage_servers module if requested
 
 module "storage_servers" {
-  count  = local.deploy_storage ? 1 : 0
-  source = "./modules/storage_servers"
+  count					= local.deploy_storage ? 1 : 0
+  source 				= "./modules/storage_servers"
 
   # Global variables
-  region               = var.region
-  availability_zone    = var.availability_zone
-  vpc_id               = var.vpc_id
-  subnet_id            = var.subnet_id
-  key_name             = var.key_name
-  tags                 = var.tags
-  project_name         = var.project_name
-  ssh_keys_dir         = var.ssh_keys_dir
-  placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
+  
+  region				= var.region
+  availability_zone    			= var.availability_zone
+  vpc_id               			= var.vpc_id
+  subnet_id            			= var.subnet_id
+  key_name             			= var.key_name
+  tags                 			= var.tags
+  project_name         			= var.project_name
+  ssh_keys_dir         			= var.ssh_keys_dir
+  placement_group_name 			= var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Storage-specific variables
-  instance_count   = var.storage_instance_count
-  ami              = var.storage_ami
-  instance_type    = var.storage_instance_type
-  boot_volume_size = var.storage_boot_volume_size
-  boot_volume_type = var.storage_boot_volume_type
-  raid_level       = var.storage_raid_level
-  ebs_count        = var.storage_ebs_count
-  ebs_size         = var.storage_ebs_size
-  ebs_type         = var.storage_ebs_type
-  ebs_throughput   = var.storage_ebs_throughput
-  ebs_iops         = var.storage_ebs_iops
-  user_data        = var.storage_user_data
-  target_user      = var.storage_target_user
+  
+  instance_count			= var.storage_instance_count
+  ami              			= var.storage_ami
+  instance_type    			= var.storage_instance_type
+  boot_volume_size 			= var.storage_boot_volume_size
+  boot_volume_type 			= var.storage_boot_volume_type
+  raid_level       			= var.storage_raid_level
+  ebs_count        			= var.storage_ebs_count
+  ebs_size         			= var.storage_ebs_size
+  ebs_type         			= var.storage_ebs_type
+  ebs_throughput   			= var.storage_ebs_throughput
+  ebs_iops         			= var.storage_ebs_iops
+  user_data        			= var.storage_user_data
+  target_user      			= var.storage_target_user
 }
 
 # Deploy the Anvil and/or DSX if requested
 
 module "hammerspace" {
-  count  = local.deploy_hammerspace ? 1 : 0
-  source = "./modules/hammerspace"
+  count					= local.deploy_hammerspace ? 1 : 0
+  source 				= "./modules/hammerspace"
 
   # Global variables
-  region               = var.region
-  availability_zone    = var.availability_zone
-  vpc_id               = var.vpc_id
-  subnet_id            = var.subnet_id
-  key_name             = var.key_name
-  tags                 = var.tags
-  project_name         = var.project_name
-  placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
+  
+  region				= var.region
+  availability_zone    			= var.availability_zone
+  vpc_id               			= var.vpc_id
+  subnet_id            			= var.subnet_id
+  key_name             			= var.key_name
+  tags                 			= var.tags
+  project_name         			= var.project_name
+  placement_group_name 			= var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Hammerspace-specific variables
+  
   ami                                  = var.hammerspace_ami
   iam_admin_group_id                   = var.hammerspace_iam_admin_group_id
   profile_id                           = var.hammerspace_profile_id
@@ -131,4 +138,37 @@ module "hammerspace" {
   dsx_ebs_throughput                   = var.hammerspace_dsx_ebs_throughput
   dsx_ebs_count                        = var.hammerspace_dsx_ebs_count
   dsx_add_vols                         = var.hammerspace_dsx_add_vols
+}
+
+module "ansible" {
+  count					= local.deploy_ansible ? 1 : 0
+  source				= "./modules/ansible"
+
+  mgmt_ip				= flatten(module.hammerspace[*].management_ip)
+  anvil_instances			= flatten(module.hammerspace[*].anvil_instances)
+  storage_instances			= flatten(module.storage_servers[*].instance_details)
+
+  # Global Variables for Ansible configuration
+
+  region				= var.region
+  availability_zone			= var.availability_zone
+  vpc_id				= var.vpc_id
+  subnet_id				= var.subnet_id
+  key_name				= var.key_name
+  tags					= var.tags
+  project_name				= var.project_name
+  ssh_keys_dir				= var.ssh_keys_dir
+  placement_group_name			= var.placement_group_name
+
+  # Ansible specific variables
+
+  instance_count			= var.ansible_instance_count
+  ami					= var.ansible_ami
+  instance_type				= var.ansible_instance_type
+  boot_volume_size			= var.ansible_boot_volume_size
+  boot_volume_type			= var.ansible_boot_volume_type
+  user_data				= var.ansible_user_data
+  target_user				= var.ansible_target_user
+  volume_group_name			= var.volume_group_name
+  share_name				= var.share_name
 }

@@ -42,8 +42,12 @@ output "hammerspace_mgmt_url" {
   value       = module.hammerspace[*].management_url
 }
 
-# NEW output for the list of DSX private IPs
 output "hammerspace_dsx_private_ips" {
   description = "A list of private IP addresses for the Hammerspace DSX instances."
   value       = module.hammerspace[*].dsx_private_ips
+}
+
+output "ansible_details" {
+  description = "Ansible configuration details"
+  value = module.ansible[*].instance_details
 }

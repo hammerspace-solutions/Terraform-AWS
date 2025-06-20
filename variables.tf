@@ -50,14 +50,14 @@ variable "ssh_keys_dir" {
 }
 
 variable "deploy_components" {
-  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\"."
+  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ansible\"."
   type        = list(string)
   default     = ["all"]
   validation {
     condition = alltrue([
-      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace"], c)
+      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ansible"], c)
     ])
-    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", or \"hammerspace\"."
+    error_message = "Each item in deploy_components must be one of: \"all\", \"ansible\", \"clients\", \"storage\", or \"hammerspace\"."
   }
 }
 
@@ -355,4 +355,56 @@ variable "placement_group_strategy" {
     condition     = contains(["cluster", "spread", "partition"], var.placement_group_strategy)
     error_message = "Allowed values for placement_group_strategy are: cluster, spread, or partition."
   }
+}
+
+variable "ansible_instance_count" {
+  description = "Number of ansible instances"
+  type = number
+  default = 1
+}
+
+variable "ansible_ami" {
+  description = "AMI for Ansible instances"
+  type = string
+}
+
+variable "ansible_instance_type" {
+  description = "Instance type for Ansible"
+  type = string
+  default = "m5n.8xlarge"
+}
+
+variable "ansible_boot_volume_size" {
+  description = "Root volume size (GB) for Ansible"
+  type = number
+  default = 100
+}
+
+variable "ansible_boot_volume_type" {
+  description = "Root volume type for Ansible"
+  type = string
+  default = "gp2"
+}
+
+variable "ansible_user_data" {
+  description = "Path to user data script for Ansible"
+  type = string
+  default = ""
+}
+
+variable "ansible_target_user" {
+  description = "Default system user for Ansible EC2"
+  type = string
+  default = "ubuntu"
+}
+
+variable "volume_group_name" {
+  description = "Volume group name for Ansible to feed Anvil"
+  type = string
+  default = "vg-auto"
+}
+
+variable "share_name" {
+  description = "Share name for Ansible to feed Anvil"
+  type = string
 }
