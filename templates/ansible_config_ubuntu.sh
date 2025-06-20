@@ -55,9 +55,8 @@ echo 'share:
 
 sudo apt-get -y upgrade
 
-sudo git clone https://github.com/BeratUlualan/HS-Terraform.git /tmp/HS-Terraform
-sudo ansible-playbook /tmp/HS-Terraform/hs-aistudio.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
-
+sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/hs-ansible.yml
+sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
 
 # WARNING!!
 # DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
