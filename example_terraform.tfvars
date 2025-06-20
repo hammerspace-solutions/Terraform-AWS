@@ -145,7 +145,7 @@ hammerspace_dsx_ebs_throughput		= 1000
 
 ansible_instance_count			= 1
 ansible_ami				= "ami-075686beab831bb7f"
-ansible_isntance_type			= "t3.medium"
+ansible_instance_type			= "t3.medium"
 ansible_boot_volume_size		= 40
 ansible_boot_volume_type		= "gp2"
 ansible_user_data			= "./templates/ansible_config_ubuntu.sh"
