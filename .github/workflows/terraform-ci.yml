@@ -43,7 +43,7 @@ jobs:
           sudo apt-get install -y trivy
 
       - name: Run Trivy (tfsec) Security Scan
-        run: trivy config --skip-check AVD-AWS-0026,AVD-AWS-0027,AVD-AWS-0028 .
+        run: trivy config .
 
       # --- Final Dry Run ---
       - name: Terraform Plan
