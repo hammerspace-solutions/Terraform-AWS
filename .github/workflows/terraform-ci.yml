@@ -22,7 +22,7 @@ jobs:
 
       - name: Copy example tfvars for testing
         run: cp example_terraform.tfvars terraform.tfvars
-	
+
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive
