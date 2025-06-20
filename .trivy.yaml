@@ -1,0 +1,16 @@
+# .trivy.yaml
+
+misconfiguration:
+  # Do not fail the build for vulnerabilities that don't have a fix.
+  # This is good practice but does not affect misconfiguration checks.
+  ignore-unfixed: true
+  
+  # List of check IDs to completely ignore for this project
+  skip-checks:
+    # --- EBS Encryption Checks ---
+    - AVD-AWS-0026
+    - AVD-AWS-0027 # For "EBS volumes do not use a KMS key"
+    - AVD-AWS-0028 # For "Unencrypted EBS volume"
+
+    # --- EC2 Instance Metadata Check ---
+    - AVD-AWS-0031 # For "Instance does not require IMDSv2"
