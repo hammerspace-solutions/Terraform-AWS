@@ -1,4 +1,4 @@
-# SizingTerraform
+# Terraform-AWS
 Terraform templates to create clients, storage, and Hammerspace for AWS sizing.
 
 This project uses Terraform to provision resources on AWS. The deployment is modular, allowing you to deploy client machines, storage servers, and a Hammerspace environment either together or independently.
