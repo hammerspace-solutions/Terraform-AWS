@@ -76,6 +76,7 @@ resource "aws_instance" "this" {
   }
 
   # Add this entire lifecycle block
+
   lifecycle {
     precondition {
       condition     = var.ebs_count >= {
@@ -91,6 +92,12 @@ resource "aws_instance" "this" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.project_name
   })
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.capacity_reservation_id
+    }
+  }
 }
 
 # Create extra EBS volumes for each storage

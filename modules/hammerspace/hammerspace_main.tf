@@ -1,4 +1,5 @@
 # --- IAM Resources ---
+
 resource "aws_iam_group" "admin_group" {
   count = local.create_iam_admin_group ? 1 : 0
   name  = var.iam_admin_group_id != "" ? var.iam_admin_group_id : "${var.project_name}-AnvilAdminGroup"
@@ -66,6 +67,7 @@ resource "aws_iam_instance_profile" "profile" {
 }
 
 # --- Security Groups ---
+
 resource "aws_security_group" "anvil_data_sg" {
   count       = local.should_create_any_anvils && var.anvil_security_group_id == "" ? 1 : 0
   name        = "${var.project_name}-AnvilDataSG"
@@ -235,6 +237,7 @@ resource "aws_security_group" "dsx_sg" {
 }
 
 # --- Anvil Standalone Resources ---
+
 resource "aws_network_interface" "anvil_sa_ni" {
   count           = local.create_standalone_anvil ? 1 : 0
   subnet_id       = var.subnet_id
@@ -242,6 +245,7 @@ resource "aws_network_interface" "anvil_sa_ni" {
   tags            = merge(local.common_tags, { Name = "${var.project_name}-Anvil-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
+
 resource "aws_instance" "anvil" {
   count                  = local.create_standalone_anvil ? 1 : 0
   ami                    = var.ami
@@ -263,13 +267,25 @@ resource "aws_instance" "anvil" {
     device_index         = 0
     network_interface_id = aws_network_interface.anvil_sa_ni[0].id
   }
+
   root_block_device {
     volume_type = "gp3"
     volume_size = 200
   }
+
   tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil" })
-  depends_on = [aws_iam_instance_profile.profile]
+
+  depends_on = [
+  	        aws_iam_instance_profile.profile
+	       ]
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.anvil_capacity_reservation_id
+    }
+  }	       
 }
+
 resource "aws_ebs_volume" "anvil_meta_vol" {
   count               = local.create_standalone_anvil ? 1 : 0
   availability_zone   = var.availability_zone
@@ -279,6 +295,7 @@ resource "aws_ebs_volume" "anvil_meta_vol" {
   throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
   tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil-MetaVol" })
 }
+
 resource "aws_volume_attachment" "anvil_meta_vol_attach" {
   count       = local.create_standalone_anvil ? 1 : 0
   device_name = "/dev/sdb"
@@ -287,6 +304,7 @@ resource "aws_volume_attachment" "anvil_meta_vol_attach" {
 }
 
 # --- Anvil HA Resources ---
+
 resource "aws_network_interface" "anvil1_ha_ni" {
   count           = local.create_ha_anvils ? 1 : 0
   subnet_id       = var.subnet_id
@@ -294,6 +312,7 @@ resource "aws_network_interface" "anvil1_ha_ni" {
   tags            = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
+
 resource "aws_instance" "anvil1" {
   count                  = local.create_ha_anvils ? 1 : 0
   ami                    = var.ami
@@ -308,7 +327,7 @@ resource "aws_instance" "anvil1" {
     precondition {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."
-    }
+    }      
   }
 
   network_interface {
@@ -320,8 +339,17 @@ resource "aws_instance" "anvil1" {
     volume_size = 200
   }
   tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil1", Index = "0" })
-  depends_on = [aws_iam_instance_profile.profile]
+  depends_on = [
+  	        aws_iam_instance_profile.profile
+	       ]
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.anvil_capacity_reservation_id
+    }
+  }	       
 }
+
 resource "aws_ebs_volume" "anvil1_meta_vol" {
   count               = local.create_ha_anvils ? 1 : 0
   availability_zone   = var.availability_zone
@@ -331,6 +359,7 @@ resource "aws_ebs_volume" "anvil1_meta_vol" {
   throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
   tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-MetaVol" })
 }
+
 resource "aws_volume_attachment" "anvil1_meta_vol_attach" {
   count       = local.create_ha_anvils ? 1 : 0
   device_name = "/dev/sdb"
@@ -346,6 +375,7 @@ resource "aws_network_interface" "anvil2_ha_ni" {
   tags              = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-NI" })
   depends_on        = [aws_security_group.anvil_data_sg]
 }
+
 resource "aws_instance" "anvil2" {
   count                  = local.create_ha_anvils ? 1 : 0
   ami                    = var.ami
@@ -372,8 +402,18 @@ resource "aws_instance" "anvil2" {
     volume_size = 200
   }
   tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil2", Index = "1" })
-  depends_on = [aws_instance.anvil1, aws_iam_instance_profile.profile]
+  depends_on = [
+  	        aws_instance.anvil1,
+		aws_iam_instance_profile.profile,
+	       ]
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.anvil_capacity_reservation_id
+    }
+  }	       
 }
+
 resource "aws_ebs_volume" "anvil2_meta_vol" {
   count               = local.create_ha_anvils ? 1 : 0
   availability_zone   = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].availability_zone : var.availability_zone
@@ -383,6 +423,7 @@ resource "aws_ebs_volume" "anvil2_meta_vol" {
   throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
   tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-MetaVol" })
 }
+
 resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
   count       = local.create_ha_anvils ? 1 : 0
   device_name = "/dev/sdb"
@@ -391,6 +432,7 @@ resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
 }
 
 # --- DSX Data Services Node Resources ---
+
 resource "aws_network_interface" "dsx_ni" {
   count               = var.dsx_count
   subnet_id           = var.subnet_id
@@ -399,6 +441,7 @@ resource "aws_network_interface" "dsx_ni" {
   tags                = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}-NI" })
   depends_on          = [aws_security_group.dsx_sg]
 }
+
 resource "aws_instance" "dsx" {
   count                  = var.dsx_count
   ami                    = var.ami
@@ -407,6 +450,7 @@ resource "aws_instance" "dsx" {
   key_name               = local.provides_key_name ? var.key_name : null
   iam_instance_profile   = local.effective_instance_profile_ref
   placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+
   user_data_base64 = base64encode(jsonencode({
     cluster = {
       password_auth = false,
@@ -441,7 +485,9 @@ resource "aws_instance" "dsx" {
     volume_size = 200
   }
   tags = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}" })
-  depends_on = [aws_iam_instance_profile.profile]
+  depends_on = [
+  	        aws_iam_instance_profile.profile
+	       ]
 }
 
 resource "aws_ebs_volume" "dsx_data_vols" {

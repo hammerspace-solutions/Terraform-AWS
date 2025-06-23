@@ -1,10 +1,12 @@
 locals {
   # --- Anvil Creation Logic based on anvil_count ---
+
   should_create_any_anvils = var.anvil_count > 0
   create_standalone_anvil  = var.anvil_count == 1
   create_ha_anvils         = var.anvil_count >= 2
 
   # --- General Conditions ---
+
   provides_key_name      = var.key_name != null && var.key_name != ""
   enable_iam_admin_group = var.iam_user_access == "Enable"
   create_iam_admin_group = local.enable_iam_admin_group && var.iam_admin_group_id == ""
@@ -12,6 +14,7 @@ locals {
   dsx_add_volumes_bool   = local.should_create_any_anvils && var.dsx_add_vols
 
   # --- Mappings & Derived Values ---
+
   anvil_instance_type_actual = var.anvil_type
   dsx_instance_type_actual   = var.dsx_type
   common_tags = merge(var.tags, {

@@ -10,6 +10,10 @@ This project uses Terraform to provision resources on AWS. The deployment is mod
   - [Client Variables](#client-variables)
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
+- [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
+  - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
+  - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
+  - [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
 - [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
@@ -30,13 +34,14 @@ These variables apply to the overall deployment:
 * `availability_zone`: AWS availability zone for resource placement (Default: "us-west-2b").
 * `vpc_id`: (Required) VPC ID for all resources.
 * `subnet_id`: (Required) Subnet ID for resources.
-* `key_name`: (Required) SSH key pair name for instance access. This key is still required by AWS for the instance launch, even if not used for login.
+* `key_name`: (Required) SSH key pair name for instance access.
 * `tags`: Common tags to apply to all resources (Default: `{}`).
 * `project_name`: (Required) Project name used for tagging and resource naming.
-* `ssh_keys_dir`: A local directory where you can place multiple public SSH key files (e.g., `user1.pub`, `user2.pub`). The startup script will automatically add these keys to the `authorized_keys` file on all servers. This allows users to `ssh` into the instances with their own personal private keys instead of sharing the single EC2 `.pem` file. (Default: `"./ssh_keys"`).
-* `deploy_components`: List of components to deploy (e.g., `["clients", "storage", "hammerspace"]` or `["all"]`) (Default: `["all"]`).
-* `placement_group_name`: (Optional) The name of the placement group to create and launch instances into. If left blank, no placement group is used.
+* `ssh_keys_dir`: A local directory for public SSH key files (`.pub`). The startup script automatically adds these keys to the `authorized_keys` file on all servers. (Default: `"./ssh_keys"`).
+* `deploy_components`: List of components to deploy (e.g., `["clients", "storage"]` or `["all"]`) (Default: `["all"]`).
+* `placement_group_name`: (Optional) The name of the placement group to create and launch instances into.
 * `placement_group_strategy`: The strategy for the placement group: `cluster`, `spread`, or `partition` (Default: `cluster`).
+* `capacity_reservation_create_timeout`: The maximum time to wait for a capacity reservation to be fulfilled before failing (e.g., `"5m"`). (Default: `"5m"`).
 
 ---
 
@@ -88,7 +93,7 @@ These variables configure the Hammerspace deployment and are prefixed with `hamm
 * **`hammerspace_profile_id`**: Controls IAM Role creation.
     * **For users with restricted IAM permissions**: An admin must pre-create an IAM Instance Profile and provide its name here. Terraform will use the existing profile.
     * **For admin users**: Leave this variable as `""` (blank). Terraform will automatically create the necessary IAM Role and Instance Profile.
-* **`hammerspace_anvil_security_group_id`**: (Optional) The ID of a pre-existing security group to attach to the Anvil nodes. If left blank, the module will create and configure a new security group. This is useful for debugging or integrating with existing network rules.
+* **`hammerspace_anvil_security_group_id`**: (Optional) The ID of a pre-existing security group to attach to the Anvil nodes. If left blank, the module will create and configure a new security group.
 * **`hammerspace_dsx_security_group_id`**: (Optional) The ID of a pre-existing security group to attach to the DSX nodes. If left blank, the module will create and configure a new security group.
 * `hammerspace_ami`: AMI ID for Hammerspace instances (Default: example for CentOS 7).
 * `hammerspace_iam_admin_group_id`: IAM admin group for SSH access.
@@ -108,6 +113,47 @@ These variables configure the Hammerspace deployment and are prefixed with `hamm
 * `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage (Default: `true`).
 
 ---
+## Dealing with AWS Capacity and Timeouts
+
+When deploying large or specialized EC2 instances, you may encounter `InsufficientInstanceCapacity` errors from AWS. This project includes several advanced features to manage this issue and provide predictable behavior.
+
+### Controlling API Retries (`max_retries`)
+
+The AWS provider will automatically retry certain API errors, such as `InsufficientInstanceCapacity`. While normally helpful, this can cause the `terraform apply` command to hang for many minutes before finally failing.
+
+To get immediate feedback, you can instruct the provider not to retry. In your root `main.tf` (or an override file like `local_override.tf`), configure the `provider` block:
+
+```terraform
+provider "aws" {
+  region      = var.region
+  
+  # Fail immediately on the first retryable error instead of hanging.
+  # Set to 0 for debugging, or a small number like 2 for production.
+  max_retries = 0
+}
+```
+Setting `max_retries = 0` is excellent for debugging capacity issues, as it ensures the `apply` fails on the very first error.
+
+### Controlling Capacity Timeouts
+
+To prevent long hangs, this project first creates On-Demand Capacity Reservations to secure hardware before launching instances. You can control how long Terraform waits for these reservations to be fulfilled using a variable in your `.tfvars` file:
+
+* **`capacity_reservation_create_timeout`**: Sets the timeout for creating capacity reservations. If AWS cannot find the hardware within this period, the `apply` will fail. (Default: `"5m"`)
+
+### Understanding the Timeout Behavior
+
+It is critical to understand how these settings interact. Even with `max_retries = 0`, you may see Terraform wait for the full duration of the `capacity_reservation_create_timeout`.
+
+This is not a bug; it is the fundamental behavior of the AWS Capacity Reservation system:
+1.  Terraform sends the request to AWS to create the reservation.
+2.  AWS acknowledges the request and places the reservation in a **`pending`** state. The API call itself succeeds, so `max_retries` has no effect.
+3.  AWS now searches for physical hardware to fulfill your request in the background.
+4.  The Terraform provider enters a "waiter" loop, polling AWS every ~15 seconds, asking, "Is the reservation `active` yet?"
+5.  The `Still creating...` message you see during `terraform apply` corresponds to this waiting period.
+
+The `capacity_reservation_create_timeout` you set applies to this **entire waiting period**. If the reservation does not become `active` within that time (e.g., `"5m"`), Terraform will stop waiting and fail the `apply`. The timeout is working correctly by putting a boundary on the wait, but it will not cause an *instant* failure if the capacity isn't immediately available.
+
+---
 
 ## Required IAM Permissions for Custom Instance Profile
 If you are using the `hammerspace_profile_id` variable to provide a pre-existing IAM Instance Profile, the associated IAM Role must have a policy attached with the following permissions.
@@ -120,7 +166,7 @@ If you are using the `hammerspace_profile_id` variable to provide a pre-existing
 5.  Provide the name of the **Instance Profile** to the user running Terraform.
 
 **Required IAM Policy JSON:**
-```
+```json
 {
     "Version": "2012-10-17",
     "Statement": [

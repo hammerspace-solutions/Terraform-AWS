@@ -24,6 +24,7 @@ locals {
 }
 
 # Security group for client instances
+
 resource "aws_security_group" "client" {
   name        = "${local.resource_prefix}-sg"
   description = "Client instance security group"
@@ -50,6 +51,7 @@ resource "aws_security_group" "client" {
 }
 
 # Launch EC2 client instances
+
 resource "aws_instance" "this" {
   count         = var.instance_count
   ami           = var.ami
@@ -70,9 +72,16 @@ resource "aws_instance" "this" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.project_name
   })
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.capacity_reservation_id
+    }
+  }
 }
 
 # Create extra EBS volumes for each client
+
 resource "aws_ebs_volume" "this" {
   count             = var.instance_count * var.ebs_count
   availability_zone = var.availability_zone
@@ -88,6 +97,7 @@ resource "aws_ebs_volume" "this" {
 }
 
 # Attach each EBS volume to the correct instance
+
 resource "aws_volume_attachment" "this" {
   count       = var.instance_count * var.ebs_count
   device_name = "/dev/xvd${local.device_letters[count.index % var.ebs_count]}"

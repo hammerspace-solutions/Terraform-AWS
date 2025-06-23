@@ -1,5 +1,11 @@
 # Prefixless variables for internal module use
 
+variable "capacity_reservation_id" {
+  description = "The ID of the On-Demand Capacity Reservation to target."
+  type        = string
+  default     = null
+}
+
 variable "placement_group_name" {
   description = "Optional: The name of the placement group for the instances."
   type        = string

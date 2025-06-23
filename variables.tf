@@ -1,5 +1,11 @@
 # Global variables (NO prefix)
 
+variable "capacity_reservation_create_timeout" {
+  description = "The duration to wait for a capacity reservation to be fulfilled before timing out. Examples: '5m' for 5 minutes, '10m' for 10 minutes."
+  type        = string
+  default     = "3m"
+}
+
 variable "region" {
   description = "AWS region for all resources"
   type        = string

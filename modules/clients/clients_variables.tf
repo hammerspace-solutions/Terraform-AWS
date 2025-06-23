@@ -1,5 +1,11 @@
 # Client-specific variables
 
+variable "capacity_reservation_id" {
+  description = "The ID of the On-Demand Capacity Reservation to target."
+  type        = string
+  default     = null
+}
+
 variable "instance_count" {
   description = "Number of client instances"
   type        = number

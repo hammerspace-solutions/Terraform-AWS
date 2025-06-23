@@ -1,3 +1,8 @@
+# Timeout value if resources are not available in your
+# availability zone. This default is a "short" 3 minutes
+
+capacity_reservation_create_timeout	= "3m"
+
 # Which components to deploy
 #
 # Valid answers are "clients", "storage", "hammerspace", or "all". The

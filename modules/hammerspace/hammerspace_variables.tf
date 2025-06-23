@@ -1,3 +1,15 @@
+variable "anvil_capacity_reservation_id" {
+  description = "The ID of the On-Demand Capacity Reservation to target for Anvil nodes."
+  type        = string
+  default     = null
+}
+
+variable "dsx_capacity_reservation_id" {
+  description = "The ID of the On-Demand Capacity Reservation to target for DSX nodes."
+  type        = string
+  default     = null
+}
+
 variable "region" {
   description = "AWS region for deployment."
   type        = string
