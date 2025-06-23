@@ -15,7 +15,7 @@ provider "aws" {
   # it retries for many minutes to create an EC2 instance. Comment out the
   # next variable if you want the timeout value to take precedence.
 
-  max_retires = 0
+  max_retries = 0
 }
 
 # -----------------------------------------------------------------------------
