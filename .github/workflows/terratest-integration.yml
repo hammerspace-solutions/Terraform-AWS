@@ -45,9 +45,7 @@ jobs:
         working-directory: ./test
         run: go test -v -timeout 30m
         env:
-          # You would pass required Terraform variables as environment variables here.
-          # The Go test would then read these.
-          # Example:
+	  REGION: ${{ vars.REGION }}
           TF_VAR_project_name: "terratest-${{ github.run_id }}"
           TF_VAR_vpc_id: ${{ vars.VPC_ID }}
           TF_VAR_subnet_id: ${{ vars.SUBNET_ID }}
