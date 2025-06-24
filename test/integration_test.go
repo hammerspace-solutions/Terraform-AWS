@@ -16,35 +16,28 @@ func TestClientModule(t *testing.T) {
 	t.Parallel()
 
 	// --- Test Setup ---
-	// This options struct is now very simple.
-	// Terratest will automatically find and use any environment variables
-	// in the CI/CD environment that start with "TF_VAR_" and pass them to Terraform.
-	// We do not need to read them manually in Go.
 	terraformOptions := &terraform.Options{
 		// The path to where our Terraform code is located.
 		TerraformDir: "../",
+
+		// --- THIS IS THE FIX ---
+		// Explicitly tell Terratest to use the "terraform" binary.
+		// This prevents it from defaulting to "tofu".
+		TerraformBinary: "terraform",
 	}
 
 	// --- Test Lifecycle ---
-	// Defer the destroy command to ensure cleanup happens automatically.
 	defer terraform.Destroy(t, terraformOptions)
-
-	// Run `terraform init` and `terraform apply`.
-	// Terratest passes the TF_VAR_ environment variables to this command.
 	terraform.InitAndApply(t, terraformOptions)
 
 	// --- Validation ---
-	// After the apply, get all the necessary info from Terraform outputs.
 	awsRegion := terraform.Output(t, terraformOptions, "region")
 	clientInstances := terraform.OutputListOfObjects(t, terraformOptions, "client_instances")
 
-	// Assert that we got at least one instance back.
 	require.NotEmpty(t, clientInstances, "Client instances output should not be empty")
-
-	// Get the ID of the first instance for deeper validation.
 	instanceID := clientInstances[0]["id"].(string)
 
-	// Use the AWS SDK to verify the instance was actually created and is running.
+	// AWS SDK Validation
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	require.NoError(t, err, "Failed to load AWS configuration")
 
@@ -66,7 +59,16 @@ func TestClientModule(t *testing.T) {
 func TestStorageModule(t *testing.T) {
 	t.Parallel()
 
-	// This test would be similar to the client test, but would set
-	// TF_VAR_deploy_components to '["storage"]' in the CI workflow
-	// and would validate the storage_instances output.
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../",
+		
+		// Add the fix here as well.
+		TerraformBinary: "terraform",
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	storageInstances := terraform.OutputListOfObjects(t, terraformOptions, "storage_instances")
+	require.NotEmpty(t, storageInstances, "Storage instances output should not be empty")
 }
