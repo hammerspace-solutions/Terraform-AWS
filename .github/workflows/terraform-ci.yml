@@ -66,11 +66,11 @@ jobs:
             -var="storage_instance_count=${{ vars.STORAGE_INSTANCE_COUNT }}" \
             -var="hammerspace_anvil_count=${{ vars.HAMMERSPACE_ANVIL_COUNT }}" \
             -var="hammerspace_dsx_count=${{ vars.HAMMERSPACE_DSX_COUNT }}" \
-	    -var="client_instance_type=${{ vars.CLIENTS_INSTANCE_TYPE }}" \
-	    -var="storage_instance_type=${{ vars.STORAGE_INSTANCE_TYPE }}" \
-	    -var="hammerspace_anvil_instance_type=${{ vars.HAMMERSPACE_ANVIL_INSTANCE_TYPE }}" \
-	    -var="hammerspace_dsx_instance_type=${{ vars.HAMMERPACE_DSX_INSTANCE_TYPE }}" \
-	    -var="ansible_instance_type=${{ vars.ANSIBLE_INSTANCE_TYPE }}"
+            -var="client_instance_type=${{ vars.CLIENTS_INSTANCE_TYPE }}" \
+            -var="storage_instance_type=${{ vars.STORAGE_INSTANCE_TYPE }}" \
+            -var="hammerspace_anvil_instance_type=${{ vars.HAMMERSPACE_ANVIL_INSTANCE_TYPE }}" \
+            -var="hammerspace_dsx_instance_type=${{ vars.HAMMERPACE_DSX_INSTANCE_TYPE }}" \
+            -var="ansible_instance_type=${{ vars.ANSIBLE_INSTANCE_TYPE }}"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
