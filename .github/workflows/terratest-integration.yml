@@ -35,7 +35,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.REGION || 'us-west-2' }}
+          aws-region: 'us-west-2'
 
       # The main test step. We navigate to the test directory and run the tests.
       # The `go test` command will automatically find and execute our test function.
