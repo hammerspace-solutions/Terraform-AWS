@@ -88,6 +88,33 @@
       tags:
         - debug
 
+    - name: Wait until all expected OTHER nodes are present in API
+      vars:
+        expected_other_nodes: "{{ storages | selectattr('nodeType', 'equalto', 'OTHER') | map(attribute='name') | list | sort }}"
+      uri:
+        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes"
+        method: GET
+        user: "{{ hs_username }}"
+        password: "{{ hs_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        return_content: true
+        status_code: 200
+        body_format: json
+      register: node_list_check
+      retries: 20
+      delay: 15
+      until: >-
+        (
+          node_list_check.json
+          | selectattr('nodeType', 'equalto', 'OTHER')
+          | map(attribute='name')
+          | list
+          | sort
+        ) == expected_other_nodes
+      tags:
+        - node_management
+
     # 5. Create the volume group if missing
     - name: Build node locations for volume group
       set_fact:
@@ -454,7 +481,5 @@
     - name: Storage volume status check failed
       fail:
         msg: "One or more storage volumes did not reach 'COMPLETED' status within the allowed retries."
-
       when: non_reserved_volumes | length > 0
 
-  
