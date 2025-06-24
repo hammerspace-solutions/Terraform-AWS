@@ -40,10 +40,10 @@ jobs:
       # This step will show us where 'terraform' was installed and what the $PATTh is
       - name: Verify Terraform Installation
         run: |
-	  echo "--- Verifying terraform location ---"
-	  which terraform
-	  echo "--- Verifying system PATH ---"
-	  echo $PATH
+          echo "--- Verifying terraform location ---"
+          which terraform
+          echo "--- Verifying system PATH ---"
+          echo $PATH
 
       # The main test step. We navigate to the test directory and run the tests.
       # The `go test` command will automatically find and execute our test function.
