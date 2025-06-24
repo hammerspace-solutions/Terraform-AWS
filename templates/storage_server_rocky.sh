@@ -49,13 +49,17 @@ if [ "$${EBS_COUNT}" -lt "$${MIN_DEVICES}" ]; then
     exit 1
 fi
 
-# Wait for exactly EBS_COUNT NVMe devices
+# Define the target number of disks we are waiting for (EBS_COUNT + 1)
+TARGET_DISK_COUNT=$(( $${EBS_COUNT} + 1 ))
 
-echo "Waiting for $${EBS_COUNT} NVMe devices (RAID-$${RAID_LEVEL#raid-} requires minimum $${MIN_DEVICES})"
-while [ $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) -lt "$${EBS_COUNT}" ]; do
-    sleep 5
-    echo "Found $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) of $${EBS_COUNT} devices..."
+# Loop while the number of found disks is less than our target
+while [ $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) -lt "$${TARGET_DISK_COUNT}" ]; do
+    sleep 10
+    # The updated echo message is clearer about the goal
+    echo "Found $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) of $${TARGET_DISK_COUNT} required devices..."
 done
+
+echo "All $${TARGET_DISK_COUNT} devices found. Proceeding..."
 
 # Function to get the physical device behind a mounted filesystem
 
