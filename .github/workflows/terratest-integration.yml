@@ -24,36 +24,29 @@ jobs:
       - name: Copy example tfvars for testing
         run: cp example_terraform.tfvars terraform.tfvars
 
-      # Terratest is a Go program, so we need to set up the Go environment.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      # Authenticate to AWS using OIDC. This is the secure way to provide credentials.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: 'us-west-2'
+          aws-region: ${{ vars.REGION || 'us-west-2' }}
 
-      # This step will show us where 'terraform' was installed and what the $PATTh is
-      - name: Verify Terraform Installation
-        run: |
-          echo "--- Verifying terraform location ---"
-          which terraform
-          echo "--- Verifying system PATH ---"
-          echo $PATH
-
-      # The main test step. We navigate to the test directory and run the tests.
-      # The `go test` command will automatically find and execute our test function.
-      # The `-v` flag provides verbose output.
-      # The `-timeout` flag is crucial for long-running infrastructure tests.
       - name: Run Terratest Integration Tests
         working-directory: ./test
         run: go test -v -timeout 30m
         env:
-          REGION: ${{ vars.REGION }}
+          # This env block passes variables from your GitHub repository's settings
+          # to Terraform. The TF_VAR_ prefix is a convention that Terratest and
+          # Terraform understand automatically.
           TF_VAR_project_name: "terratest-${{ github.run_id }}"
           TF_VAR_vpc_id: ${{ vars.VPC_ID }}
           TF_VAR_subnet_id: ${{ vars.SUBNET_ID }}
@@ -65,7 +58,7 @@ jobs:
           TF_VAR_share_name: "terratest-share"
           TF_VAR_region: ${{ vars.REGION || 'us-west-2' }}
           
-          # Override defaults for a minimal test run
+          # Override defaults for a minimal, fast-running test
           TF_VAR_deploy_components: '["clients"]'
           TF_VAR_clients_instance_count: "1"
           TF_VAR_capacity_reservation_create_timeout: "0s"
