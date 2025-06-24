@@ -88,6 +88,12 @@
       tags:
         - debug
 
+    - name: Pause for storage system consistency
+      pause:
+        seconds: 10
+      tags:
+        - node_management
+
     - name: Wait until all expected OTHER nodes are present in API
       vars:
         expected_other_nodes: "{{ storages | selectattr('nodeType', 'equalto', 'OTHER') | map(attribute='name') | list | sort }}"
@@ -108,6 +114,8 @@
         (
           node_list_check.json
           | selectattr('nodeType', 'equalto', 'OTHER')
+          | selectattr('nodeState', 'equalto', 'MANAGED')
+          | selectattr('hwComponentState', 'equalto', 'OK')
           | map(attribute='name')
           | list
           | sort
@@ -167,6 +175,7 @@
       when: volume_group_create_result is defined and volume_group_create_result.changed
       tags:
         - debug
+
 
     # 6. Wait for node and volume group readiness
     - name: Wait until all OTHER nodes are present in node list
