@@ -1,0 +1,65 @@
+# .github/workflows/terratest-integration.yml
+# This workflow runs our Go-based Terratest integration tests.
+
+name: Terratest Integration
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terratest:
+    name: Run Terratest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy example tfvars for testing
+        run: cp example_terraform.tfvars terraform.tfvars
+
+      # Terratest is a Go program, so we need to set up the Go environment.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      # Authenticate to AWS using OIDC. This is the secure way to provide credentials.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.REGION || 'us-west-2' }}
+
+      # The main test step. We navigate to the test directory and run the tests.
+      # The `go test` command will automatically find and execute our test function.
+      # The `-v` flag provides verbose output.
+      # The `-timeout` flag is crucial for long-running infrastructure tests.
+      - name: Run Terratest Integration Tests
+        working-directory: ./test
+        run: go test -v -timeout 30m
+        env:
+          # You would pass required Terraform variables as environment variables here.
+          # The Go test would then read these.
+          # Example:
+          TF_VAR_project_name: "terratest-${{ github.run_id }}"
+          TF_VAR_vpc_id: ${{ vars.VPC_ID }}
+          TF_VAR_subnet_id: ${{ vars.SUBNET_ID }}
+          TF_VAR_key_name: ${{ vars.KEY_NAME }}
+          TF_VAR_clients_ami: ${{ vars.CLIENTS_AMI }}
+          TF_VAR_storage_ami: ${{ vars.STORAGE_AMI }}
+          TF_VAR_hammerspace_ami: ${{ vars.HAMMERSPACE_AMI }}
+          TF_VAR_ansible_ami: ${{ vars.ANSIBLE_AMI }}
+          TF_VAR_share_name: "terratest-share"
+          TF_VAR_region: ${{ vars.REGION || 'us-west-2' }}
+          
+          # Override defaults for a minimal test run
+          TF_VAR_deploy_components: '["clients"]'
+          TF_VAR_clients_instance_count: "1"
+          TF_VAR_capacity_reservation_create_timeout: "0s"

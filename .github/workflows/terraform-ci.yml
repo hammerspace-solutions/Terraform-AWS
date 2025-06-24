@@ -55,17 +55,22 @@ jobs:
         run: |
           terraform plan -no-color \
             -var="project_name=${{ vars.PROJECT_NAME }}" \
+            -var='deploy_components=${{ vars.DEPLOY_COMPONENTS }}' \
             -var="vpc_id=${{ vars.VPC_ID }}" \
             -var="subnet_id=${{ vars.SUBNET_ID }}" \
             -var="key_name=${{ vars.KEY_NAME }}" \
             -var="clients_ami=${{ vars.CLIENTS_AMI }}" \
             -var="storage_ami=${{ vars.STORAGE_AMI }}" \
             -var="hammerspace_ami=${{ vars.HAMMERSPACE_AMI }}" \
-            -var='deploy_components=${{ vars.DEPLOY_COMPONENTS }}' \
             -var="clients_instance_count=${{ vars.CLIENTS_INSTANCE_COUNT }}" \
             -var="storage_instance_count=${{ vars.STORAGE_INSTANCE_COUNT }}" \
             -var="hammerspace_anvil_count=${{ vars.HAMMERSPACE_ANVIL_COUNT }}" \
-            -var="hammerspace_dsx_count=${{ vars.HAMMERSPACE_DSX_COUNT }}"
+            -var="hammerspace_dsx_count=${{ vars.HAMMERSPACE_DSX_COUNT }}" \
+	    -var="client_instance_type=${{ vars.CLIENTS_INSTANCE_TYPE }}" \
+	    -var="storage_instance_type=${{ vars.STORAGE_INSTANCE_TYPE }}" \
+	    -var="hammerspace_anvil_instance_type=${{ vars.HAMMERSPACE_ANVIL_INSTANCE_TYPE }}" \
+	    -var="hammerspace_dsx_instance_type=${{ vars.HAMMERPACE_DSX_INSTANCE_TYPE }}" \
+	    -var="ansible_instance_type=${{ vars.ANSIBLE_INSTANCE_TYPE }}"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

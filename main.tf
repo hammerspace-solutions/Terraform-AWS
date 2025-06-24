@@ -15,7 +15,7 @@ provider "aws" {
   # it retries for many minutes to create an EC2 instance. Comment out the
   # next variable if you want the timeout value to take precedence.
 
-  max_retries = 0
+  max_retries = 5
 }
 
 # -----------------------------------------------------------------------------
@@ -108,7 +108,7 @@ check "storage_server_instance_type_is_available" {
 # -----------------------------------------------------------------------------
 
 resource "aws_ec2_capacity_reservation" "anvil" {
-  count = local.deploy_hammerspace ? 1 : 0
+  count = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? 1 : 0
 
   instance_type     = var.hammerspace_anvil_instance_type
   instance_platform = "Linux/UNIX"
@@ -124,7 +124,7 @@ resource "aws_ec2_capacity_reservation" "anvil" {
 }
 
 resource "aws_ec2_capacity_reservation" "dsx" {
-  count = local.deploy_hammerspace ? 1 : 0
+  count = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? 1 : 0
 
   instance_type     = var.hammerspace_dsx_instance_type
   instance_platform = "Linux/UNIX"
@@ -140,7 +140,7 @@ resource "aws_ec2_capacity_reservation" "dsx" {
 }
 
 resource "aws_ec2_capacity_reservation" "clients" {
-  count = local.deploy_clients ? 1 : 0
+  count = local.deploy_clients && var.clients_instance_count > 0 ? 1 : 0
 
   instance_type     = var.clients_instance_type
   instance_platform = "Linux/UNIX"
@@ -156,7 +156,7 @@ resource "aws_ec2_capacity_reservation" "clients" {
 }
 
 resource "aws_ec2_capacity_reservation" "storage" {
-  count = local.deploy_storage ? 1 : 0
+  count = local.deploy_storage && var.storage_instance_count > 0 ? 1 : 0
 
   instance_type     = var.storage_instance_type
   instance_platform = "Linux/UNIX"
@@ -197,7 +197,7 @@ module "clients" {
   source  = "./modules/clients"
 
   # Pass the reservation ID to the module
-  capacity_reservation_id = local.deploy_clients ? aws_ec2_capacity_reservation.clients[0].id : null
+  capacity_reservation_id = local.deploy_clients && var.clients_instance_count > 0 ? aws_ec2_capacity_reservation.clients[0].id : null
 
   # Global variables
   region               = var.region
@@ -233,8 +233,8 @@ module "storage_servers" {
   source  = "./modules/storage_servers"
 
   # Pass the reservation ID to the module
-  capacity_reservation_id = local.deploy_storage ? aws_ec2_capacity_reservation.storage[0].id : null
-
+  capacity_reservation_id = local.deploy_storage && var.storage_instance_count > 0 ? aws_ec2_capacity_reservation.storage[0].id : null
+  
   # Global variables
   region               = var.region
   availability_zone    = var.availability_zone
@@ -270,8 +270,8 @@ module "hammerspace" {
   source  = "./modules/hammerspace"
 
   # Pass the reservation IDs to the module
-  anvil_capacity_reservation_id = local.deploy_hammerspace ? aws_ec2_capacity_reservation.anvil[0].id : null
-  dsx_capacity_reservation_id   = local.deploy_hammerspace ? aws_ec2_capacity_reservation.dsx[0].id : null
+  anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? aws_ec2_capacity_reservation.anvil[0].id : null
+  dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? aws_ec2_capacity_reservation.dsx[0].id : null
 
   # Global variables
   region               = var.region

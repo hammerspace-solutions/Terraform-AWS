@@ -9,7 +9,7 @@ capacity_reservation_create_timeout	= "3m"
 # structure is a list, so you can say "storage", "hammerspace" to deploy
 # both of those
 
-deploy_components			= ["hammerspace"]
+deploy_components			= ["all"]
 
 # Placement Group
 #
@@ -23,10 +23,10 @@ placement_group_strategy		= "cluster"
 #
 # Change your project_name, the key_name, and the vpc and subnet id's
 
-project_name				= "AWSSizing"
-key_name   				= "Kade"
-vpc_id     				= "vpc-e3bff585"
-subnet_id  				= "subnet-085aa3041039c047f"
+project_name				= "AWS-Project"
+key_name   				= "Fubar"
+vpc_id     				= "vpc-12334567"
+subnet_id  				= "subnet-123456abcdefgh"
 
 # You can put in as many tags as you would like. The format should be self-explanatory
 
@@ -54,7 +54,7 @@ tags = {
 
 clients_instance_count			= 2
 clients_ami 				= "ami-075686beab831bb7f"
-clients_instance_type 		 	= "m5n.8xlarge"
+clients_instance_type 		 	= "m5n.2xlarge"
 clients_boot_volume_size		= 100
 clients_boot_volume_type		= "gp2"
 clients_ebs_count 		 	= 0
@@ -84,7 +84,7 @@ clients_target_user 		 	= "ubuntu"
 
 storage_instance_count	 	        = 5
 storage_ami 				= "ami-075686beab831bb7f"
-storage_instance_type 		 	= "m5n.8xlarge"
+storage_instance_type 		 	= "m5n.2xlarge"
 storage_boot_volume_size		= 100
 storage_boot_volume_type		= "gp2"
 storage_raid_level		 	= "raid-6"
@@ -115,7 +115,7 @@ hammerspace_ami				= "ami-094d8e62982f34834"
 
 hammerspace_anvil_count			= 2
 hammerspace_sa_anvil_destruction	= true
-hammerspace_anvil_instance_type 	= "m6in.8xlarge"
+hammerspace_anvil_instance_type 	= "m5n.2xlarge"
 hammerspace_anvil_meta_disk_size	= 1000
 hammerspace_anvil_meta_disk_type	= "gp3"
 hammerspace_anvil_meta_disk_iops	= 9000
@@ -124,7 +124,7 @@ hammerspace_anvil_meta_disk_throughput	= 1000
 # DSX specific
 
 hammerspace_dsx_count              	= 1
-hammerspace_dsx_instance_type 	 	= "m6in.8xlarge"
+hammerspace_dsx_instance_type 	 	= "m5n.2xlarge"
 hammerspace_dsx_ebs_count		= 5
 hammerspace_dsx_ebs_size 	 	= 1000
 hammerspace_dsx_ebs_type		= "gp3"
@@ -150,7 +150,7 @@ hammerspace_dsx_ebs_throughput		= 1000
 
 ansible_instance_count			= 1
 ansible_ami				= "ami-075686beab831bb7f"
-ansible_instance_type			= "t3.medium"
+ansible_instance_type			= "m5n.2xlarge"
 ansible_boot_volume_size		= 40
 ansible_boot_volume_type		= "gp2"
 ansible_user_data			= "./templates/ansible_config_ubuntu.sh"
