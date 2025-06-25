@@ -1,10 +1,11 @@
 # modules/clients/examples/main.tf
 
+# This provider block is used by the test.
 provider "aws" {
   region = var.region
 }
 
-# Define the variables this example needs
+# These are the variables that the test will provide values for.
 variable "region" {}
 variable "project_name" {}
 variable "vpc_id" {}
@@ -15,33 +16,46 @@ variable "clients_instance_type" {
   default = "t3.medium"
 }
 variable "clients_instance_count" {
+  type    = number # Ensure correct type
   default = 1
 }
 
-# Call the clients module we want to test
-module "clients" {
-  source = "../../" // Go up two directories to the module's root
-
-  project_name         = var.project_name
-  region               = var.region
-  availability_zone    = data.aws_availability_zones.available.names[0]
-  vpc_id               = var.vpc_id
-  subnet_id            = var.subnet_id
-  key_name             = var.key_name
-  clients_ami          = var.clients_ami
-  clients_instance_type  = var.clients_instance_type
-  clients_instance_count = var.clients_instance_count
-}
-
+# This data source finds an available AZ in the selected region for the test.
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# Output the results for validation
+# This is the corrected module block.
+# Notice the variable names now match what modules/clients/clients_variables.tf expects.
+# e.g., 'ami' instead of 'clients_ami'.
+module "clients" {
+  source = "../../" // Points to the module root
+
+  # Pass the correct, unprefixed variables to the module
+  instance_count    = var.clients_instance_count
+  ami               = var.clients_ami
+  instance_type     = var.clients_instance_type
+  
+  # Pass through global/shared variables
+  project_name      = var.project_name
+  region            = var.region
+  availability_zone = data.aws_availability_zones.available.names[0]
+  vpc_id            = var.vpc_id
+  subnet_id         = var.subnet_id
+  key_name          = var.key_name
+
+  # The module has other variables with default values (like boot_volume_size, etc.),
+  # so we don't need to specify them for this basic test.
+}
+
+
+# Output the results for validation by the Go test.
 output "client_instances" {
-  value = module.clients.instance_details
+  description = "The details of the created client instances."
+  value       = module.clients.instance_details
 }
 
 output "region" {
-  value = var.region
+  description = "The AWS region where resources were deployed."
+  value       = var.region
 }
