@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/gruntwork-io/terratest/modules/aws" // ADDED: This import is required for the aws.String helper
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +42,8 @@ func TestClientModule(t *testing.T) {
 	expectedBootVolumeType := "gp3"
 	expectedEbsVolumeType := "gp3"
 
+	// This map now needs to be defined within the Vars block directly.
+	// Since we are not using strconv anymore, we can remove the variable definition.
 	terraformOptions := &terraform.Options{
 		TerraformDir:    "../modules/clients/examples",
 		TerraformBinary: "terraform",
@@ -53,7 +55,7 @@ func TestClientModule(t *testing.T) {
 			"key_name":               keyName,
 			"clients_ami":            clientsAmi,
 			"clients_instance_count": expectedInstanceCount,
-			"ebs_count":              expectedEbsCount, // Pass the count to terraform
+			"ebs_count":              expectedEbsCount, 
 			"boot_volume_type":       expectedBootVolumeType,
 			"ebs_type":               expectedEbsVolumeType,
 		},
