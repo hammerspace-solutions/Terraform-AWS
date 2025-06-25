@@ -4,9 +4,13 @@
 name: Terratest Integration
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    # Inputs the workflow accepts.
+    inputs:
+      version:
+        description: "Version tag (i.e. 1.2) for the version to be released"
+        type: string
+        required: true
 
 permissions:
   id-token: write
