@@ -1,4 +1,4 @@
-ackage test
+package test
 
 import (
 	"context"
