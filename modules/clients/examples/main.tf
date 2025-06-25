@@ -20,14 +20,8 @@ variable "clients_instance_count" {
   default = 1
 }
 
-# This data source finds an available AZ in the selected region for the test.
-data "aws_availability_zones" "available" {
-  state = "available"
-
-  filter {
-    name	= "zone-type"
-    values	= ["availability-zone"]
-  }
+data "aws_subnet" "test_subnet" {
+  id = var.subnet_id
 }
 
 # This is the corrected module block.
@@ -44,7 +38,7 @@ module "clients" {
   # Pass through global/shared variables
   project_name      = var.project_name
   region            = var.region
-  availability_zone = data.aws_availability_zones.available.names[0]
+  availability_zone = data.aws_subnet.test_subnet.availability_zone
   vpc_id            = var.vpc_id
   subnet_id         = var.subnet_id
   key_name          = var.key_name
