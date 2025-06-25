@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -27,7 +28,6 @@ func TestClientModule(t *testing.T) {
 	t.Parallel()
 
 	// --- Test Setup ---
-	// These variables will be passed from the CI workflow (GitHub Actions)
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
@@ -35,14 +35,16 @@ func TestClientModule(t *testing.T) {
 	clientsAmi := getRequiredEnvVar(t, "CLIENTS_AMI")
 	
 	projectName := fmt.Sprintf("terratest-clients-%s", random.UniqueId())
+	
+	// Define expected values for validation
+	expectedInstanceCount := 1
+	expectedEbsCount := 2 // We'll create 2 extra EBS volumes for this test
+	expectedBootVolumeType := "gp3"
+	expectedEbsVolumeType := "gp3"
 
-	// Configure Terraform options to point to the isolated example directory.
 	terraformOptions := &terraform.Options{
-		// MODIFIED: Point to the new example directory for the clients module.
 		TerraformDir:    "../modules/clients/examples",
 		TerraformBinary: "terraform",
-
-		// Pass the required variables to the example's terraform.tfvars.
 		Vars: map[string]interface{}{
 			"project_name":           projectName,
 			"region":                 awsRegion,
@@ -50,7 +52,10 @@ func TestClientModule(t *testing.T) {
 			"subnet_id":              subnetId,
 			"key_name":               keyName,
 			"clients_ami":            clientsAmi,
-			"clients_instance_count": 1,
+			"clients_instance_count": expectedInstanceCount,
+			"ebs_count":              expectedEbsCount, // Pass the count to terraform
+			"boot_volume_type":       expectedBootVolumeType,
+			"ebs_type":               expectedEbsVolumeType,
 		},
 	}
 
@@ -60,27 +65,66 @@ func TestClientModule(t *testing.T) {
 
 	// --- Validation ---
 	clientInstances := terraform.OutputListOfObjects(t, terraformOptions, "client_instances")
-	require.Equal(t, 1, len(clientInstances), "Expected to find 1 client instance in the output")
+	require.Equal(t, expectedInstanceCount, len(clientInstances), "Expected to find %d client instance in the output", expectedInstanceCount)
 	
 	instanceID := clientInstances[0]["id"].(string)
 
-	// AWS SDK Validation
+	// --- AWS SDK Validation: Check Instance and Volume Details ---
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	require.NoError(t, err, "Failed to load AWS configuration")
-
 	ec2Client := ec2.NewFromConfig(cfg)
-	describeInput := &ec2.DescribeInstancesInput{
+
+	// 1. Describe the instance to find its root device name
+	describeInstancesInput := &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}
-	describeOutput, err := ec2Client.DescribeInstances(context.TODO(), describeInput)
-	
+	describeInstancesOutput, err := ec2Client.DescribeInstances(context.TODO(), describeInstancesInput)
 	require.NoError(t, err, "Failed to describe EC2 instance")
-	require.Equal(t, 1, len(describeOutput.Reservations), "Expected 1 reservation from AWS API")
-	require.Equal(t, 1, len(describeOutput.Reservations[0].Instances), "Expected 1 instance in the reservation")
+	require.Len(t, describeInstancesOutput.Reservations, 1, "Expected 1 reservation")
+	require.Len(t, describeInstancesOutput.Reservations[0].Instances, 1, "Expected 1 instance in reservation")
+	
+	instanceFromApi := describeInstancesOutput.Reservations[0].Instances[0]
+	rootDeviceName := *instanceFromApi.RootDeviceName
+	assert.Equal(t, types.InstanceStateNameRunning, instanceFromApi.State.Name, "Instance is not in 'running' state")
 
-	apiInstance := describeOutput.Reservations[0].Instances[0]
-	assert.Equal(t, types.InstanceStateNameRunning, apiInstance.State.Name, "Instance is not in 'running' state")
+
+	// 2. Describe all volumes attached to the instance
+	describeVolumesInput := &ec2.DescribeVolumesInput{
+		Filters: []types.Filter{
+			{
+				Name:   aws.String("attachment.instance-id"),
+				Values: []string{instanceID},
+			},
+		},
+	}
+	describeVolumesOutput, err := ec2Client.DescribeVolumes(context.TODO(), describeVolumesInput)
+	require.NoError(t, err, "Failed to describe EBS volumes")
+
+	// 3. Assert the total number of volumes is correct (1 root + expectedEbsCount)
+	totalExpectedVolumes := 1 + expectedEbsCount
+	assert.Len(t, describeVolumesOutput.Volumes, totalExpectedVolumes, "Incorrect number of total volumes attached")
+
+	// 4. Iterate through the attached volumes and validate each one
+	foundRootVolume := false
+	extraVolumesCount := 0
+	for _, volume := range describeVolumesOutput.Volumes {
+		// Find the attachment details to get the device name
+		require.Len(t, volume.Attachments, 1, "Expected volume to have one attachment")
+		deviceName := *volume.Attachments[0].Device
+
+		if deviceName == rootDeviceName {
+			// This is the root volume
+			foundRootVolume = true
+			fmt.Printf("Validating root volume (%s) at %s\n", *volume.VolumeId, deviceName)
+			assert.Equal(t, types.VolumeType(expectedBootVolumeType), volume.VolumeType, "Root volume has incorrect type")
+		} else {
+			// This is an extra data volume
+			extraVolumesCount++
+			fmt.Printf("Validating extra EBS volume (%s) at %s\n", *volume.VolumeId, deviceName)
+			assert.Equal(t, types.VolumeType(expectedEbsVolumeType), volume.VolumeType, "Extra EBS volume has incorrect type")
+		}
+	}
+
+	assert.True(t, foundRootVolume, "Test failed to find the root volume")
+	assert.Equal(t, expectedEbsCount, extraVolumesCount, "Incorrect number of extra EBS volumes found")
 }
-
-// To test the storage module, you would create a similar examples directory
-// under `modules/storage_servers/examples/` and create a `TestStorageModule` function.
