@@ -48,18 +48,8 @@ jobs:
           # This env block passes variables from your GitHub repository's settings
           # to Terraform. The TF_VAR_ prefix is a convention that Terratest and
           # Terraform understand automatically.
-          TF_VAR_project_name: "terratest-${{ github.run_id }}"
-          TF_VAR_vpc_id: ${{ vars.VPC_ID }}
-          TF_VAR_subnet_id: ${{ vars.SUBNET_ID }}
-          TF_VAR_key_name: ${{ vars.KEY_NAME }}
-          TF_VAR_clients_ami: ${{ vars.CLIENTS_AMI }}
-          TF_VAR_storage_ami: ${{ vars.STORAGE_AMI }}
-          TF_VAR_hammerspace_ami: ${{ vars.HAMMERSPACE_AMI }}
-          TF_VAR_ansible_ami: ${{ vars.ANSIBLE_AMI }}
-          TF_VAR_share_name: "terratest-share"
-          TF_VAR_region: ${{ vars.REGION || 'us-west-2' }}
-          
-          # Override defaults for a minimal, fast-running test
-          TF_VAR_deploy_components: '["clients"]'
-          TF_VAR_clients_instance_count: "1"
-          TF_VAR_capacity_reservation_create_timeout: "0s"
+	  REGION: ${{ vars.REGION }}
+          VPC_ID: ${{ vars.VPC_ID }}
+          SUBNET_ID: ${{ vars.SUBNET_ID }}
+          KEY_NAME: ${{ vars.KEY_NAME }}
+          CLIENTS_AMI: ${{ vars.CLIENTS_AMI }}
