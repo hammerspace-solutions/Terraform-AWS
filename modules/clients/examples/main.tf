@@ -29,7 +29,7 @@ data "aws_availability_zones" "available" {
 # Notice the variable names now match what modules/clients/clients_variables.tf expects.
 # e.g., 'ami' instead of 'clients_ami'.
 module "clients" {
-  source = "../../" // Points to the module root
+  source = "../" // Points to the module root
 
   # Pass the correct, unprefixed variables to the module
   instance_count    = var.clients_instance_count
