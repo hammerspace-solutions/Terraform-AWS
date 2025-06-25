@@ -1,4 +1,17 @@
-# clients_main.tf
+# modules/clients/clients_main.tf
+
+# --- Verify that the resources for the Clients exist before continuing ---
+data "aws_ec2_instance_type_offering" "clients" {
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.availability_zone]
+  }
+  location_type = "availability-zone"
+}
 
 locals {
   device_letters = [
@@ -14,17 +27,18 @@ locals {
     []
   )
 
+  client_instance_type_is_available = length(data.aws_ec2_instance_type_offering.clients.instance_type) > 0
+
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
     SSH_KEYS    = join("\n", local.ssh_public_keys),
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}"
   }) : null
 
-  resource_prefix = "${var.project_name}-client" # CHANGED: Uses project_name
+  resource_prefix = "${var.project_name}-client"
 }
 
 # Security group for client instances
-
 resource "aws_security_group" "client" {
   name        = "${local.resource_prefix}-sg"
   description = "Client instance security group"
@@ -51,15 +65,14 @@ resource "aws_security_group" "client" {
 }
 
 # Launch EC2 client instances
-
 resource "aws_instance" "this" {
-  count         = var.instance_count
-  ami           = var.ami
-  instance_type = var.instance_type
-  subnet_id     = var.subnet_id
-  key_name      = var.key_name
-  user_data     = local.processed_user_data
-  placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+  count           = var.instance_count
+  ami             = var.ami
+  instance_type   = var.instance_type
+  subnet_id       = var.subnet_id
+  key_name        = var.key_name
+  user_data       = local.processed_user_data
+  placement_group = var.placement_group_name != "" ? var.placement_group_name : null
 
   vpc_security_group_ids = [aws_security_group.client.id]
 
@@ -73,15 +86,28 @@ resource "aws_instance" "this" {
     Project = var.project_name
   })
 
-  capacity_reservation_specification {
-    capacity_reservation_target {
-      capacity_reservation_id = var.capacity_reservation_id
+  # --- THIS IS THE FIX ---
+  # This pattern is more robust. It iterates over a map that is either empty
+  # or contains the ID. If the map is empty, the block is guaranteed to
+  # not be generated at all, preventing the provider crash.
+  dynamic "capacity_reservation_specification" {
+    for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
+    content {
+      capacity_reservation_target {
+        capacity_reservation_id = capacity_reservation_specification.value.id
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.client_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.availability_zone}."
     }
   }
 }
 
 # Create extra EBS volumes for each client
-
 resource "aws_ebs_volume" "this" {
   count             = var.instance_count * var.ebs_count
   availability_zone = var.availability_zone
@@ -97,7 +123,6 @@ resource "aws_ebs_volume" "this" {
 }
 
 # Attach each EBS volume to the correct instance
-
 resource "aws_volume_attachment" "this" {
   count       = var.instance_count * var.ebs_count
   device_name = "/dev/xvd${local.device_letters[count.index % var.ebs_count]}"
