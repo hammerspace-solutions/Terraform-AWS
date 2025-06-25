@@ -1,4 +1,5 @@
 # Terraform-AWS
+
 Terraform templates to create clients, storage, and Hammerspace for AWS sizing.
 
 This project uses Terraform to provision resources on AWS. The deployment is modular, allowing you to deploy client machines, storage servers, and a Hammerspace environment either together or independently.
@@ -10,6 +11,7 @@ This project uses Terraform to provision resources on AWS. The deployment is mod
   - [Client Variables](#client-variables)
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
+  - [Ansible Variables](#ansible-variables)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
   - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
@@ -111,6 +113,22 @@ These variables configure the Hammerspace deployment and are prefixed with `hamm
 * `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX.
 * `hammerspace_dsx_ebs_count`: Number of data EBS volumes per DSX instance (Default: `1`).
 * `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage (Default: `true`).
+
+---
+
+### Ansible Variables
+
+These variables configure the Ansible controller instance and its playbook. Prefixes are `ansible_` where applicable.
+
+* `ansible_instance_count`: Number of Ansible instances (Default: `1`).
+* `ansible_ami`: (Required) AMI for Ansible instances.
+* `ansible_instance_type`: Instance type for Ansible (Default: `"m5n.8xlarge"`).
+* `ansible_boot_volume_size`: Root volume size (GB) (Default: `100`).
+* `ansible_boot_volume_type`: Root volume type (Default: `"gp2"`).
+* `ansible_user_data`: Path to user data script for Ansible.
+* `ansible_target_user`: Default system user for Ansible EC2 (Default: `"ubuntu"`).
+* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook. (Default: `"vg-auto"`).
+* `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
 ---
 ## Dealing with AWS Capacity and Timeouts
