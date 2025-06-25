@@ -23,6 +23,11 @@ variable "clients_instance_count" {
 # This data source finds an available AZ in the selected region for the test.
 data "aws_availability_zones" "available" {
   state = "available"
+
+  filter {
+    name	= "zone-type"
+    values	= ["availability-zone"]
+  }
 }
 
 # This is the corrected module block.
