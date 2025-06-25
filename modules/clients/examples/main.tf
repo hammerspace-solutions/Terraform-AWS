@@ -44,8 +44,15 @@ module "clients" {
   subnet_id         = var.subnet_id
   key_name          = var.key_name
 
-  # The module has other variables with default values (like boot_volume_size, etc.),
-  # so we don't need to specify them for this basic test.
+  tags                 = {}
+  ssh_keys_dir         = "./ssh_keys" # Placeholder, not used if user_data is blank
+  boot_volume_size     = 100
+  boot_volume_type     = "gp3"
+  ebs_count            = 1
+  ebs_size             = 10
+  ebs_type             = "gp3"
+  user_data            = ""
+  target_user          = "ubuntu"
 }
 
 
