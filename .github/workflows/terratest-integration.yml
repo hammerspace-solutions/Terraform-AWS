@@ -48,7 +48,7 @@ jobs:
           # This env block passes variables from your GitHub repository's settings
           # to Terraform. The TF_VAR_ prefix is a convention that Terratest and
           # Terraform understand automatically.
-	  REGION: ${{ vars.REGION }}
+          REGION: ${{ vars.REGION }}
           VPC_ID: ${{ vars.VPC_ID }}
           SUBNET_ID: ${{ vars.SUBNET_ID }}
           KEY_NAME: ${{ vars.KEY_NAME }}
