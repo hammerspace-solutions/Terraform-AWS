@@ -1,9 +1,16 @@
-# storage_main.tf
-#
-# Main terraform module to deploy storage for AWS Sizing for AI Model
-# creation
+# modules/storage_servers/storage_main.tf
 
-# Gather SSH public keys from directory and render user data if provided
+data "aws_ec2_instance_type_offering" "storage" {
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.availability_zone]
+  }
+  location_type = "availability-zone"
+}
 
 locals {
   device_letters = [
@@ -19,18 +26,18 @@ locals {
     []
   )
 
+  storage_instance_type_is_available = length(data.aws_ec2_instance_type_offering.storage.instance_type) > 0
+
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
     SSH_KEYS    = join("\n", local.ssh_public_keys),
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
-    EBS_COUNT = var.ebs_count
-    RAID_LEVEL = var.raid_level
+    EBS_COUNT   = var.ebs_count,
+    RAID_LEVEL  = var.raid_level
   }) : null
 
   resource_prefix = "${var.project_name}-storage"
 }
-
-# Security group for storage instances
 
 resource "aws_security_group" "storage" {
   name        = "${local.resource_prefix}-sg"
@@ -57,16 +64,14 @@ resource "aws_security_group" "storage" {
   })
 }
 
-# Launch EC2 storage instances
-
 resource "aws_instance" "this" {
-  count         = var.instance_count
+  count           = var.instance_count
   placement_group = var.placement_group_name != "" ? var.placement_group_name : null
-  ami           = var.ami
-  instance_type = var.instance_type
-  subnet_id     = var.subnet_id
-  key_name      = var.key_name
-  user_data     = local.processed_user_data
+  ami             = var.ami
+  instance_type   = var.instance_type
+  subnet_id       = var.subnet_id
+  key_name        = var.key_name
+  user_data       = local.processed_user_data
 
   vpc_security_group_ids = [aws_security_group.storage.id]
 
@@ -75,16 +80,30 @@ resource "aws_instance" "this" {
     volume_type = var.boot_volume_type
   }
 
-  # Add this entire lifecycle block
+  # --- THIS IS THE FIX ---
+  # This robust dynamic block prevents the provider from crashing when
+  # capacity_reservation_id is null.
+  dynamic "capacity_reservation_specification" {
+    for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
+    content {
+      capacity_reservation_target {
+        capacity_reservation_id = capacity_reservation_specification.value.id
+      }
+    }
+  }
 
   lifecycle {
     precondition {
-      condition     = var.ebs_count >= {
+      condition = var.ebs_count >= {
         "raid-0" = 2,
         "raid-5" = 3,
         "raid-6" = 4
       }[var.raid_level]
       error_message = "The selected RAID level (${var.raid_level}) requires at least ${lookup({ "raid-0" = 2, "raid-5" = 3, "raid-6" = 4 }, var.raid_level, 0)} EBS volumes, but only ${var.ebs_count} were specified."
+    }
+    precondition {
+      condition     = local.storage_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.instance_type} for Storage is not available in AZ ${var.availability_zone}."
     }
   }
 
@@ -92,15 +111,7 @@ resource "aws_instance" "this" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.project_name
   })
-
-  capacity_reservation_specification {
-    capacity_reservation_target {
-      capacity_reservation_id = var.capacity_reservation_id
-    }
-  }
 }
-
-# Create extra EBS volumes for each storage
 
 resource "aws_ebs_volume" "this" {
   count             = var.instance_count * var.ebs_count
@@ -115,8 +126,6 @@ resource "aws_ebs_volume" "this" {
     Project = var.project_name
   })
 }
-
-# Attach each EBS volume to the correct instance
 
 resource "aws_volume_attachment" "this" {
   count       = var.instance_count * var.ebs_count
