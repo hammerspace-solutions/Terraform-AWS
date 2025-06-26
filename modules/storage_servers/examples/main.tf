@@ -39,9 +39,7 @@ resource "aws_key_pair" "test_key" {
 
 # An Elastic IP ensures the test instance has a reliable public IP address.
 resource "aws_eip" "test_eip" {
-  # We only need one EIP for our single test instance
   count = var.storage_instance_count > 0 ? 1 : 0
-  
   domain = "vpc"
 }
 
@@ -65,10 +63,9 @@ module "storage_servers" {
   availability_zone = data.aws_subnet.test_subnet.availability_zone
   vpc_id            = var.vpc_id
   subnet_id         = var.subnet_id
-  key_name          = aws_key_pair.test_key.key_name # Use the temporary key
+  key_name          = aws_key_pair.test_key.key_name
   user_data         = var.storage_user_data
 
-  # Use sensible defaults for other required variables
   tags                    = {}
   ssh_keys_dir            = ""
   boot_volume_size        = 100
@@ -85,6 +82,24 @@ resource "aws_eip_association" "test_eip_assoc" {
 
   instance_id   = module.storage_servers.instance_details[0].id
   allocation_id = aws_eip.test_eip[0].id
+}
+
+# --- THIS IS THE FIX ---
+# Add an explicit ingress rule to the security group created by the module.
+# This rule allows SSH traffic from any IP, which is necessary for the
+# GitHub Actions runner to connect to the instance.
+resource "aws_security_group_rule" "allow_ssh_for_test" {
+  count = var.storage_instance_count > 0 ? 1 : 0
+
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  
+  # Note: This is not a direct dependency, but we need to reference the output
+  # to get the security group's ID after it has been created by the module.
+  security_group_id = module.storage_servers.instance_details[0].security_group_id
 }
 
 
