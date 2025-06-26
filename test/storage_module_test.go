@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -8,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/ssh"
@@ -27,15 +32,12 @@ func TestStorageModuleWithRAID(t *testing.T) {
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
 	storageAmi := getRequiredEnvVar(t, "STORAGE_AMI")
 
-	// Generate a new, temporary EC2 key pair for this test run.
 	sshKeyPair := ssh.GenerateRSAKeyPair(t, 2048)
 
-	// Get the absolute path to the project root to reliably find the templates folder.
 	projectRoot, err := filepath.Abs("../")
 	require.NoError(t, err, "Failed to get project root path")
 	userDataScriptPath := filepath.Join(projectRoot, "templates", "storage_server_ubuntu.sh")
 
-	// Define the test cases for each RAID level.
 	testCases := map[string]struct {
 		raidLevel    string
 		diskCount    int
@@ -104,7 +106,9 @@ func TestStorageModuleWithRAID(t *testing.T) {
 
 			var mdstatOutput string
 			retry.DoWithRetry(t, description, maxRetries, sleepBetweenRetries, func() (string, error) {
-				output, err := ssh.RunSshCommandE(t, host, "cat /proc/mdstat")
+				// --- THIS IS THE FIX ---
+				// The correct function name is RunSshCommandAndGetOutputE
+				output, err := ssh.RunSshCommandAndGetOutputE(t, host, "cat /proc/mdstat")
 				if err != nil {
 					return "", err
 				}
@@ -112,7 +116,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 				return "Successfully connected and ran command.", nil
 			})
 
-			// --- Deep Validation of RAID Array ---
+			// --- Deep Validation of RAID Array via SSH ---
 			require.Contains(t, mdstatOutput, "md0 : active", "RAID device md0 is not active")
 			require.Contains(t, mdstatOutput, tc.raidLevel, "Incorrect RAID level found in mdstat output")
 
@@ -125,8 +129,31 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			require.NoError(t, err, "Could not convert active disk count to integer")
 
 			require.Equal(t, tc.diskCount, activeDisks, "Incorrect number of active disks in the RAID array")
-
 			t.Logf("Successfully validated RAID level %s with %d disks on instance %s.", tc.raidLevel, activeDisks, publicIp)
+
+			// --- Final Validation of EBS Volumes via AWS SDK ---
+			storageInstances := terraform.OutputListOfObjects(t, terraformOptions, "storage_instances")
+			require.Len(t, storageInstances, 1, "Expected to find 1 storage instance")
+			instanceID := storageInstances[0]["id"].(string)
+
+			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+			require.NoError(t, err, "Failed to load AWS configuration")
+			ec2Client := ec2.NewFromConfig(cfg)
+
+			describeVolumesInput := &ec2.DescribeVolumesInput{
+				Filters: []types.Filter{
+					{
+						Name:   aws.String("attachment.instance-id"),
+						Values: []string{instanceID},
+					},
+				},
+			}
+			describeVolumesOutput, err := ec2Client.DescribeVolumes(context.TODO(), describeVolumesInput)
+			require.NoError(t, err, "Failed to describe EBS volumes")
+
+			expectedTotalVols := 1 + tc.diskCount
+			require.Len(t, describeVolumesOutput.Volumes, expectedTotalVols, "Incorrect number of EBS volumes attached to instance %s", instanceID)
+			t.Logf("Successfully validated creation of %d total volumes for %s test.", expectedTotalVols, testName)
 		})
 	}
 }
