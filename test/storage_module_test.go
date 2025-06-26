@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,20 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper function to read a required environment variable and fail the test if it's not set.
-// This is crucial for running tests in a CI/CD environment.
-func getRequiredEnvVar(t *testing.T, key string) string {
-	value, found := os.LookupEnv(key)
-	require.True(t, found, "Environment variable '%s' must be set for this test", key)
-	return value
-}
+// NOTE: The getRequiredEnvVar helper function is now located in test_helpers.go
+// and is available to all tests in this package.
 
 // TestStorageModuleWithRAID runs a suite of integration tests for the storage_servers module.
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
 
 	// --- Test Setup: Read shared variables from the environment once ---
-	// These are read from the `env:` block in the GitHub Actions workflow.
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
@@ -46,7 +39,8 @@ func TestStorageModuleWithRAID(t *testing.T) {
 	}
 
 	for testName, tc := range testCases {
-		tc := tc // Capture range variable
+		// Capture range variable for parallel tests
+		tc := tc
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
@@ -56,14 +50,12 @@ func TestStorageModuleWithRAID(t *testing.T) {
 				TerraformDir:    "../modules/storage_servers/examples",
 				TerraformBinary: "terraform",
 				Vars: map[string]interface{}{
-					// Pass the variables read from the environment
 					"project_name":           projectName,
 					"region":                 awsRegion,
 					"vpc_id":                 vpcId,
 					"subnet_id":              subnetId,
 					"key_name":               keyName,
 					"storage_ami":            storageAmi,
-					// Pass test-specific variables
 					"storage_instance_count": 1,
 					"storage_ebs_count":      tc.diskCount,
 					"storage_raid_level":     tc.raidLevel,
@@ -80,6 +72,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 
 			instanceID := storageInstances[0]["id"].(string)
 
+			// --- Use AWS SDK to validate the attached volumes ---
 			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 			require.NoError(t, err, "Failed to load AWS configuration")
 			ec2Client := ec2.NewFromConfig(cfg)
@@ -95,6 +88,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			describeVolumesOutput, err := ec2Client.DescribeVolumes(context.TODO(), describeVolumesInput)
 			require.NoError(t, err, "Failed to describe EBS volumes")
 
+			// Validate the volume count: 1 boot disk + the number of disks for RAID.
 			expectedTotalVols := 1 + tc.diskCount
 			require.Len(t, describeVolumesOutput.Volumes, expectedTotalVols, "Incorrect number of EBS volumes attached to instance %s", instanceID)
 

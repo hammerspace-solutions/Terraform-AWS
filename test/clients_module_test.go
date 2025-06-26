@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -16,12 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper function to get required environment variables for the test.
-func getRequiredEnvVar(t *testing.T, key string) string {
-	value, found := os.LookupEnv(key)
-	require.True(t, found, "Environment variable '%s' must be set for this test", key)
-	return value
-}
+// NOTE: The getRequiredEnvVar helper function has been moved to test_helpers.go
 
 // TestClientModule runs an isolated integration test for the clients module.
 func TestClientModule(t *testing.T) {
@@ -33,17 +27,15 @@ func TestClientModule(t *testing.T) {
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
 	keyName := getRequiredEnvVar(t, "KEY_NAME")
 	clientsAmi := getRequiredEnvVar(t, "CLIENTS_AMI")
-	
+
 	projectName := fmt.Sprintf("terratest-clients-%s", random.UniqueId())
-	
+
 	// Define expected values for validation
 	expectedInstanceCount := 1
-	expectedEbsCount := 2 // We'll create 2 extra EBS volumes for this test
+	expectedEbsCount := 2
 	expectedBootVolumeType := "gp3"
 	expectedEbsVolumeType := "gp3"
 
-	// This map now needs to be defined within the Vars block directly.
-	// Since we are not using strconv anymore, we can remove the variable definition.
 	terraformOptions := &terraform.Options{
 		TerraformDir:    "../modules/clients/examples",
 		TerraformBinary: "terraform",
@@ -55,7 +47,7 @@ func TestClientModule(t *testing.T) {
 			"key_name":               keyName,
 			"clients_ami":            clientsAmi,
 			"clients_instance_count": expectedInstanceCount,
-			"ebs_count":              expectedEbsCount, 
+			"ebs_count":              expectedEbsCount,
 			"boot_volume_type":       expectedBootVolumeType,
 			"ebs_type":               expectedEbsVolumeType,
 		},
@@ -68,7 +60,7 @@ func TestClientModule(t *testing.T) {
 	// --- Validation ---
 	clientInstances := terraform.OutputListOfObjects(t, terraformOptions, "client_instances")
 	require.Equal(t, expectedInstanceCount, len(clientInstances), "Expected to find %d client instance in the output", expectedInstanceCount)
-	
+
 	instanceID := clientInstances[0]["id"].(string)
 
 	// --- AWS SDK Validation: Check Instance and Volume Details ---
@@ -84,11 +76,10 @@ func TestClientModule(t *testing.T) {
 	require.NoError(t, err, "Failed to describe EC2 instance")
 	require.Len(t, describeInstancesOutput.Reservations, 1, "Expected 1 reservation")
 	require.Len(t, describeInstancesOutput.Reservations[0].Instances, 1, "Expected 1 instance in reservation")
-	
+
 	instanceFromApi := describeInstancesOutput.Reservations[0].Instances[0]
 	rootDeviceName := *instanceFromApi.RootDeviceName
 	assert.Equal(t, types.InstanceStateNameRunning, instanceFromApi.State.Name, "Instance is not in 'running' state")
-
 
 	// 2. Describe all volumes attached to the instance
 	describeVolumesInput := &ec2.DescribeVolumesInput{
@@ -110,17 +101,14 @@ func TestClientModule(t *testing.T) {
 	foundRootVolume := false
 	extraVolumesCount := 0
 	for _, volume := range describeVolumesOutput.Volumes {
-		// Find the attachment details to get the device name
 		require.Len(t, volume.Attachments, 1, "Expected volume to have one attachment")
 		deviceName := *volume.Attachments[0].Device
 
 		if deviceName == rootDeviceName {
-			// This is the root volume
 			foundRootVolume = true
 			fmt.Printf("Validating root volume (%s) at %s\n", *volume.VolumeId, deviceName)
 			assert.Equal(t, types.VolumeType(expectedBootVolumeType), volume.VolumeType, "Root volume has incorrect type")
 		} else {
-			// This is an extra data volume
 			extraVolumesCount++
 			fmt.Printf("Validating extra EBS volume (%s) at %s\n", *volume.VolumeId, deviceName)
 			assert.Equal(t, types.VolumeType(expectedEbsVolumeType), volume.VolumeType, "Extra EBS volume has incorrect type")
