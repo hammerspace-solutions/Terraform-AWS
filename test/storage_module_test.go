@@ -99,21 +99,24 @@ func TestStorageModuleWithRAID(t *testing.T) {
 				SshUserName: "ubuntu",
 			}
 
-			// Patiently wait for the instance to reboot and SSH to become available.
+			// Step 1: Patiently wait for the instance to finish its user_data script (which includes a reboot).
 			maxRetries := 40
 			sleepBetweenRetries := 15 * time.Second
 			description := fmt.Sprintf("Wait for SSH to be ready on instance %s", publicIp)
-
-			var mdstatOutput string
+			
 			retry.DoWithRetry(t, description, maxRetries, sleepBetweenRetries, func() (string, error) {
-				// THIS IS THE FIX: The correct function is RunSshCommandE, which returns (string, error)
-				output, err := ssh.RunSshCommandE(t, host, "cat /proc/mdstat")
+				// We use the correct function `CheckSshCommandE` which returns (string, error).
+				// We discard the output string with `_` because we only care if the command succeeds.
+				_, err := ssh.CheckSshCommandE(t, host, `echo "Instance is ready"`)
 				if err != nil {
-					return "", err
+					return "", err // If there's an error (e.g., connection refused), the retry continues.
 				}
-				mdstatOutput = output
-				return "Successfully connected and ran command.", nil
+				return "SSH connection successful.", nil // If the command succeeds, we stop retrying.
 			})
+
+			// Step 2: Now that the instance is stable, run the real validation command.
+			mdstatOutput, err := ssh.CheckSshCommandE(t, host, "cat /proc/mdstat")
+			require.NoError(t, err, "Failed to run 'cat /proc/mdstat' via SSH")
 
 			// --- Deep Validation of RAID Array ---
 			require.Contains(t, mdstatOutput, "md0 : active", "RAID device md0 is not active")
