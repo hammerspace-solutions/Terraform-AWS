@@ -21,7 +21,7 @@ import (
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
 
-	// --- Test Setup: Read shared variables & generate SSH key ---
+	// --- Test Setup ---
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
@@ -94,21 +94,24 @@ func TestStorageModuleWithRAID(t *testing.T) {
 				SshUserName: "ubuntu",
 			}
 
-			// --- THIS IS THE FIX ---
 			// Step 1: Patiently wait for the instance to reboot and SSH to become available.
-			// We run a simple, harmless command until it succeeds.
+			// We use a simple retry loop on a basic command.
 			maxRetries := 40
 			sleepBetweenRetries := 15 * time.Second
 			description := fmt.Sprintf("Wait for SSH to be ready on instance %s", publicIp)
 			
 			retry.DoWithRetry(t, description, maxRetries, sleepBetweenRetries, func() (string, error) {
-				// We don't need the output of this command, just whether it succeeds.
-				return "", ssh.CheckSshCommandE(t, host, `echo "Instance is ready"`)
+				// We don't need the output of this command, just that it succeeds without error.
+				err := ssh.CheckSshCommandE(t, host, `echo "Instance is ready"`)
+				if err != nil {
+					return "", err
+				}
+				return "SSH connection successful.", nil
 			})
 
-			// Step 2: Now that we know the instance is ready, run the real validation command once.
-			mdstatOutput := ssh.RunSshCommand(t, host, "cat /proc/mdstat")
-
+			// Step 2: Now that the instance is ready, run the real validation command to get its output.
+			mdstatOutput, err := ssh.RunSshCommandE(t, host, "cat /proc/mdstat")
+			require.NoError(t, err, "Failed to run 'cat /proc/mdstat' via SSH")
 
 			// --- Deep Validation of RAID Array ---
 			require.Contains(t, mdstatOutput, "md0 : active", "RAID device md0 is not active")
