@@ -53,3 +53,4 @@ jobs:
           SUBNET_ID: ${{ vars.SUBNET_ID }}
           KEY_NAME: ${{ vars.KEY_NAME }}
           CLIENTS_AMI: ${{ vars.CLIENTS_AMI }}
+          STORAGE_AMI: ${{ vars.STORAGE_AMI }}
