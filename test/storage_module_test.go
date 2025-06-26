@@ -1,105 +1,84 @@
 package test
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/gruntwork-io/terratest/modules/aws"
+	"github.com/aws/aws-sdk-go-v2/aws" // Use the official AWS SDK helper package
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/require"
 )
 
-// TestStorageModuleWithRAID runs a suite of integration tests for the storage_servers module,
-// covering different RAID levels.
+// NOTE: We have removed the getRequiredEnvVar helper function as it is not needed.
+// The CI workflow will pass variables directly to Terraform via the `env` block.
+
 func TestStorageModuleWithRAID(t *testing.T) {
-	// --- Test Setup: Read shared variables from the environment once ---
-	// These are the same for all sub-tests.
-	awsRegion := getRequiredEnvVar(t, "REGION")
-	vpcId := getRequiredEnvVar(t, "VPC_ID")
-	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
-	keyName := getRequiredEnvVar(t, "KEY_NAME")
-	storageAmi := getRequiredEnvVar(t, "STORAGE_AMI")
+	t.Parallel()
 
 	// Define the test cases for each RAID level.
-	// We use a map where the key is the test name and the value contains test-specific settings.
 	testCases := map[string]struct {
-		raidLevel    string
-		diskCount    int
-		instanceType string
+		raidLevel string
+		diskCount int
 	}{
-		"RAID-0": {
-			raidLevel:    "raid-0",
-			diskCount:    2, // Minimum for RAID-0
-			instanceType: "t3.medium",
-		},
-		"RAID-5": {
-			raidLevel:    "raid-5",
-			diskCount:    3,          // Minimum for RAID-5
-			instanceType: "t3.large", // Use a different instance type just to show variation
-		},
-		"RAID-6": {
-			raidLevel:    "raid-6",
-			diskCount:    4, // Minimum for RAID-6
-			instanceType: "t3.medium",
-		},
+		"RAID-0": {raidLevel: "raid-0", diskCount: 2},
+		"RAID-5": {raidLevel: "raid-5", diskCount: 3},
+		"RAID-6": {raidLevel: "raid-6", diskCount: 4},
 	}
 
-	// --- Run Sub-Tests ---
-	// Iterate over the test cases and run each one as a parallel sub-test.
 	for testName, tc := range testCases {
-		// The `t.Run` function creates a sub-test. This is a Go standard library feature.
-		// It allows us to run isolated tests within the same parent test function.
+		// Capture the test case variables to use them in the sub-test
+		tc := tc
 		t.Run(testName, func(t *testing.T) {
-			t.Parallel() // Mark this sub-test as safe to run in parallel.
+			t.Parallel()
 
-			projectName := fmt.Sprintf("terratest-storage-%s-%s", tc.raidLevel, random.UniqueId())
-
-			// Configure the Terraform options specifically for this sub-test.
+			// Terratest will automatically use any TF_VAR_ environment variables
+			// set in the GitHub Actions workflow.
 			terraformOptions := &terraform.Options{
 				TerraformDir:    "../modules/storage_servers/examples",
 				TerraformBinary: "terraform",
+				// Pass test-specific variables
 				Vars: map[string]interface{}{
-					"project_name":           projectName,
-					"region":                 awsRegion,
-					"vpc_id":                 vpcId,
-					"subnet_id":              subnetId,
-					"key_name":               keyName,
-					"storage_ami":            storageAmi,
-					"storage_instance_type":  tc.instanceType,
+					"project_name":           fmt.Sprintf("terratest-storage-%s-%s", tc.raidLevel, random.UniqueId()),
 					"storage_instance_count": 1,
 					"storage_ebs_count":      tc.diskCount,
 					"storage_raid_level":     tc.raidLevel,
-					"storage_user_data":	  "../../../templates/storage_server_ubuntu.sh",
 				},
 			}
 
-			// Defer the destroy to ensure cleanup happens for this sub-test.
 			defer terraform.Destroy(t, terraformOptions)
-
-			// Apply the infrastructure.
 			terraform.InitAndApply(t, terraformOptions)
 
 			// --- Validation ---
-			// 1. Check that the correct number of instances were created.
+			awsRegion := terraform.Output(t, terraformOptions, "region")
 			storageInstances := terraform.OutputListOfObjects(t, terraformOptions, "storage_instances")
-			require.Equal(t, 1, len(storageInstances), "Expected to find 1 storage instance")
+			require.Len(t, storageInstances, 1, "Expected to find 1 storage instance")
 
 			instanceID := storageInstances[0]["id"].(string)
 
-			// 2. Describe the volumes attached to the instance.
-			instanceVols := aws.GetEbsVolumesForInstance(t, awsRegion, instanceID)
+			// --- Use AWS SDK to validate the attached volumes ---
+			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+			require.NoError(t, err, "Failed to load AWS configuration")
+			ec2Client := ec2.NewFromConfig(cfg)
 
-			// 3. Validate the volume count.
-			// We expect 1 boot disk + the number of disks we specified for the RAID array.
+			describeVolumesInput := &ec2.DescribeVolumesInput{
+				Filters: []types.Filter{
+					{
+						Name:   aws.ToString("attachment.instance-id"),
+						Values: []string{instanceID},
+					},
+				},
+			}
+			describeVolumesOutput, err := ec2Client.DescribeVolumes(context.TODO(), describeVolumesInput)
+			require.NoError(t, err, "Failed to describe EBS volumes")
+
+			// Validate the volume count: 1 boot disk + the number of disks for RAID.
 			expectedTotalVols := 1 + tc.diskCount
-			require.Equal(t, expectedTotalVols, len(instanceVols), "Incorrect number of EBS volumes attached to instance %s", instanceID)
+			require.Len(t, describeVolumesOutput.Volumes, expectedTotalVols, "Incorrect number of EBS volumes attached to instance %s", instanceID)
 
-			// This is where you would add a more advanced test. For example, you could
-			// use the `terratest/modules/ssh` package to connect to the instance and
-			// run `cat /proc/mdstat` to verify that the `/dev/md0` RAID device is active
-			// and contains the correct number of disks. This would be the ultimate validation.
 			t.Logf("Successfully validated creation of %d total volumes for %s test.", expectedTotalVols, testName)
 		})
 	}
