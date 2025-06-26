@@ -15,24 +15,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// NOTE: The getRequiredEnvVar helper function has been moved to test_helpers.go
-
 // TestClientModule runs an isolated integration test for the clients module.
 func TestClientModule(t *testing.T) {
 	t.Parallel()
 
 	// --- Test Setup ---
+	// These variables will be passed from the CI workflow (GitHub Actions)
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
 	keyName := getRequiredEnvVar(t, "KEY_NAME")
 	clientsAmi := getRequiredEnvVar(t, "CLIENTS_AMI")
-
+	
 	projectName := fmt.Sprintf("terratest-clients-%s", random.UniqueId())
-
+	
 	// Define expected values for validation
 	expectedInstanceCount := 1
-	expectedEbsCount := 2
+	expectedEbsCount := 2 
 	expectedBootVolumeType := "gp3"
 	expectedEbsVolumeType := "gp3"
 
@@ -60,7 +59,7 @@ func TestClientModule(t *testing.T) {
 	// --- Validation ---
 	clientInstances := terraform.OutputListOfObjects(t, terraformOptions, "client_instances")
 	require.Equal(t, expectedInstanceCount, len(clientInstances), "Expected to find %d client instance in the output", expectedInstanceCount)
-
+	
 	instanceID := clientInstances[0]["id"].(string)
 
 	// --- AWS SDK Validation: Check Instance and Volume Details ---
@@ -76,10 +75,11 @@ func TestClientModule(t *testing.T) {
 	require.NoError(t, err, "Failed to describe EC2 instance")
 	require.Len(t, describeInstancesOutput.Reservations, 1, "Expected 1 reservation")
 	require.Len(t, describeInstancesOutput.Reservations[0].Instances, 1, "Expected 1 instance in reservation")
-
+	
 	instanceFromApi := describeInstancesOutput.Reservations[0].Instances[0]
 	rootDeviceName := *instanceFromApi.RootDeviceName
 	assert.Equal(t, types.InstanceStateNameRunning, instanceFromApi.State.Name, "Instance is not in 'running' state")
+
 
 	// 2. Describe all volumes attached to the instance
 	describeVolumesInput := &ec2.DescribeVolumesInput{
@@ -118,3 +118,4 @@ func TestClientModule(t *testing.T) {
 	assert.True(t, foundRootVolume, "Test failed to find the root volume")
 	assert.Equal(t, expectedEbsCount, extraVolumesCount, "Incorrect number of extra EBS volumes found")
 }
+

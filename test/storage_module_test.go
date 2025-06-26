@@ -12,58 +12,68 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	test_structure "github.com/gruntwork-io/terratest/modules/test-structure"
-	"github.comcom/stretchr/testify/require"
+	"github.com/stretchr/testify/require"
 )
 
-// NOTE: The getRequiredEnvVar helper function is in test_helpers.go
+// NOTE: The getRequiredEnvVar helper function is located in test_helpers.go
+// and is available to all tests in this package.
 
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
 
-	// --- Test Setup: Define shared variables ---
-	// We are defining these outside the loop as they are the same for all tests.
-	// The `env` block in the GitHub Actions workflow provides their values.
-	sharedVars := map[string]interface{}{
-		"REGION":      getRequiredEnvVar(t, "REGION"),
-		"VPC_ID":      getRequiredEnvVar(t, "VPC_ID"),
-		"SUBNET_ID":   getRequiredEnvVar(t, "SUBNET_ID"),
-		"KEY_NAME":    getRequiredEnvVar(t, "KEY_NAME"),
-		"STORAGE_AMI": getRequiredEnvVar(t, "STORAGE_AMI"),
-	}
+	// --- Test Setup: Read shared variables from the environment once ---
+	// These are the same for all sub-tests.
+	awsRegion := getRequiredEnvVar(t, "REGION")
+	vpcId := getRequiredEnvVar(t, "VPC_ID")
+	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
+	keyName := getRequiredEnvVar(t, "KEY_NAME")
+	storageAmi := getRequiredEnvVar(t, "STORAGE_AMI")
 
 	// Define the test cases for each RAID level.
 	testCases := map[string]struct {
-		raidLevel string
-		diskCount int
+		raidLevel    string
+		diskCount    int
+		instanceType string
 	}{
-		"RAID-0": {raidLevel: "raid-0", diskCount: 2},
-		"RAID-5": {raidLevel: "raid-5", diskCount: 3},
-		"RAID-6": {raidLevel: "raid-6", diskCount: 4},
+		"RAID-0": {
+			raidLevel:    "raid-0",
+			diskCount:    2, // Minimum for RAID-0
+			instanceType: "t3.medium",
+		},
+		"RAID-5": {
+			raidLevel:    "raid-5",
+			diskCount:    3, // Minimum for RAID-5
+			instanceType: "t3.large",
+		},
+		"RAID-6": {
+			raidLevel:    "raid-6",
+			diskCount:    4, // Minimum for RAID-6
+			instanceType: "t3.medium",
+		},
 	}
 
 	for testName, tc := range testCases {
+		// Capture range variable for parallel tests
 		tc := tc
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
-			// --- THIS IS THE FIX ---
 			// Copy the 'examples' folder to a temporary, isolated directory for this test run.
-			// This ensures that each parallel test has its own .tfstate file.
 			tempTestFolder := test_structure.CopyTerraformFolderToTemp(t, "../modules/storage_servers", "examples")
 
 			projectName := fmt.Sprintf("terratest-storage-%s-%s", tc.raidLevel, random.UniqueId())
 
 			terraformOptions := &terraform.Options{
-				// Point to the temporary directory instead of the original.
 				TerraformDir:    tempTestFolder,
 				TerraformBinary: "terraform",
 				Vars: map[string]interface{}{
 					"project_name":           projectName,
-					"region":                 sharedVars["REGION"],
-					"vpc_id":                 sharedVars["VPC_ID"],
-					"subnet_id":              sharedVars["SUBNET_ID"],
-					"key_name":               sharedVars["KEY_NAME"],
-					"storage_ami":            sharedVars["STORAGE_AMI"],
+					"region":                 awsRegion,
+					"vpc_id":                 vpcId,
+					"subnet_id":              subnetId,
+					"key_name":               keyName,
+					"storage_ami":            storageAmi,
+					"storage_instance_type":  tc.instanceType,
 					"storage_instance_count": 1,
 					"storage_ebs_count":      tc.diskCount,
 					"storage_raid_level":     tc.raidLevel,
@@ -75,12 +85,12 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			terraform.InitAndApply(t, terraformOptions)
 
 			// --- Validation ---
-			awsRegion := terraform.Output(t, terraformOptions, "region")
 			storageInstances := terraform.OutputListOfObjects(t, terraformOptions, "storage_instances")
 			require.Len(t, storageInstances, 1, "Expected to find 1 storage instance")
 
 			instanceID := storageInstances[0]["id"].(string)
 
+			// --- Use AWS SDK to validate the attached volumes ---
 			cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 			require.NoError(t, err, "Failed to load AWS configuration")
 			ec2Client := ec2.NewFromConfig(cfg)
@@ -96,6 +106,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			describeVolumesOutput, err := ec2Client.DescribeVolumes(context.TODO(), describeVolumesInput)
 			require.NoError(t, err, "Failed to describe EBS volumes")
 
+			// Validate the volume count: 1 boot disk + the number of disks for RAID.
 			expectedTotalVols := 1 + tc.diskCount
 			require.Len(t, describeVolumesOutput.Volumes, expectedTotalVols, "Incorrect number of EBS volumes attached to instance %s", instanceID)
 
