@@ -8,13 +8,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws" // Use the official AWS SDK helper package
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types" // ADDED: Import for the 'types' package
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/require"
 )
 
-// NOTE: We have removed the getRequiredEnvVar helper function as it is not needed.
-// The CI workflow will pass variables directly to Terraform via the `env` block.
+// NOTE: The getRequiredEnvVar helper is not needed as variables are passed
+// directly from the CI workflow using the TF_VAR_ convention.
 
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
@@ -67,7 +68,8 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			describeVolumesInput := &ec2.DescribeVolumesInput{
 				Filters: []types.Filter{
 					{
-						Name:   aws.ToString("attachment.instance-id"),
+						// MODIFIED: Use the correct aws.String() helper
+						Name:   aws.String("attachment.instance-id"),
 						Values: []string{instanceID},
 					},
 				},
