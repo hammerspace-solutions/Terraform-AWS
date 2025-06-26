@@ -21,7 +21,7 @@ import (
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
 
-	// --- Test Setup ---
+	// --- Test Setup: Read shared variables & generate SSH key ---
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
@@ -95,14 +95,14 @@ func TestStorageModuleWithRAID(t *testing.T) {
 			}
 
 			// Step 1: Patiently wait for the instance to reboot and SSH to become available.
-			// We use a simple retry loop on a basic command.
 			maxRetries := 40
 			sleepBetweenRetries := 15 * time.Second
 			description := fmt.Sprintf("Wait for SSH to be ready on instance %s", publicIp)
 			
 			retry.DoWithRetry(t, description, maxRetries, sleepBetweenRetries, func() (string, error) {
-				// We don't need the output of this command, just that it succeeds without error.
-				err := ssh.CheckSshCommandE(t, host, `echo "Instance is ready"`)
+				// We use RunSshCommandE because it returns an error we can check.
+				// We discard the output with the blank identifier `_` because we don't need it here.
+				_, err := ssh.RunSshCommandE(t, host, `echo "Instance is ready"`)
 				if err != nil {
 					return "", err
 				}
