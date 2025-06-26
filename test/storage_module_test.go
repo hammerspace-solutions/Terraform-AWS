@@ -1,7 +1,6 @@
 package test
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -9,10 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/ssh"
@@ -26,18 +21,21 @@ import (
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
 
-	// --- Test Setup ---
+	// --- Test Setup: Read shared variables & generate SSH key ---
 	awsRegion := getRequiredEnvVar(t, "REGION")
 	vpcId := getRequiredEnvVar(t, "VPC_ID")
 	subnetId := getRequiredEnvVar(t, "SUBNET_ID")
 	storageAmi := getRequiredEnvVar(t, "STORAGE_AMI")
 
+	// Generate a new, temporary EC2 key pair for this test run.
 	sshKeyPair := ssh.GenerateRSAKeyPair(t, 2048)
 
+	// Get the absolute path to the project root to reliably find the templates folder.
 	projectRoot, err := filepath.Abs("../")
 	require.NoError(t, err, "Failed to get project root path")
 	userDataScriptPath := filepath.Join(projectRoot, "templates", "storage_server_ubuntu.sh")
 
+	// Define the test cases for each RAID level.
 	testCases := map[string]struct {
 		raidLevel    string
 		diskCount    int
@@ -79,6 +77,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 					"storage_ami":            storageAmi,
 					"ssh_public_key":         sshKeyPair.PublicKey,
 					"storage_instance_count": 1,
+					"storage_instance_type":  tc.instanceType,
 					"storage_ebs_count":      tc.diskCount,
 					"storage_raid_level":     tc.raidLevel,
 					"storage_user_data":      userDataScriptPath,
