@@ -99,7 +99,7 @@ resource "aws_security_group_rule" "allow_ssh_for_test" {
   
   # Note: This is not a direct dependency, but we need to reference the output
   # to get the security group's ID after it has been created by the module.
-  security_group_id = module.storage_servers.instance_details[0].security_group_id
+  security_group_id = module.storage_servers.security_group_id
 }
 
 
