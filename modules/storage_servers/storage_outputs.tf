@@ -21,3 +21,8 @@ output "ebs_volume_details" {
     }
   ]
 }
+
+output "security_group_id" {
+  description = "The ID of the security group created for the storage instances"
+  value = one(aws_security_group.storage[*].id)
+}
