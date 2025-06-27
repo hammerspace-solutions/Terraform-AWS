@@ -49,6 +49,12 @@ variable "raid_level" {
   type        = string
 }
 
+variable "allow_test_ingress" {
+  description = "If true, adds ingress rules to the security group to allow for SSH and ICMP for testing purposes"
+  type	      = bool
+  default     = false
+}
+
 variable "ebs_size" {
   description = "Size of each EBS volume (GB) for clients"
   type        = number

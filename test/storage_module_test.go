@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// NOTE: The getRequiredEnvVar helper function is located in test_helpers.go
+// NOTE: This test depends on the getRequiredEnvVar helper function located in test_helpers.go
 
 func TestStorageModuleWithRAID(t *testing.T) {
 	t.Parallel()
@@ -83,6 +83,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 					"storage_ebs_count":      tc.diskCount,
 					"storage_raid_level":     tc.raidLevel,
 					"storage_user_data":      userDataScriptPath,
+					"allow_test_ingress":     true, // Tell the module to open ports for this test
 				},
 			}
 
@@ -99,13 +100,13 @@ func TestStorageModuleWithRAID(t *testing.T) {
 				SshUserName: "ubuntu",
 			}
 
-			// Step 1: Patiently wait for the instance to finish its user_data script (which includes a reboot).
+			// Step 1: Patiently wait for the instance to reboot and SSH to become available.
 			maxRetries := 40
 			sleepBetweenRetries := 15 * time.Second
 			description := fmt.Sprintf("Wait for SSH to be ready on instance %s", publicIp)
 			
 			retry.DoWithRetry(t, description, maxRetries, sleepBetweenRetries, func() (string, error) {
-				// We use the correct function `CheckSshCommandE` which returns (string, error).
+				// The correct function is CheckSshCommandE, which returns (string, error).
 				// We discard the output string with `_` because we only care if the command succeeds.
 				_, err := ssh.CheckSshCommandE(t, host, `echo "Instance is ready"`)
 				if err != nil {

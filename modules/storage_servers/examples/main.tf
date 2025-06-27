@@ -30,6 +30,12 @@ variable "storage_raid_level" {
 variable "storage_user_data" {
   type = string
 }
+# Variable to control the test-specific firewall rules
+variable "allow_test_ingress" {
+  description = "If true, the module will open SSH and ICMP ports for testing."
+  type        = bool
+  default     = false
+}
 
 # Create a temporary key pair for this test run
 resource "aws_key_pair" "test_key" {
@@ -39,7 +45,7 @@ resource "aws_key_pair" "test_key" {
 
 # An Elastic IP ensures the test instance has a reliable public IP address.
 resource "aws_eip" "test_eip" {
-  count = var.storage_instance_count > 0 ? 1 : 0
+  count  = var.storage_instance_count > 0 ? 1 : 0
   domain = "vpc"
 }
 
@@ -52,20 +58,24 @@ data "aws_subnet" "test_subnet" {
 module "storage_servers" {
   source = "../" // Points to the storage_servers module root
 
+  # Pass test-specific values
+  allow_test_ingress = var.allow_test_ingress # This will be true during the test
+  key_name           = aws_key_pair.test_key.key_name
+
+  # Pass other required variables
   instance_count    = var.storage_instance_count
   ami               = var.storage_ami
   instance_type     = var.storage_instance_type
   raid_level        = var.storage_raid_level
   ebs_count         = var.storage_ebs_count
-  
   project_name      = var.project_name
   region            = var.region
   availability_zone = data.aws_subnet.test_subnet.availability_zone
   vpc_id            = var.vpc_id
   subnet_id         = var.subnet_id
-  key_name          = aws_key_pair.test_key.key_name
   user_data         = var.storage_user_data
 
+  # Use module defaults for the rest
   tags                    = {}
   ssh_keys_dir            = ""
   boot_volume_size        = 100
@@ -84,24 +94,6 @@ resource "aws_eip_association" "test_eip_assoc" {
   allocation_id = aws_eip.test_eip[0].id
 }
 
-# --- THIS IS THE FIX ---
-# Add an explicit ingress rule to the security group created by the module.
-# This rule allows SSH traffic from any IP, which is necessary for the
-# GitHub Actions runner to connect to the instance.
-resource "aws_security_group_rule" "allow_ssh_for_test" {
-  count = var.storage_instance_count > 0 ? 1 : 0
-
-  type              = "ingress"
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  
-  # Note: This is not a direct dependency, but we need to reference the output
-  # to get the security group's ID after it has been created by the module.
-  security_group_id = module.storage_servers.security_group_id
-}
-
 
 # Output the results for validation
 output "storage_instances" {
@@ -114,7 +106,6 @@ output "region" {
   value       = var.region
 }
 
-# Output the Elastic IP for the SSH connection
 output "public_ip" {
   description = "The public IP of the first storage server."
   value       = var.storage_instance_count > 0 ? aws_eip.test_eip[0].public_ip : null

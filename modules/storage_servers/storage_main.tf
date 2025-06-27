@@ -44,11 +44,30 @@ resource "aws_security_group" "storage" {
   description = "Storage instance security group"
   vpc_id      = var.vpc_id
 
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  # --- THIS IS THE FIX ---
+  # These dynamic blocks will only generate ingress rules if the
+  # new `allow_test_ingress` variable is set to true.
+
+  # Rule for SSH (TCP port 22)
+  dynamic "ingress" {
+    for_each = var.allow_test_ingress ? [22] : []
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  # Rule for ICMP (Ping)
+  dynamic "ingress" {
+    for_each = var.allow_test_ingress ? [1] : []
+    content {
+      from_port   = -1 # -1 means "all" for ICMP type
+      to_port     = -1 # -1 means "all" for ICMP code
+      protocol    = "icmp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   egress {
@@ -80,9 +99,6 @@ resource "aws_instance" "this" {
     volume_type = var.boot_volume_type
   }
 
-  # --- THIS IS THE FIX ---
-  # This robust dynamic block prevents the provider from crashing when
-  # capacity_reservation_id is null.
   dynamic "capacity_reservation_specification" {
     for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
     content {
