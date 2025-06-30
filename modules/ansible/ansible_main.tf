@@ -22,7 +22,9 @@ locals {
     ANVIL_ID = "${var.anvil_instances[0].id}",
     STORAGE_INSTANCES = jsonencode(var.storage_instances),
     VG_NAME = "${var.volume_group_name}",
-    SHARE_NAME = "${var.share_name}"
+    SHARE_NAME = "${var.share_name}",
+    TARGET_NODES_JSON = var.target_nodes_json,
+    ADMIN_PRIVATE_KEY = var.admin_private_key
   }) : null
 
   resource_prefix = "${var.project_name}-ansible" 
