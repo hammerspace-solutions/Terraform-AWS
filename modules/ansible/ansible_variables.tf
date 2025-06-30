@@ -36,6 +36,20 @@ variable "target_user" {
   type        = string
 }
 
+variable "target_nodes_json" {
+  description = "A JSON-encoded string of all client and storage nodes for Ansible to configure."
+  type        = string
+  default     = "[]"
+}
+
+variable "admin_private_key" {
+  description = "The private key material for the Ansible controller to use for bootstrapping."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+
 # Global variables passed-through
 
 variable "region" {
@@ -84,34 +98,39 @@ variable "placement_group_name" {
   default     = ""
 }
 
+# Restored variables for other use cases
+
 variable "mgmt_ip" {
   description = "Hammerspace management IP address"
   type        = list(string)
+  default     = []
 }
 
 variable "anvil_instances" {
   description = "Anvil instances details"
-  type        = list(object({
-    type      = string
-    id        = string
-    arn       = string
-    private_ip = string
-    public_ip = string
-    key_name  = string
-    iam_profile = string
-    placement_group = string
+  type = list(object({
+    type                       = string
+    id                         = string
+    arn                        = string
+    private_ip                 = string
+    public_ip                  = string
+    key_name                   = string
+    iam_profile                = string
+    placement_group            = string
     all_private_ips_on_eni_set = set(string)
-    floating_ip_candidate = string
+    floating_ip_candidate      = string
   }))
+  default = []
 }
 
 variable "storage_instances" {
   description = "Storage instances details"
-  type        = list(object({
-    id        = string
-    private_ip= string
-    name      = string
+  type = list(object({
+    id         = string
+    private_ip = string
+    name       = string
   }))
+  default = []
 }
 
 
@@ -124,5 +143,5 @@ variable "volume_group_name" {
 variable "share_name" {
   description = "Share name for Anvil"
   type        = string
+  default     = ""
 }
-

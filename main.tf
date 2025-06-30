@@ -176,6 +176,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
 # -----------------------------------------------------------------------------
 
 # Conditionally create the placement group if a name is provided
+
 resource "aws_placement_group" "this" {
   count    = var.placement_group_name != "" ? 1 : 0
   name     = var.placement_group_name
@@ -184,22 +185,34 @@ resource "aws_placement_group" "this" {
 }
 
 # Determine which components to deploy based on input list
+
 locals {
   deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
   deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ansible     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
+
+  # Combine all target nodes for Ansible
+
+  all_ssh_nodes = concat(
+    local.deploy_clients ? module.clients[0].instance_details : [],
+    local.deploy_storage ? module.storage_servers[0].instance_details : []
+  )
+
 }
 
 # Deploy the clients module if requested
+
 module "clients" {
   count   = local.deploy_clients ? 1 : 0
   source  = "./modules/clients"
 
   # Pass the reservation ID to the module
+
   capacity_reservation_id = local.deploy_clients && var.clients_instance_count > 0 ? aws_ec2_capacity_reservation.clients[0].id : null
 
   # Global variables
+
   region               = var.region
   availability_zone    = var.availability_zone
   vpc_id               = var.vpc_id
@@ -211,6 +224,7 @@ module "clients" {
   placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Client-specific variables
+
   instance_count   = var.clients_instance_count
   ami              = var.clients_ami
   instance_type    = var.clients_instance_type
@@ -228,14 +242,17 @@ module "clients" {
 }
 
 # Deploy the storage_servers module if requested
+
 module "storage_servers" {
   count   = local.deploy_storage ? 1 : 0
   source  = "./modules/storage_servers"
 
   # Pass the reservation ID to the module
+
   capacity_reservation_id = local.deploy_storage && var.storage_instance_count > 0 ? aws_ec2_capacity_reservation.storage[0].id : null
   
   # Global variables
+
   region               = var.region
   availability_zone    = var.availability_zone
   vpc_id               = var.vpc_id
@@ -247,6 +264,7 @@ module "storage_servers" {
   placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Storage-specific variables
+
   instance_count   = var.storage_instance_count
   ami              = var.storage_ami
   instance_type    = var.storage_instance_type
@@ -265,15 +283,18 @@ module "storage_servers" {
 }
 
 # Deploy the Anvil and/or DSX if requested
+
 module "hammerspace" {
   count   = local.deploy_hammerspace ? 1 : 0
   source  = "./modules/hammerspace"
 
   # Pass the reservation IDs to the module
+
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? aws_ec2_capacity_reservation.anvil[0].id : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? aws_ec2_capacity_reservation.dsx[0].id : null
 
   # Global variables
+
   region               = var.region
   availability_zone    = var.availability_zone
   vpc_id               = var.vpc_id
@@ -284,6 +305,7 @@ module "hammerspace" {
   placement_group_name = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
 
   # Hammerspace-specific variables
+
   ami                        = var.hammerspace_ami
   iam_admin_group_id         = var.hammerspace_iam_admin_group_id
   profile_id                 = var.hammerspace_profile_id
@@ -307,6 +329,7 @@ module "hammerspace" {
 }
 
 # Deploy the Ansible module if requested
+
 module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
@@ -316,6 +339,7 @@ module "ansible" {
   storage_instances = flatten(module.storage_servers[*].instance_details)
 
   # Global Variables for Ansible configuration
+
   region               = var.region
   availability_zone    = var.availability_zone
   vpc_id               = var.vpc_id
@@ -327,6 +351,7 @@ module "ansible" {
   placement_group_name = var.placement_group_name
 
   # Ansible specific variables
+
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
   instance_type    = var.ansible_instance_type
@@ -336,6 +361,11 @@ module "ansible" {
   target_user      = var.ansible_target_user
   volume_group_name = var.volume_group_name
   share_name       = var.share_name
+
+  # Pass the new variables needed by the ansible_ssh_setup.sh script
+
+  target_nodes_json = jsonencode(local.all_ssh_nodes)
+  admin_private_key = file("./modules/ansible/ansible_admin_key") # Reads the private key from a file
 
   depends_on = [
     module.clients,
