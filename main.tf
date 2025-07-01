@@ -19,6 +19,35 @@ provider "aws" {
 }
 
 # -----------------------------------------------------------------------------
+# Pre-flight Validation for Networking
+# This section uses data sources to validate that the provided VPC and Subnet
+# exist in the specified region and are correctly related.
+# -----------------------------------------------------------------------------
+
+# Look up the VPC using the provided vpc_id.
+# This will fail during 'terraform plan' if the VPC does not exist in the configured region.
+data "aws_vpc" "validation" {
+  id = var.vpc_id
+}
+
+# Look up the Subnet using the provided subnet_id.
+# This will fail if the Subnet does not exist in the configured region.
+data "aws_subnet" "this" {
+  id = var.subnet_id
+}
+
+# Perform checks to validate the relationship between the found resources.
+check "vpc_and_subnet_validation" {
+  # This block runs during the 'plan' phase.
+
+  # Assertion 1: Verify the subnet belongs to the correct VPC.
+  assert {
+    condition     = data.aws_subnet.this.vpc_id == data.aws_vpc.validation.id
+    error_message = "Validation Error: The provided subnet (ID: ${var.subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id}). Please provide a subnet that is part of the specified VPC."
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Pre-flight checks to validate instance type existence before planning.
 # This provides a "fail-fast" mechanism for invalid instance type variables.
 # -----------------------------------------------------------------------------
@@ -32,14 +61,14 @@ check "anvil_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [var.availability_zone]
+      values = [data.aws_subnet.this.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.anvil_check.instance_types) > 0
-    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${var.availability_zone})."
+    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
   }
 }
 
@@ -52,14 +81,14 @@ check "dsx_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [var.availability_zone]
+      values = [data.aws_subnet.this.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.dsx_check.instance_types) > 0
-    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${var.availability_zone})."
+    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
   }
 }
 
@@ -72,14 +101,14 @@ check "client_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [var.availability_zone]
+      values = [data.aws_subnet.this.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.client_check.instance_types) > 0
-    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${var.availability_zone})."
+    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
   }
 }
 
@@ -92,14 +121,14 @@ check "storage_server_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [var.availability_zone]
+      values = [data.aws_subnet.this.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.storage_check.instance_types) > 0
-    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${var.availability_zone})."
+    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
   }
 }
 
@@ -112,7 +141,7 @@ resource "aws_ec2_capacity_reservation" "anvil" {
 
   instance_type     = var.hammerspace_anvil_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = var.availability_zone
+  availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
   end_date_type     = "unlimited"
@@ -128,7 +157,7 @@ resource "aws_ec2_capacity_reservation" "dsx" {
 
   instance_type     = var.hammerspace_dsx_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = var.availability_zone
+  availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
   end_date_type     = "unlimited"
@@ -144,7 +173,7 @@ resource "aws_ec2_capacity_reservation" "clients" {
 
   instance_type     = var.clients_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = var.availability_zone
+  availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.clients_instance_count
   tenancy           = "default"
   end_date_type     = "unlimited"
@@ -160,7 +189,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
 
   instance_type     = var.storage_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = var.availability_zone
+  availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.storage_instance_count
   tenancy           = "default"
   end_date_type     = "unlimited"
@@ -216,7 +245,7 @@ module "clients" {
   # Global variables
 
   region                = var.region
-  availability_zone     = var.availability_zone
+  availability_zone     = data.aws_subnet.this.availability_zone
   vpc_id                = var.vpc_id
   subnet_id             = var.subnet_id
   key_name              = var.key_name
@@ -257,7 +286,7 @@ module "storage_servers" {
   # Global variables
 
   region		= var.region
-  availability_zone    	= var.availability_zone
+  availability_zone    	= data.aws_subnet.this.availability_zone
   vpc_id               	= var.vpc_id
   subnet_id            	= var.subnet_id
   key_name             	= var.key_name
@@ -300,7 +329,7 @@ module "hammerspace" {
   # Global variables
 
   region		= var.region
-  availability_zone    	= var.availability_zone
+  availability_zone    	= data.aws_subnet.this.availability_zone
   vpc_id               	= var.vpc_id
   subnet_id            	= var.subnet_id
   key_name             	= var.key_name
@@ -347,7 +376,7 @@ module "ansible" {
   # Global Variables for Ansible configuration
 
   region               	= var.region
-  availability_zone    	= var.availability_zone
+  availability_zone    	= data.aws_subnet.this.availability_zone
   vpc_id               	= var.vpc_id
   subnet_id            	= var.subnet_id
   key_name             	= var.key_name

@@ -18,12 +18,6 @@ variable "region" {
   default     = "us-west-2"
 }
 
-variable "availability_zone" {
-  description = "AWS availability zone"
-  type        = string
-  default     = "us-west-2b"
-}
-
 variable "vpc_id" {
   description = "VPC ID for all resources"
   type        = string
