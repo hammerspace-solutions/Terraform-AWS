@@ -17,7 +17,7 @@ output "anvil_instances" {
       id                         = aws_instance.anvil[0].id
       arn                        = aws_instance.anvil[0].arn
       private_ip                 = aws_instance.anvil[0].private_ip
-      public_ip                  = aws_instance.anvil[0].public_ip
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil_sa[*].public_ip) : null
       key_name                   = aws_instance.anvil[0].key_name
       iam_profile                = aws_instance.anvil[0].iam_instance_profile
       placement_group            = aws_instance.anvil[0].placement_group
@@ -30,7 +30,7 @@ output "anvil_instances" {
       id                         = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].id : null
       arn                        = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].arn : null
       private_ip                 = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].private_ip : null
-      public_ip                  = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].public_ip : null
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil1_ha[*].public_ip) : null
       key_name                   = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].key_name : null
       iam_profile                = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].iam_instance_profile : null
       placement_group            = length(aws_instance.anvil1) > 0 ? aws_instance.anvil1[0].placement_group : null
@@ -42,7 +42,7 @@ output "anvil_instances" {
       id                         = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].id : null
       arn                        = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].arn : null
       private_ip                 = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].private_ip : null
-      public_ip                  = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].public_ip : null
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil2_ha[*].public_ip) : null
       key_name                   = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].key_name : null
       iam_profile                = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].iam_instance_profile : null
       placement_group            = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].placement_group : null
@@ -61,7 +61,7 @@ output "dsx_instances" {
       id              = inst.id
       arn             = inst.arn
       private_ip      = inst.private_ip
-      public_ip       = inst.public_ip
+      public_ip       = var.assign_public_ip ? aws_eip.dsx[i].public_ip : null
       key_name        = inst.key_name
       iam_profile     = inst.iam_instance_profile
       placement_group = inst.placement_group

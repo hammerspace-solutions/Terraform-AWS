@@ -106,6 +106,7 @@ resource "aws_instance" "this" {
   key_name        = var.key_name
   user_data       = local.processed_user_data
 
+  associate_public_ip_address = var.assign_public_ip
   vpc_security_group_ids = [aws_security_group.storage.id]
 
   root_block_device {

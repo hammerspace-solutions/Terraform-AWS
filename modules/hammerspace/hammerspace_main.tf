@@ -246,6 +246,18 @@ resource "aws_network_interface" "anvil_sa_ni" {
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
+resource "aws_eip" "anvil_sa" {
+  count  = local.create_standalone_anvil && var.assign_public_ip ? 1 : 0
+  domain = "vpc"
+  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil-EIP" })
+}
+
+resource "aws_eip_association" "anvil_sa" {
+  count                = local.create_standalone_anvil && var.assign_public_ip ? 1 : 0
+  network_interface_id = aws_network_interface.anvil_sa_ni[0].id
+  allocation_id        = aws_eip.anvil_sa[0].id
+}
+
 resource "aws_instance" "anvil" {
   count                  = local.create_standalone_anvil ? 1 : 0
   ami                    = var.ami
@@ -313,6 +325,18 @@ resource "aws_network_interface" "anvil1_ha_ni" {
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
+resource "aws_eip" "anvil1_ha" {
+  count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  domain = "vpc"
+  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-EIP" })
+}
+
+resource "aws_eip_association" "anvil1_ha" {
+  count                = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  network_interface_id = aws_network_interface.anvil1_ha_ni[0].id
+  allocation_id        = aws_eip.anvil1_ha[0].id
+}
+
 resource "aws_instance" "anvil1" {
   count                  = local.create_ha_anvils ? 1 : 0
   ami                    = var.ami
@@ -374,6 +398,18 @@ resource "aws_network_interface" "anvil2_ha_ni" {
   private_ips_count = 1
   tags              = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-NI" })
   depends_on        = [aws_security_group.anvil_data_sg]
+}
+
+resource "aws_eip" "anvil2_ha" {
+  count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  domain = "vpc"
+  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-EIP" })
+}
+
+resource "aws_eip_association" "anvil2_ha" {
+  count                = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  network_interface_id = aws_network_interface.anvil2_ha_ni[0].id
+  allocation_id        = aws_eip.anvil2_ha[0].id
 }
 
 resource "aws_instance" "anvil2" {
@@ -440,6 +476,18 @@ resource "aws_network_interface" "dsx_ni" {
   source_dest_check   = false
   tags                = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}-NI" })
   depends_on          = [aws_security_group.dsx_sg]
+}
+
+resource "aws_eip" "dsx" {
+  count  = var.assign_public_ip ? var.dsx_count : 0
+  domain = "vpc"
+  tags   = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}-EIP" })
+}
+
+resource "aws_eip_association" "dsx" {
+  count                = var.assign_public_ip ? var.dsx_count : 0
+  network_interface_id = aws_network_interface.dsx_ni[count.index].id
+  allocation_id        = aws_eip.dsx[count.index].id
 }
 
 resource "aws_instance" "dsx" {

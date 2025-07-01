@@ -11,6 +11,12 @@ variable "instance_count" {
   type        = number
 }
 
+variable "assign_public_ip" {
+  description = "If true, assigns a public IP address to the client instances."
+  type        = bool
+  default     = false
+}
+
 variable "ami" {
   description = "AMI for client instances"
   type        = string

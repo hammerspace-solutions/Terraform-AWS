@@ -1,5 +1,4 @@
 # Terraform-AWS
-
 Terraform templates to create clients, storage, and Hammerspace for AWS sizing.
 
 This project uses Terraform to provision resources on AWS. The deployment is modular, allowing you to deploy client machines, storage servers, and a Hammerspace environment either together or independently.
@@ -33,6 +32,7 @@ Configuration is managed through `terraform.tfvars` by setting values for the va
 These variables apply to the overall deployment:
 
 * `region`: AWS region for all resources (Default: "us-west-2").
+* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned. (Default: `false`).
 * `availability_zone`: AWS availability zone for resource placement (Default: "us-west-2b").
 * `vpc_id`: (Required) VPC ID for all resources.
 * `subnet_id`: (Required) Subnet ID for resources.
@@ -296,3 +296,6 @@ This project is structured into the following modules:
 * **clients**: Deploys client EC2 instances.
 * **storage_servers**: Deploys storage server EC2 instances with configurable RAID and NFS exports.
 * **hammerspace**: Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
+* **ansible**: Deploys an Ansible controller instance which performs "Day 2" configuration tasks after the primary infrastructure is provisioned. Its key functions are:
+    * **Hammerspace Integration**: It runs a playbook that connects to the Anvil's API to add the newly created storage servers as data nodes, create a volume group, and create a share.
+    * **Passwordless SSH Setup**: It runs a second playbook that orchestrates a key exchange between all client and storage nodes, allowing them to SSH to each other without passwords for automated scripting.

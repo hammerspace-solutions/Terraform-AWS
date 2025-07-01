@@ -5,6 +5,12 @@ variable "instance_count" {
   type        = number
 }
 
+variable "assign_public_ip" {
+  description = "If true, assigns a public IP address to the Ansible instance."
+  type        = bool
+  default     = false
+}
+
 variable "ami" {
   description = "AMI for Ansible instances"
   type        = string

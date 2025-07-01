@@ -74,6 +74,7 @@ resource "aws_instance" "this" {
   user_data       = local.processed_user_data
   placement_group = var.placement_group_name != "" ? var.placement_group_name : null
 
+  associate_public_ip_address = var.assign_public_ip
   vpc_security_group_ids = [aws_security_group.client.id]
 
   root_block_device {

@@ -6,6 +6,12 @@ variable "capacity_reservation_create_timeout" {
   default     = "3m"
 }
 
+variable "assign_public_ip" {
+  description = "If true, assigns a public IP address to all created EC2 instances. If false, only a private IP will be assigned."
+  type        = bool
+  default     = false
+}
+
 variable "region" {
   description = "AWS region for all resources"
   type        = string

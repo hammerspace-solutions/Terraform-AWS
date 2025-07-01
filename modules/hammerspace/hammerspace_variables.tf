@@ -10,6 +10,12 @@ variable "dsx_capacity_reservation_id" {
   default     = null
 }
 
+variable "assign_public_ip" {
+  description = "If true, assigns a public Elastic IP address to all Anvil and DSX instances."
+  type        = bool
+  default     = false
+}
+
 variable "region" {
   description = "AWS region for deployment."
   type        = string
