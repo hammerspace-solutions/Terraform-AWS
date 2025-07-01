@@ -460,7 +460,7 @@
           register: _result
           until: _result.json.status == "COMPLETED"
           retries: 6
-          delay: 5
+          delay: 10
 
   handlers:
     - name: Node retrieval failed
