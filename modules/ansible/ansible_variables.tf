@@ -1,14 +1,48 @@
-# Ansible specific variables
+# Copyright (c) 2025 Hammerspace, Inc
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# -----------------------------------------------------------------------------
+# modules/ansible/ansible_variables.tf
+#
+# This file defines all the input variables for the Ansible module.
+# -----------------------------------------------------------------------------
 
+variable "common_config" {
+  description = "A map containing common configuration values like region, VPC, subnet, etc."
+  type = object({
+    region               = string
+    availability_zone    = string
+    vpc_id               = string
+    subnet_id            = string
+    key_name             = string
+    tags                 = map(string)
+    project_name         = string
+    assign_public_ip     = bool
+    ssh_keys_dir         = string
+    placement_group_name = string
+  })
+}
+
+# Ansible specific variables
 variable "instance_count" {
   description = "Number of Ansible instances"
   type        = number
-}
-
-variable "assign_public_ip" {
-  description = "If true, assigns a public IP address to the Ansible instance."
-  type        = bool
-  default     = false
 }
 
 variable "ami" {
@@ -30,7 +64,6 @@ variable "boot_volume_type" {
   description = "Root volume type for Ansible"
   type        = string
 }
-
 
 variable "user_data" {
   description = "Path to user data script for Ansible"
@@ -55,57 +88,7 @@ variable "admin_private_key" {
   default     = ""
 }
 
-
-# Global variables passed-through
-
-variable "region" {
-  description = "AWS region"
-  type        = string
-}
-
-variable "availability_zone" {
-  description = "AWS availability zone"
-  type        = string
-}
-
-variable "vpc_id" {
-  description = "VPC ID"
-  type        = string
-}
-
-variable "subnet_id" {
-  description = "Subnet ID"
-  type        = string
-}
-
-variable "key_name" {
-  description = "SSH key pair name"
-  type        = string
-}
-
-variable "tags" {
-  description = "Common tags for all resources"
-  type        = map(string)
-}
-
-variable "project_name" {
-  description = "Project name for tagging and resource naming"
-  type        = string
-}
-
-variable "ssh_keys_dir" {
-  description = "Directory containing SSH public keys"
-  type        = string
-}
-
-variable "placement_group_name" {
-  description = "Optional: The name of the placement group for the instances."
-  type        = string
-  default     = ""
-}
-
-# Restored variables for other use cases
-
+# Other variables
 variable "mgmt_ip" {
   description = "Hammerspace management IP address"
   type        = list(string)
@@ -135,10 +118,10 @@ variable "storage_instances" {
     id         = string
     private_ip = string
     name       = string
+    public_ip  = string
   }))
   default = []
 }
-
 
 variable "volume_group_name" {
   description = "Volume group name for Anvil"

@@ -1,24 +1,47 @@
+# Copyright (c) 2025 Hammerspace, Inc
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# -----------------------------------------------------------------------------
+# modules/hammerspace/hammerspace_locals.tf
+#
+# This file contains the local variables and complex logic for the
+# Hammerspace module.
+# -----------------------------------------------------------------------------
+
 locals {
   # --- Anvil Creation Logic based on anvil_count ---
-
   should_create_any_anvils = var.anvil_count > 0
   create_standalone_anvil  = var.anvil_count == 1
   create_ha_anvils         = var.anvil_count >= 2
 
   # --- General Conditions ---
-
-  provides_key_name      = var.key_name != null && var.key_name != ""
+  provides_key_name      = var.common_config.key_name != null && var.common_config.key_name != ""
   enable_iam_admin_group = var.iam_user_access == "Enable"
   create_iam_admin_group = local.enable_iam_admin_group && var.iam_admin_group_id == ""
   create_profile         = var.profile_id == ""
   dsx_add_volumes_bool   = local.should_create_any_anvils && var.dsx_add_vols
 
   # --- Mappings & Derived Values ---
-
   anvil_instance_type_actual = var.anvil_type
   dsx_instance_type_actual   = var.dsx_type
-  common_tags = merge(var.tags, {
-    Project = var.project_name
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
   })
 
   device_letters = [
@@ -27,13 +50,13 @@ locals {
   ]
 
   # --- IAM References ---
-  effective_iam_admin_group_name = local.create_iam_admin_group ? (length(aws_iam_group.admin_group) > 0 ? aws_iam_group.admin_group[0].name : null) : var.iam_admin_group_id
-  effective_iam_admin_group_arn  = local.create_iam_admin_group ? (length(aws_iam_group.admin_group) > 0 ? aws_iam_group.admin_group[0].arn : null) : (var.iam_admin_group_id != "" ? "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:group/${var.iam_admin_group_id}" : null)
-  effective_instance_profile_ref = local.create_profile ? (length(aws_iam_instance_profile.profile) > 0 ? aws_iam_instance_profile.profile[0].name : null) : var.profile_id
+  effective_iam_admin_group_name = local.create_iam_admin_group ? one(aws_iam_group.admin_group[*].name) : var.iam_admin_group_id
+  effective_iam_admin_group_arn  = local.create_iam_admin_group ? one(aws_iam_group.admin_group[*].arn) : (var.iam_admin_group_id != "" ? "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:group/${var.iam_admin_group_id}" : null)
+  effective_instance_profile_ref = local.create_profile ? one(aws_iam_instance_profile.profile[*].name) : var.profile_id
 
   # --- Security Group Selection Logic ---
-  effective_anvil_sg_id = var.anvil_security_group_id != "" ? var.anvil_security_group_id : (length(aws_security_group.anvil_data_sg) > 0 ? aws_security_group.anvil_data_sg[0].id : null)
-  effective_dsx_sg_id   = var.dsx_security_group_id != "" ? var.dsx_security_group_id : (length(aws_security_group.dsx_sg) > 0 ? aws_security_group.dsx_sg[0].id : null)
+  effective_anvil_sg_id = var.anvil_security_group_id != "" ? var.anvil_security_group_id : one(aws_security_group.anvil_data_sg[*].id)
+  effective_dsx_sg_id   = var.dsx_security_group_id != "" ? var.dsx_security_group_id : one(aws_security_group.dsx_sg[*].id)
 
   # --- IP and ID Discovery ---
   anvil2_ha_ni_secondary_ip = (
@@ -62,19 +85,16 @@ locals {
   )
 
   # --- UserData Configuration Maps ---
-
-  # Helper map for the conditional 'aws' block
   aws_config_map = local.enable_iam_admin_group && local.effective_iam_admin_group_name != null ? {
     iam_admin_group = local.effective_iam_admin_group_name
   } : {}
 
-  # Map for Standalone Anvil
   anvil_sa_config_map = {
     cluster = {
       password_auth = false
     }
     node = {
-      hostname = "${var.project_name}Anvil"
+      hostname = "${var.common_config.project_name}Anvil"
       ha_mode  = "Standalone"
       networks = {
         eth0 = {
@@ -85,7 +105,6 @@ locals {
     aws = local.aws_config_map
   }
 
-  # MODIFIED: Base map for HA Anvils with new network fields
   anvil_ha_config_map = {
     cluster = {
       password_auth = false
@@ -93,7 +112,7 @@ locals {
     aws = local.aws_config_map
     nodes = {
       "0" = {
-        hostname = "${var.project_name}Anvil1"
+        hostname = "${var.common_config.project_name}Anvil1"
         ha_mode  = "Primary"
         features = ["metadata"]
         networks = {
@@ -105,7 +124,7 @@ locals {
         }
       }
       "1" = {
-        hostname = "${var.project_name}Anvil2"
+        hostname = "${var.common_config.project_name}Anvil2"
         ha_mode  = "Secondary"
         features = ["metadata"]
         networks = {
@@ -119,11 +138,10 @@ locals {
     }
   }
 
-  # Map of Anvil nodes for DSX configuration
   anvil_nodes_map_for_dsx = local.create_standalone_anvil ? {
-    "1" = { hostname = "${var.project_name}Anvil", features = ["metadata"] }
+    "1" = { hostname = "${var.common_config.project_name}Anvil", features = ["metadata"] }
     } : (local.create_ha_anvils ? {
-    "1" = { hostname = "${var.project_name}Anvil1", features = ["metadata"] },
-    "2" = { hostname = "${var.project_name}Anvil2", features = ["metadata"] }
-    } : {})
+    "1" = { hostname = "${var.common_config.project_name}Anvil1", features = ["metadata"] },
+    "2" = { hostname = "${var.common_config.project_name}Anvil2", features = ["metadata"] }
+  } : {})
 }

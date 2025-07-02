@@ -1,21 +1,41 @@
+# Copyright (c) 2025 Hammerspace, Inc
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# -----------------------------------------------------------------------------
+# variables.tf
+#
+# This file defines all the input variables for the root module of the
+# Terraform-AWS project.
+# -----------------------------------------------------------------------------
+
 # Global variables (NO prefix)
 
-variable "capacity_reservation_create_timeout" {
-  description = "The duration to wait for a capacity reservation to be fulfilled before timing out. Examples: '5m' for 5 minutes, '10m' for 10 minutes."
+variable "region" {
+  description = "AWS region for all resources"
   type        = string
-  default     = "3m"
+  default     = "us-west-2"
 }
 
 variable "assign_public_ip" {
   description = "If true, assigns a public IP address to all created EC2 instances. If false, only a private IP will be assigned."
   type        = bool
   default     = false
-}
-
-variable "region" {
-  description = "AWS region for all resources"
-  type        = string
-  default     = "us-west-2"
 }
 
 variable "vpc_id" {
@@ -65,6 +85,12 @@ variable "deploy_components" {
     ])
     error_message = "Each item in deploy_components must be one of: \"all\", \"ansible\", \"clients\", \"storage\", or \"hammerspace\"."
   }
+}
+
+variable "capacity_reservation_create_timeout" {
+  description = "The duration to wait for a capacity reservation to be fulfilled before timing out. Examples: '5m' for 5 minutes, '10m' for 10 minutes."
+  type        = string
+  default     = "5m"
 }
 
 # CLIENT-SPECIFIC VARIABLES (WITH clients_ PREFIX)
@@ -365,52 +391,52 @@ variable "placement_group_strategy" {
 
 variable "ansible_instance_count" {
   description = "Number of ansible instances"
-  type = number
-  default = 1
+  type        = number
+  default     = 1
 }
 
 variable "ansible_ami" {
   description = "AMI for Ansible instances"
-  type = string
+  type        = string
 }
 
 variable "ansible_instance_type" {
   description = "Instance type for Ansible"
-  type = string
-  default = "m5n.8xlarge"
+  type        = string
+  default     = "m5n.8xlarge"
 }
 
 variable "ansible_boot_volume_size" {
   description = "Root volume size (GB) for Ansible"
-  type = number
-  default = 100
+  type        = number
+  default     = 100
 }
 
 variable "ansible_boot_volume_type" {
   description = "Root volume type for Ansible"
-  type = string
-  default = "gp2"
+  type        = string
+  default     = "gp2"
 }
 
 variable "ansible_user_data" {
   description = "Path to user data script for Ansible"
-  type = string
-  default = ""
+  type        = string
+  default     = ""
 }
 
 variable "ansible_target_user" {
   description = "Default system user for Ansible EC2"
-  type = string
-  default = "ubuntu"
+  type        = string
+  default     = "ubuntu"
 }
 
 variable "volume_group_name" {
   description = "Volume group name for Ansible to feed Anvil"
-  type = string
-  default = "vg-auto"
+  type        = string
+  default     = "vg-auto"
 }
 
 variable "share_name" {
   description = "Share name for Ansible to feed Anvil"
-  type = string
+  type        = string
 }

@@ -1,16 +1,41 @@
-# --- IAM Resources ---
+# Copyright (c) 2025 Hammerspace, Inc
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# -----------------------------------------------------------------------------
+# modules/hammerspace/hammerspace_main.tf
+#
+# This file contains the main logic for the Hammerspace module. It creates
+# all the necessary AWS resources for Anvil and DSX nodes.
+# -----------------------------------------------------------------------------
 
+# --- IAM Resources ---
 resource "aws_iam_group" "admin_group" {
   count = local.create_iam_admin_group ? 1 : 0
-  name  = var.iam_admin_group_id != "" ? var.iam_admin_group_id : "${var.project_name}-AnvilAdminGroup"
+  name  = var.iam_admin_group_id != "" ? var.iam_admin_group_id : "${var.common_config.project_name}-AnvilAdminGroup"
   path  = "/users/"
 }
 
 resource "aws_iam_role" "instance_role" {
   count = local.create_profile ? 1 : 0
-  name  = "${var.project_name}-InstanceRole"
+  name  = "${var.common_config.project_name}-InstanceRole"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
   tags = local.common_tags
@@ -21,9 +46,11 @@ resource "aws_iam_role_policy" "ssh_policy" {
   name  = "IAMAccessSshPolicy"
   role  = aws_iam_role.instance_role[0].id
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{
-      Sid      = "1", Effect = "Allow", Action = ["iam:ListSSHPublicKeys", "iam:GetSSHPublicKey", "iam:GetGroup"],
+      Sid      = "1",
+      Effect   = "Allow",
+      Action   = ["iam:ListSSHPublicKeys", "iam:GetSSHPublicKey", "iam:GetGroup"],
       Resource = compact(["arn:${data.aws_partition.current.partition}:iam::*:user/*", local.effective_iam_admin_group_arn])
     }]
   })
@@ -34,7 +61,7 @@ resource "aws_iam_role_policy" "ha_instance_policy" {
   name  = "HAInstancePolicy"
   role  = aws_iam_role.instance_role[0].id
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Sid = "2", Effect = "Allow", Action = ["ec2:DescribeInstances", "ec2:DescribeInstanceAttribute", "ec2:DescribeTags"], Resource = ["*"] }]
   })
 }
@@ -44,7 +71,7 @@ resource "aws_iam_role_policy" "floating_ip_policy" {
   name  = "FloatingIpPolicy"
   role  = aws_iam_role.instance_role[0].id
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Sid = "3", Effect = "Allow", Action = ["ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"], Resource = ["*"] }]
   })
 }
@@ -54,25 +81,24 @@ resource "aws_iam_role_policy" "anvil_metering_policy" {
   name  = "AnvilMeteringPolicy"
   role  = aws_iam_role.instance_role[0].id
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Sid = "4", Effect = "Allow", Action = ["aws-marketplace:MeterUsage"], Resource = ["*"] }]
   })
 }
 
 resource "aws_iam_instance_profile" "profile" {
   count = local.create_profile ? 1 : 0
-  name  = "${var.project_name}-InstanceProfile"
+  name  = "${var.common_config.project_name}-InstanceProfile"
   role  = aws_iam_role.instance_role[0].name
   tags  = local.common_tags
 }
 
 # --- Security Groups ---
-
 resource "aws_security_group" "anvil_data_sg" {
   count       = local.should_create_any_anvils && var.anvil_security_group_id == "" ? 1 : 0
-  name        = "${var.project_name}-AnvilDataSG"
+  name        = "${var.common_config.project_name}-AnvilDataSG"
   description = "Security group for Anvil metadata servers"
-  vpc_id      = var.vpc_id
+  vpc_id      = var.common_config.vpc_id
   tags        = local.common_tags
 
   egress {
@@ -90,7 +116,7 @@ resource "aws_security_group" "anvil_data_sg" {
   }
   # Anvil TCP Ports
   dynamic "ingress" {
-    for_each = [22, 80, 111, 161, 443, 662, 2049, 2224, 4379, 8443, 9097, 9099, 9399, 20048, 20491, 20492, 21064, 50000, 51000, 53030]
+    for_each = toset([22, 80, 111, 161, 443, 662, 2049, 2224, 4379, 8443, 9097, 9099, 9399, 20048, 20491, 20492, 21064, 50000, 51000, 53030])
     content {
       protocol    = "tcp"
       from_port   = ingress.value
@@ -142,7 +168,7 @@ resource "aws_security_group" "anvil_data_sg" {
   }
   # Anvil UDP Ports
   dynamic "ingress" {
-    for_each = [111, 123, 161, 662, 4379, 5405, 20048]
+    for_each = toset([111, 123, 161, 662, 4379, 5405, 20048])
     content {
       protocol    = "udp"
       from_port   = ingress.value
@@ -154,9 +180,9 @@ resource "aws_security_group" "anvil_data_sg" {
 
 resource "aws_security_group" "dsx_sg" {
   count       = var.dsx_count > 0 && var.dsx_security_group_id == "" ? 1 : 0
-  name        = "${var.project_name}-DsxSG"
+  name        = "${var.common_config.project_name}-DsxSG"
   description = "Security group for DSX data services nodes"
-  vpc_id      = var.vpc_id
+  vpc_id      = var.common_config.vpc_id
   tags        = local.common_tags
 
   egress {
@@ -174,7 +200,7 @@ resource "aws_security_group" "dsx_sg" {
   }
   # DSX TCP Ports
   dynamic "ingress" {
-    for_each = [22, 111, 139, 161, 445, 662, 2049, 3049, 4379, 9093, 9292, 20048, 20491, 20492, 30048, 30049, 50000, 51000, 53030]
+    for_each = toset([22, 111, 139, 161, 445, 662, 2049, 3049, 4379, 9093, 9292, 20048, 20491, 20492, 30048, 30049, 50000, 51000, 53030])
     content {
       protocol    = "tcp"
       from_port   = ingress.value
@@ -226,7 +252,7 @@ resource "aws_security_group" "dsx_sg" {
   }
   # DSX UDP Ports
   dynamic "ingress" {
-    for_each = [111, 161, 662, 20048, 30048, 30049]
+    for_each = toset([111, 161, 662, 20048, 30048, 30049])
     content {
       protocol    = "udp"
       from_port   = ingress.value
@@ -237,41 +263,40 @@ resource "aws_security_group" "dsx_sg" {
 }
 
 # --- Anvil Standalone Resources ---
-
 resource "aws_network_interface" "anvil_sa_ni" {
   count           = local.create_standalone_anvil ? 1 : 0
-  subnet_id       = var.subnet_id
+  subnet_id       = var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
-  tags            = merge(local.common_tags, { Name = "${var.project_name}-Anvil-NI" })
+  tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil_sa" {
-  count  = local.create_standalone_anvil && var.assign_public_ip ? 1 : 0
+  count  = local.create_standalone_anvil && var.common_config.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil-EIP" })
+  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-EIP" })
 }
 
 resource "aws_eip_association" "anvil_sa" {
-  count                = local.create_standalone_anvil && var.assign_public_ip ? 1 : 0
+  count                = local.create_standalone_anvil && var.common_config.assign_public_ip ? 1 : 0
   network_interface_id = aws_network_interface.anvil_sa_ni[0].id
   allocation_id        = aws_eip.anvil_sa[0].id
 }
 
 resource "aws_instance" "anvil" {
-  count                  = local.create_standalone_anvil ? 1 : 0
-  ami                    = var.ami
-  instance_type          = local.anvil_instance_type_actual
-  availability_zone      = var.availability_zone
-  key_name               = local.provides_key_name ? var.key_name : null
-  iam_instance_profile   = local.effective_instance_profile_ref
-  user_data_base64       = base64encode(jsonencode(local.anvil_sa_config_map))
-  placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+  count                 = local.create_standalone_anvil ? 1 : 0
+  ami                   = var.ami
+  instance_type         = local.anvil_instance_type_actual
+  availability_zone     = var.common_config.availability_zone
+  key_name              = local.provides_key_name ? var.common_config.key_name : null
+  iam_instance_profile  = local.effective_instance_profile_ref
+  user_data_base64      = base64encode(jsonencode(local.anvil_sa_config_map))
+  placement_group       = var.common_config.placement_group_name
 
   lifecycle {
     precondition {
       condition     = var.sa_anvil_destruction == true
-      error_message = "The standalone Anvil is protected. To destroy it, set 'hammerspace_allow_standalone_anvil_destruction = true'."
+      error_message = "The standalone Anvil is protected. To destroy it, set 'sa_anvil_destruction = true'."
     }
   }
 
@@ -285,27 +310,27 @@ resource "aws_instance" "anvil" {
     volume_size = 200
   }
 
-  tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil" })
+  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil" })
 
   depends_on = [
-  	        aws_iam_instance_profile.profile
-	       ]
+    aws_iam_instance_profile.profile
+  ]
 
   capacity_reservation_specification {
     capacity_reservation_target {
       capacity_reservation_id = var.anvil_capacity_reservation_id
     }
-  }	       
+  }
 }
 
 resource "aws_ebs_volume" "anvil_meta_vol" {
-  count               = local.create_standalone_anvil ? 1 : 0
-  availability_zone   = var.availability_zone
-  size                = var.anvil_meta_disk_size
-  type                = var.anvil_meta_disk_type
-  iops                = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
-  throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil-MetaVol" })
+  count             = local.create_standalone_anvil ? 1 : 0
+  availability_zone = var.common_config.availability_zone
+  size              = var.anvil_meta_disk_size
+  type              = var.anvil_meta_disk_type
+  iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
+  throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
+  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil_meta_vol_attach" {
@@ -316,42 +341,41 @@ resource "aws_volume_attachment" "anvil_meta_vol_attach" {
 }
 
 # --- Anvil HA Resources ---
-
 resource "aws_network_interface" "anvil1_ha_ni" {
   count           = local.create_ha_anvils ? 1 : 0
-  subnet_id       = var.subnet_id
+  subnet_id       = var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
-  tags            = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-NI" })
+  tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil1_ha" {
-  count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  count  = local.create_ha_anvils && var.common_config.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-EIP" })
+  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-EIP" })
 }
 
 resource "aws_eip_association" "anvil1_ha" {
-  count                = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  count                = local.create_ha_anvils && var.common_config.assign_public_ip ? 1 : 0
   network_interface_id = aws_network_interface.anvil1_ha_ni[0].id
   allocation_id        = aws_eip.anvil1_ha[0].id
 }
 
 resource "aws_instance" "anvil1" {
-  count                  = local.create_ha_anvils ? 1 : 0
-  ami                    = var.ami
-  instance_type          = local.anvil_instance_type_actual
-  availability_zone      = var.availability_zone
-  key_name               = local.provides_key_name ? var.key_name : null
-  iam_instance_profile   = local.effective_instance_profile_ref
-  user_data_base64       = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "0" })))
-  placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+  count                 = local.create_ha_anvils ? 1 : 0
+  ami                   = var.ami
+  instance_type         = local.anvil_instance_type_actual
+  availability_zone     = var.common_config.availability_zone
+  key_name              = local.provides_key_name ? var.common_config.key_name : null
+  iam_instance_profile  = local.effective_instance_profile_ref
+  user_data_base64      = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "0" })))
+  placement_group       = var.common_config.placement_group_name
 
   lifecycle {
     precondition {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."
-    }      
+    }
   }
 
   network_interface {
@@ -362,26 +386,26 @@ resource "aws_instance" "anvil1" {
     volume_type = "gp3"
     volume_size = 200
   }
-  tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil1", Index = "0" })
+  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1", Index = "0" })
   depends_on = [
-  	        aws_iam_instance_profile.profile
-	       ]
+    aws_iam_instance_profile.profile
+  ]
 
   capacity_reservation_specification {
     capacity_reservation_target {
       capacity_reservation_id = var.anvil_capacity_reservation_id
     }
-  }	       
+  }
 }
 
 resource "aws_ebs_volume" "anvil1_meta_vol" {
-  count               = local.create_ha_anvils ? 1 : 0
-  availability_zone   = var.availability_zone
-  size                = var.anvil_meta_disk_size
-  type                = var.anvil_meta_disk_type
-  iops                = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
-  throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil1-MetaVol" })
+  count             = local.create_ha_anvils ? 1 : 0
+  availability_zone = var.common_config.availability_zone
+  size              = var.anvil_meta_disk_size
+  type              = var.anvil_meta_disk_type
+  iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
+  throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
+  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil1_meta_vol_attach" {
@@ -393,34 +417,34 @@ resource "aws_volume_attachment" "anvil1_meta_vol_attach" {
 
 resource "aws_network_interface" "anvil2_ha_ni" {
   count             = local.create_ha_anvils ? 1 : 0
-  subnet_id         = var.subnet_id
+  subnet_id         = var.common_config.subnet_id
   security_groups   = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
   private_ips_count = 1
-  tags              = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-NI" })
+  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-NI" })
   depends_on        = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil2_ha" {
-  count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  count  = local.create_ha_anvils && var.common_config.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-EIP" })
+  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-EIP" })
 }
 
 resource "aws_eip_association" "anvil2_ha" {
-  count                = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
+  count                = local.create_ha_anvils && var.common_config.assign_public_ip ? 1 : 0
   network_interface_id = aws_network_interface.anvil2_ha_ni[0].id
   allocation_id        = aws_eip.anvil2_ha[0].id
 }
 
 resource "aws_instance" "anvil2" {
-  count                  = local.create_ha_anvils ? 1 : 0
-  ami                    = var.ami
-  instance_type          = local.anvil_instance_type_actual
-  availability_zone      = var.availability_zone
-  key_name               = local.provides_key_name ? var.key_name : null
-  iam_instance_profile   = local.effective_instance_profile_ref
-  user_data_base64       = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "1" })))
-  placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+  count                 = local.create_ha_anvils ? 1 : 0
+  ami                   = var.ami
+  instance_type         = local.anvil_instance_type_actual
+  availability_zone     = var.common_config.availability_zone
+  key_name              = local.provides_key_name ? var.common_config.key_name : null
+  iam_instance_profile  = local.effective_instance_profile_ref
+  user_data_base64      = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "1" })))
+  placement_group       = var.common_config.placement_group_name
 
   lifecycle {
     precondition {
@@ -437,27 +461,27 @@ resource "aws_instance" "anvil2" {
     volume_type = "gp3"
     volume_size = 200
   }
-  tags = merge(local.common_tags, { Name = "${var.project_name}-Anvil2", Index = "1" })
+  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2", Index = "1" })
   depends_on = [
-  	        aws_instance.anvil1,
-		aws_iam_instance_profile.profile,
-	       ]
+    aws_instance.anvil1,
+    aws_iam_instance_profile.profile,
+  ]
 
   capacity_reservation_specification {
     capacity_reservation_target {
       capacity_reservation_id = var.anvil_capacity_reservation_id
     }
-  }	       
+  }
 }
 
 resource "aws_ebs_volume" "anvil2_meta_vol" {
-  count               = local.create_ha_anvils ? 1 : 0
-  availability_zone   = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].availability_zone : var.availability_zone
-  size                = var.anvil_meta_disk_size
-  type                = var.anvil_meta_disk_type
-  iops                = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
-  throughput          = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags                = merge(local.common_tags, { Name = "${var.project_name}-Anvil2-MetaVol" })
+  count             = local.create_ha_anvils ? 1 : 0
+  availability_zone = length(aws_instance.anvil2) > 0 ? aws_instance.anvil2[0].availability_zone : var.common_config.availability_zone
+  size              = var.anvil_meta_disk_size
+  type              = var.anvil_meta_disk_type
+  iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
+  throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
+  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
@@ -468,36 +492,35 @@ resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
 }
 
 # --- DSX Data Services Node Resources ---
-
 resource "aws_network_interface" "dsx_ni" {
   count               = var.dsx_count
-  subnet_id           = var.subnet_id
+  subnet_id           = var.common_config.subnet_id
   security_groups     = local.effective_dsx_sg_id != null ? [local.effective_dsx_sg_id] : []
   source_dest_check   = false
-  tags                = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}-NI" })
+  tags                = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}-NI" })
   depends_on          = [aws_security_group.dsx_sg]
 }
 
 resource "aws_eip" "dsx" {
-  count  = var.assign_public_ip ? var.dsx_count : 0
+  count  = var.common_config.assign_public_ip ? var.dsx_count : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}-EIP" })
+  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}-EIP" })
 }
 
 resource "aws_eip_association" "dsx" {
-  count                = var.assign_public_ip ? var.dsx_count : 0
+  count                = var.common_config.assign_public_ip ? var.dsx_count : 0
   network_interface_id = aws_network_interface.dsx_ni[count.index].id
   allocation_id        = aws_eip.dsx[count.index].id
 }
 
 resource "aws_instance" "dsx" {
-  count                  = var.dsx_count
-  ami                    = var.ami
-  instance_type          = local.dsx_instance_type_actual
-  availability_zone      = var.availability_zone
-  key_name               = local.provides_key_name ? var.key_name : null
-  iam_instance_profile   = local.effective_instance_profile_ref
-  placement_group        = var.placement_group_name != "" ? var.placement_group_name : null
+  count                 = var.dsx_count
+  ami                   = var.ami
+  instance_type         = local.dsx_instance_type_actual
+  availability_zone     = var.common_config.availability_zone
+  key_name              = local.provides_key_name ? var.common_config.key_name : null
+  iam_instance_profile  = local.effective_instance_profile_ref
+  placement_group       = var.common_config.placement_group_name
 
   user_data_base64 = base64encode(jsonencode({
     cluster = {
@@ -510,7 +533,7 @@ resource "aws_instance" "dsx" {
     nodes = merge(
       {
         "0" = {
-          hostname    = "${var.project_name}DSX${count.index + 1}"
+          hostname    = "${var.common_config.project_name}DSX${count.index + 1}"
           features    = ["storage", "portal"]
           add_volumes = local.dsx_add_volumes_bool
           networks = {
@@ -532,22 +555,22 @@ resource "aws_instance" "dsx" {
     volume_type = "gp3"
     volume_size = 200
   }
-  tags = merge(local.common_tags, { Name = "${var.project_name}-DSX${count.index + 1}" })
+  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}" })
   depends_on = [
-  	        aws_iam_instance_profile.profile
-	       ]
+    aws_iam_instance_profile.profile
+  ]
 }
 
 resource "aws_ebs_volume" "dsx_data_vols" {
   count = var.dsx_count * var.dsx_ebs_count
 
-  availability_zone = var.availability_zone
+  availability_zone = var.common_config.availability_zone
   size              = var.dsx_ebs_size
   type              = var.dsx_ebs_type
   iops              = contains(["io1", "io2", "gp3"], var.dsx_ebs_type) ? var.dsx_ebs_iops : null
   throughput        = var.dsx_ebs_type == "gp3" ? var.dsx_ebs_throughput : null
   tags = merge(local.common_tags, {
-    Name             = "${var.project_name}-DSX${floor(count.index / var.dsx_ebs_count) + 1}-DataVol${(count.index % var.dsx_ebs_count) + 1}"
+    Name             = "${var.common_config.project_name}-DSX${floor(count.index / var.dsx_ebs_count) + 1}-DataVol${(count.index % var.dsx_ebs_count) + 1}"
     DSXInstanceIndex = floor(count.index / var.dsx_ebs_count)
     VolumeIndex      = count.index % var.dsx_ebs_count
   })
