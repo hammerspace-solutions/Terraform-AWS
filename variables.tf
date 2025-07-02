@@ -38,6 +38,12 @@ variable "assign_public_ip" {
   default     = false
 }
 
+variable "custom_ami_owner_ids" {
+  description = "A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts."
+  type        = list(string)
+  default     = []
+}
+
 variable "vpc_id" {
   description = "VPC ID for all resources"
   type        = string

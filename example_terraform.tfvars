@@ -16,6 +16,13 @@ deploy_components		     = ["all"]
 
 assign_public_ip  	     	     = false
 
+# Custom AMI owner ID's
+# This is a list of the owners of any custom AMI's. Since Hammerspace is a custom AMI,
+# in order to provide guard-rail checking if the AMI exists in a given region, we will
+# need to specify the AMI owner. In this case, Hammerspace and Ubuntu owners...
+
+custom_ami_owner_ids  	  	     = ["919243021404", "679593333241"]
+
 # Placement Group
 #
 # Leave the name blank if you don't want your resources in a placement group
@@ -58,7 +65,7 @@ tags = {
 # we only have scripts for ubuntu and rocky.
 
 clients_instance_count		     = 2
-clients_ami 			     = "ami-075686beab831bb7f"
+clients_ami 			     = "ami-04cfeb9ad57f3053a"
 clients_instance_type 		     = "m5n.2xlarge"
 clients_boot_volume_size	     = 100
 clients_boot_volume_type	     = "gp2"
@@ -88,7 +95,7 @@ clients_target_user 		     = "ubuntu"
 # we only have scripts for ubuntu and rocky.
 
 storage_instance_count	 	     = 5
-storage_ami 			     = "ami-075686beab831bb7f"
+storage_ami 			     = "ami-04cfeb9ad57f3053a"
 storage_instance_type 		     = "m5n.2xlarge"
 storage_boot_volume_size	     = 100
 storage_boot_volume_type	     = "gp2"
@@ -154,7 +161,7 @@ hammerspace_dsx_ebs_throughput	     = 1000
 # we only have a script for ubuntu.
 
 ansible_instance_count		     = 1
-ansible_ami			     = "ami-075686beab831bb7f"
+ansible_ami			     = "ami-04cfeb9ad57f3053a"
 ansible_instance_type		     = "m5n.2xlarge"
 ansible_boot_volume_size	     = 40
 ansible_boot_volume_type	     = "gp2"
