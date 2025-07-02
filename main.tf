@@ -49,6 +49,81 @@ check "vpc_and_subnet_validation" {
 }
 
 # -----------------------------------------------------------------------------
+# Pre-flight checks for existence of AMI in region
+# -----------------------------------------------------------------------------
+
+check "client_ami_exists" {
+  # This data source attempts to find the specified AMI in the target region.
+  # It will fail the plan if the AMI ID is invalid or not available.
+  data "aws_ami" "client_ami_check" {
+    most_recent = true # Required argument for the data source
+    owners      = ["self", "amazon", "aws-marketplace"] # Broaden search owners
+
+    filter {
+      name   = "image-id"
+      values = [var.clients_ami]
+    }
+  }
+
+  # This assertion provides a user-friendly error message.
+  assert {
+    condition     = data.aws_ami.client_ami_check.id == var.clients_ami
+    error_message = "Validation Error: The specified clients_ami (ID: ${var.clients_ami}) was not found in the region ${var.region}. Please verify the AMI ID and region."
+  }
+}
+
+check "storage_ami_exists" {
+  data "aws_ami" "storage_ami_check" {
+    most_recent = true
+    owners      = ["self", "amazon", "aws-marketplace"]
+
+    filter {
+      name   = "image-id"
+      values = [var.storage_ami]
+    }
+  }
+
+  assert {
+    condition     = data.aws_ami.storage_ami_check.id == var.storage_ami
+    error_message = "Validation Error: The specified storage_ami (ID: ${var.storage_ami}) was not found in the region ${var.region}."
+  }
+}
+
+check "hammerspace_ami_exists" {
+  data "aws_ami" "hammerspace_ami_check" {
+    most_recent = true
+    owners      = ["self", "amazon", "aws-marketplace"]
+
+    filter {
+      name   = "image-id"
+      values = [var.hammerspace_ami]
+    }
+  }
+
+  assert {
+    condition     = data.aws_ami.hammerspace_ami_check.id == var.hammerspace_ami
+    error_message = "Validation Error: The specified hammerspace_ami (ID: ${var.hammerspace_ami}) was not found in the region ${var.region}."
+  }
+}
+
+check "ansible_ami_exists" {
+  data "aws_ami" "ansible_ami_check" {
+    most_recent = true
+    owners      = ["self", "amazon", "aws-marketplace"]
+
+    filter {
+      name   = "image-id"
+      values = [var.ansible_ami]
+    }
+  }
+
+  assert {
+    condition     = data.aws_ami.ansible_ami_check.id == var.ansible_ami
+    error_message = "Validation Error: The specified ansible_ami (ID: ${var.ansible_ami}) was not found in the region ${var.region}."
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Pre-flight checks for instance type existence.
 # -----------------------------------------------------------------------------
 check "anvil_instance_type_is_available" {
