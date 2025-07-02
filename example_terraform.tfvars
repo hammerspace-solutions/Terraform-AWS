@@ -29,9 +29,9 @@ placement_group_strategy	     = "cluster"
 # Change your project_name, the key_name, and the vpc and subnet id's
 
 project_name		             = "AWS-Project"
-key_name   			     = "Fubar"
-vpc_id     			     = "vpc-12334567"
-subnet_id  			     = "subnet-123456abcdefgh"
+key_name   			     = "Kade"
+vpc_id     			     = "vpc-e3bff585"
+subnet_id  			     = "subnet-0d8a5005baa68ec71"
 
 # You can put in as many tags as you would like. The format should be self-explanatory
 
