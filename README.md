@@ -18,6 +18,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
   - [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
 - [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
+- [Prerequisites](#prerequisites)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
 - [Important Note on Placement Group Deletion](#important-note-on-placement-group-deletion)
@@ -237,16 +238,21 @@ If you are using the `hammerspace_profile_id` variable to provide a pre-existing
 
 ---
 
+## Prerequisites
+
+Before running this Terraform configuration, please ensure the following one-time setup tasks are complete for the target AWS account.
+
+* **Install Tools**: You must have [Terraform](https://developer.hashicorp.com/terraform/downloads) and the [AWS CLI](https://aws.amazon.com/cli/) installed and configured on your local machine.
+* **AWS Marketplace Subscription**: This configuration uses partner AMIs (e.g., for Hammerspace) which require a subscription in the AWS Marketplace. If you encounter an `OptInRequired` error during `terraform apply`, the error message will contain a specific URL. You must visit this URL, sign in to your AWS account, and accept the terms to subscribe to the product. This only needs to be done once per AWS account for each product.
+
+---
+
 ## How to Use
 
-1.  **Prerequisites**:
-    * Install Terraform.
-    * Install and configure the AWS CLI. Your credentials should be stored in `~/.aws/credentials`.
-2.  **Configure Local AWS Profile**: If you use a named profile from your `~/.aws/credentials` file for local development, follow the setup in the section below. Otherwise, Terraform will use environment variables.
-3.  **Initialize**: `terraform init`
-4.  **Configure**: Create a `terraform.tfvars` file to set your desired variables. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
-5.  **Plan**: `terraform plan`
-6.  **Apply**: `terraform apply`
+1.  **Initialize**: `terraform init`
+2.  **Configure**: Create a `terraform.tfvars` file to set your desired variables. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
+3.  **Plan**: `terraform plan`
+4.  **Apply**: `terraform apply`
 
 ### Local Development Setup (AWS Profile)
 To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
@@ -255,7 +261,7 @@ To use a named profile from your `~/.aws/credentials` file for local runs withou
 2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
 
     ```terraform
-    # SizingTerraform/local_override.tf
+    # Terraform-AWS/local_override.tf
     # This file is for local development overrides and should not be committed.
 
     provider "aws" {
