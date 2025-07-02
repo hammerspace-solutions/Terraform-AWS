@@ -38,14 +38,19 @@ locals {
     []
   )
 
+  # This is the corrected user data processing block.
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    TARGET_USER       = var.target_user,
-    TARGET_HOME       = "/home/${var.target_user}",
-    SSH_KEYS          = join("\n", local.ssh_public_keys),
+    TARGET_USER = var.target_user,
+    TARGET_HOME = "/home/${var.target_user}",
+    SSH_KEYS    = join("\n", local.ssh_public_keys),
+
+    # Safely select the first element from the lists, or null if the list is empty.
+    MGMT_IP           = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : null,
+    ANVIL_ID          = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : null,
+    
+    # These variables are for the Ansible playbooks
     TARGET_NODES_JSON = var.target_nodes_json,
     ADMIN_PRIVATE_KEY = var.admin_private_key,
-    MGMT_IP           = one(var.mgmt_ip),
-    ANVIL_ID          = one(var.anvil_instances[*].id),
     STORAGE_INSTANCES = jsonencode(var.storage_instances),
     VG_NAME           = var.volume_group_name,
     SHARE_NAME        = var.share_name
@@ -86,7 +91,7 @@ resource "aws_instance" "this" {
   ami           = var.ami
   instance_type = var.instance_type
   user_data     = local.processed_user_data
-
+  
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   associate_public_ip_address = var.common_config.assign_public_ip
