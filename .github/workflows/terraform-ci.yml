@@ -1,3 +1,6 @@
+# .github/workflows/terraform-ci.yml
+# This workflow runs static analysis and a dry run plan on every push/PR.
+
 name: Terraform CI
 
 on:
@@ -5,6 +8,11 @@ on:
     branches:
       - main
   pull_request:
+
+# Add OIDC permissions to allow the workflow to request a token from GitHub.
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   terraform-checks:
@@ -19,6 +27,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false # Recommended for CI
+
+      # --- THIS IS THE NEW, SECURE AUTHENTICATION STEP ---
+      # This action uses OIDC to securely assume a role in your AWS account.
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # The ARN of the IAM role created in AWS for this repository.
+          # This is read from a GitHub secret.
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.REGION || 'us-west-2' }}
 
       - name: Copy example tfvars for testing
         run: cp example_terraform.tfvars terraform.tfvars
@@ -36,7 +54,6 @@ jobs:
         id: validate
         run: terraform validate -no-color
 
-      # --- Optional but Recommended Security Scan ---
       - name: Install Trivy (for tfsec)
         run: |
           sudo apt-get install wget apt-transport-https gnupg lsb-release -y
@@ -48,10 +65,8 @@ jobs:
       - name: Run Trivy (tfsec) Security Scan
         run: trivy config .
 
-      # --- Final Dry Run ---
       - name: Terraform Plan
         id: plan
-        # Using a multi-line run block for readability
         run: |
           terraform plan -no-color \
             -var="project_name=${{ vars.PROJECT_NAME }}" \
@@ -71,6 +86,4 @@ jobs:
             -var="hammerspace_anvil_instance_type=${{ vars.HAMMERSPACE_ANVIL_INSTANCE_TYPE }}" \
             -var="hammerspace_dsx_instance_type=${{ vars.HAMMERSPACE_DSX_INSTANCE_TYPE }}" \
             -var="ansible_instance_type=${{ vars.ANSIBLE_INSTANCE_TYPE }}"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        # The old `env:` block with static keys has been removed.
