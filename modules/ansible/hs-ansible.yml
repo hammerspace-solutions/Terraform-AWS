@@ -401,8 +401,8 @@
             validate_certs: no
           register: _result
           until: _result.json.status == "COMPLETED"
-          retries: 10
-          delay: 5
+          retries: 30
+          delay: 20
           when: item.status == 202
           loop: "{{ __results.results }}"
           loop_control:
