@@ -510,4 +510,4 @@
         msg: "Failed to check the existence of storage systems before adding volumes."
     - name: Storage volume addition failed
       fail:
-        msg: "One or more storage volumes failed to initiate addition. Review previous task output
+        msg: "One or more storage volumes failed to initiate addition. Review previous task output"
