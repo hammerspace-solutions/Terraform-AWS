@@ -127,6 +127,27 @@ check "storage_server_instance_type_is_available" {
   }
 }
 
+# ECGroup
+check "ecgroup_node_instance_type_is_available" {
+  data "aws_ec2_instance_type_offerings" "ecgroup_node_check" {
+    provider = aws
+    filter {
+      name   = "instance-type"
+      values = [var.ecgroup_instance_type]
+    }
+    filter {
+      name   = "location"
+      values = [data.aws_subnet.this.availability_zone]
+    }
+    location_type = "availability-zone"
+  }
+
+  assert {
+    condition     = length(data.aws_ec2_instance_type_offerings.ecgroup_node_check.instance_types) > 0
+    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Pre-flight checks for AMI existence.
 # -----------------------------------------------------------------------------
@@ -190,6 +211,24 @@ check "ansible_ami_exists" {
   }
 }
 
+check "ecgroup_node_ami_exists" {
+  data "aws_ami" "ecgroup_node_ami_check" {
+    provider = aws
+    most_recent = true
+    owners      = ["self", "amazon"]
+
+    filter {
+      name   = "image-id"
+      values = [local.select_ecgroup_ami_for_region]
+    }
+  }
+
+  assert {
+    condition     = local.select_ecgroup_ami_for_region != null && data.aws_ami.ecgroup_node_ami_check.id != ""
+    error_message = "EC-Group not available for the specified region (${var.region})."
+  }
+}
+
 # Determine which components to deploy and create a common configuration object
 locals {
   common_config = {
@@ -209,11 +248,19 @@ locals {
   deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ansible     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
+  deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
 
   all_ssh_nodes = concat(
     local.deploy_clients ? module.clients[0].instance_details : [],
     local.deploy_storage ? module.storage_servers[0].instance_details : []
   )
+
+  ecgroup_ami_mapping = {
+    "eu-west-3" = "ami-0366b4547202afb15"
+    "us-west-2" = "ami-0ee373e3712d6ed99"
+  }
+
+  select_ecgroup_ami_for_region = lookup(local.ecgroup_ami_mapping, var.region, "")
 }
 
 # -----------------------------------------------------------------------------
@@ -283,6 +330,23 @@ resource "aws_ec2_capacity_reservation" "storage" {
   }
 }
 
+# ECGroup
+resource "aws_ec2_capacity_reservation" "ecgroup_node" {
+  count = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? 1 : 0
+
+  instance_type     = var.ecgroup_instance_type
+  instance_platform = "Linux/UNIX"
+  availability_zone = data.aws_subnet.this.availability_zone
+  instance_count    = var.storage_instance_count
+  tenancy           = "default"
+  end_date_type     = "unlimited"
+  tags              = merge(var.tags, { Name = "${var.project_name}-ECGroup-Reservation" })
+
+  timeouts {
+    create = var.capacity_reservation_create_timeout
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Resource and Module Definitions
 # -----------------------------------------------------------------------------
@@ -293,6 +357,7 @@ resource "aws_placement_group" "this" {
   tags     = var.tags
 }
 
+# Deploy the clients module if requested
 module "clients" {
   count = local.deploy_clients ? 1 : 0
   source = "./modules/clients"
@@ -370,6 +435,34 @@ module "hammerspace" {
   dsx_add_vols                 = var.hammerspace_dsx_add_vols
 }
 
+# Deploy the ECGroup module if requested
+module "ecgroup" {
+  count   = local.deploy_ecgroup ? 1 : 0
+  source  = "./modules/ecgroup"
+
+  common_config           = local.common_config
+  capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 0 ? aws_ec2_capacity_reservation.ecgroup_node[0].id: null
+  placement_group_name    = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
+
+  node_count              = var.ecgroup_node_count
+  ami                     = local.select_ecgroup_ami_for_region
+  instance_type           = var.ecgroup_instance_type
+  boot_volume_size        = var.ecgroup_boot_volume_size
+  boot_volume_type        = var.ecgroup_boot_volume_type
+  metadata_ebs_type       = var.ecgroup_metadata_volume_type
+  metadata_ebs_size       = var.ecgroup_metadata_volume_size
+  metadata_ebs_throughput = var.ecgroup_metadata_volume_throughput
+  metadata_ebs_iops       = var.ecgroup_metadata_volume_iops
+  storage_ebs_count       = var.ecgroup_storage_volume_count
+  storage_ebs_type        = var.ecgroup_storage_volume_type
+  storage_ebs_size        = var.ecgroup_storage_volume_size
+  storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
+  storage_ebs_iops        = var.ecgroup_storage_volume_iops
+  user_data               = var.ecgroup_user_data
+}
+
+
+# Deploy the Ansible module if requested
 module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
@@ -378,9 +471,13 @@ module "ansible" {
   target_nodes_json = jsonencode(local.all_ssh_nodes)
   admin_private_key = fileexists("./ansible_admin_key") ? file("./ansible_admin_key") : ""
 
-  mgmt_ip           = flatten(module.hammerspace[*].management_ip)
-  anvil_instances   = flatten(module.hammerspace[*].anvil_instances)
-  storage_instances = flatten(module.storage_servers[*].instance_details)
+  mgmt_ip                 = flatten(module.hammerspace[*].management_ip)
+  anvil_instances         = flatten(module.hammerspace[*].anvil_instances)
+  storage_instances       = flatten(module.storage_servers[*].instance_details)
+  ecgroup_instances       = [for n in flatten(module.ecgroup[*].nodes) : n.id]
+  ecgroup_nodes           = [for n in flatten(module.ecgroup[*].nodes) : n.private_ip]
+  ecgroup_metadata_array  = module.ecgroup[0].metadata_array
+  ecgroup_storage_array   = module.ecgroup[0].storage_array
 
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
@@ -395,6 +492,7 @@ module "ansible" {
   depends_on = [
     module.clients,
     module.storage_servers,
-    module.hammerspace
+    module.hammerspace,
+    module.ecgroup
   ]
 }

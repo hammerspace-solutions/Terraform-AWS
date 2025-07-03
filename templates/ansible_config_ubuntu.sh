@@ -122,6 +122,46 @@ echo 'share:
   smbBrowsable: true
   shareSizeLimit: 0' > /tmp/share.yml
 
+
+cat <<EOF > /tmp/ecgroup.yml
+- name: Configure ECGroup from the controller node
+  hosts: all
+  gather_facts: false
+  vars:
+    ecgroup_name: ecg
+    ansible_user: admin
+    ansible_ssh_private_key_file: "~/.ssh/${KEY_NAME}.pem"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  become: true
+  tasks:
+    - name: Create the cluster
+      shell: >
+        /opt/rozofs-installer/rozo_rozofs_create.sh -n {{ ecgroup_name }} -s "${ECGROUP_NODES}" -t external -d 3
+      register: create_cluster_result
+
+    - name: Add CTDB nodes
+      shell: >
+        /opt/rozofs-installer/rozo_rozofs_ctdb_node_add.sh -n {{ ecgroup_name }} -c "${ECGROUP_NODES}"
+      register: ctdb_node_add_result
+
+    - name: Setup DRBD
+      shell: >
+        /opt/rozofs-installer/rozo_drbd.sh -y -n {{ ecgroup_name }} -d "${ECGROUP_METADATA_ARRAY}"
+      register: drbd_result
+
+    - name: Create the array
+      shell: >
+        /opt/rozofs-installer/rozo_compute_cluster_balanced.sh -y -n {{ ecgroup_name }} -d "${ECGROUP_STORAGE_ARRAY}"
+      register: compute_cluster_result
+
+    - name: Propagate the configuration
+      shell: >
+        /opt/rozofs-installer/rozo_rozofs_install.sh -n {{ ecgroup_name }}
+      register: install_result
+  run_once: true
+EOF
+
+
 # Write the Ansible playbook to the disk
 
 PLAYBOOK_FILE="/home/ubuntu/distribute_keys.yml"
@@ -182,19 +222,68 @@ chown ubuntu:ubuntu "$PLAYBOOK_FILE"
 # ssh-keyscan populates known_hosts to avoid interactive prompts about authenticity
 
 echo "Scanning hosts to populate known hosts..."
-sudo -u ubuntu bash -c "ssh-keyscan -H -f /home/ubuntu/inventory.ini >> /home/ubuntu/.ssh/known_hosts"
+sudo -u ubuntu bash -c "ssh-keyscan -H -f /home/ubuntu/inventory.ini >> /home/ubuntu/.ssh/known_hosts" || true
 echo "End scanning of hosts"
 
 # Get the main Ansible playbook from the git repository
 
 echo "Get the Hammerspace ansible playbook from the git repository"
-sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
-echo "End of getting the ansible playbook"
+if [ -n "${MGMT_IP}" ]; then
+  sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
+  echo "End of getting the ansible playbook"
 
-# Run the Ansible playbook for the Anvil
+  # Run the Ansible playbook for the Anvil
 
-echo "Run the Hammerspace ansible to add items to the Anvil"
-sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
+  echo "Run the Hammerspace ansible to add items to the Anvil"
+  sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
+fi
+
+ECGROUP_INSTANCES="${ECGROUP_INSTANCES}"
+ECGROUP_HOSTS="${ECGROUP_HOSTS}"
+ECGROUP_NODES="${ECGROUP_NODES}"
+ECGROUP_METADATA_ARRAY="${ECGROUP_METADATA_ARRAY}"
+ECGROUP_STORAGE_ARRAY="${ECGROUP_STORAGE_ARRAY}"
+
+if [ -n "${ECGROUP_INSTANCES}" ]; then
+  echo "Setting up ECGroup:"
+  echo "INSTANCES :$ECGROUP_INSTANCES"
+  echo "HOSTS     :$ECGROUP_HOSTS"
+  echo "NODES     :$ECGROUP_NODES"
+  echo "METADATA  :$ECGROUP_METADATA_ARRAY"
+  echo "STORAGE   :$ECGROUP_STORAGE_ARRAY"
+  
+  # Install the private key
+  mkdir -p /root/.ssh
+  KEYPATH="/root/.ssh/${KEY_NAME}.pem"
+  echo "${KEYPAIR}" > "$${KEYPATH}"
+  chmod 600 "/root/.ssh/${KEY_NAME}.pem"
+  chown "root:root" "/root/.ssh/${KEY_NAME}.pem"
+
+  # Wait for the instances
+  PEERS=($ECGROUP_NODES)
+  ALL=true
+
+  for ip in "$${PEERS[@]}"; do
+    echo "Waiting for $ip to open port 22..."
+
+    SECONDS=0
+    while ! nc -z -w1 "$ip" 22 &>/dev/null; do
+      sleep 2
+      if (( SECONDS >= 240 )); then
+        echo "ERROR: $ip did not open port 22 after 240 seconds."
+        ALL=false
+        break
+      fi
+    done
+  done
+
+  if $ALL; then
+    echo "All instances are ready, provisioning!"
+    sudo ansible-playbook /tmp/ecgroup.yml -i "${ECGROUP_HOSTS},"
+  else
+    echo "Can't get all instances in a ready state!"
+  fi
+fi
 echo "End of the Hammerspace ansible"
 
 # Run the Ansible playbook to distribute the SSH keys...
