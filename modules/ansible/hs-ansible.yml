@@ -19,16 +19,17 @@
         return_content: true
         status_code: 200
         body_format: json
+        timeout: 30
       register: nodes_response
+      until: nodes_response.status == 200
       retries: 60
       delay: 30
-      until: nodes_response.status == 200
       notify: Node retrieval failed
       tags:
         - setup
 
     # 2. Get volume groups
-    - name: Get all volume groups
+    - name: Get all volume groups (with retries)
       uri:
         url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
         method: GET
@@ -39,7 +40,11 @@
         return_content: true
         status_code: 200
         body_format: json
+        timeout: 30
       register: volume_groups_response
+      until: volume_groups_response.status == 200
+      retries: 30
+      delay: 10
       notify: Volume group retrieval failed
       tags:
         - setup
@@ -53,7 +58,7 @@
         - setup
 
     # 4. Add missing nodes only
-    - name: Add storage system if not present (idempotent)
+    - name: Add storage system if not present
       uri:
         url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes"
         user: "{{ hsuser }}"
@@ -64,12 +69,15 @@
         status_code: 202
         body_format: json
         validate_certs: no
-        timeout: 180
+        timeout: 30
       loop: "{{ storages }}"
       loop_control:
         loop_var: storage
       when: storage.name not in existing_node_names and storage.nodeType == "OTHER"
       register: node_add
+      until: node_add.status == 202
+      retries: 30
+      delay: 10
       notify: Node addition failed
       tags:
         - node_management
@@ -107,9 +115,8 @@
         return_content: true
         status_code: 200
         body_format: json
+        timeout: 30
       register: node_list_check
-      retries: 20
-      delay: 15
       until: >-
         (
           node_list_check.json
@@ -120,6 +127,8 @@
           | list
           | sort
         ) == expected_other_nodes
+      retries: 30
+      delay: 10
       tags:
         - node_management
 
@@ -140,7 +149,7 @@
       tags:
         - volume_group_management
 
-    - name: Create a volume group with OTHER nodes (if missing and nodes exist - idempotent)
+    - name: Create a volume group with OTHER nodes (if missing, with retries)
       uri:
         url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
         user: "{{ hsuser }}"
@@ -163,8 +172,12 @@
         status_code: 200
         body_format: json
         validate_certs: no
+        timeout: 30
       register: volume_group_create_result
       when: vg_node_locations is defined and vg_node_locations | length > 0 and volume_group_name not in vg_names
+      until: volume_group_create_result.status == 200
+      retries: 30
+      delay: 10
       notify: Volume group creation failed
       tags:
         - volume_group_management
@@ -175,7 +188,6 @@
       when: volume_group_create_result is defined and volume_group_create_result.changed
       tags:
         - debug
-
 
     # 6. Wait for node and volume group readiness
     - name: Wait until all OTHER nodes are present in node list
@@ -189,6 +201,7 @@
         return_content: true
         status_code: 200
         body_format: json
+        timeout: 30
       register: nodes_response_updated
       until: >-
         (
@@ -197,7 +210,7 @@
         (
           storages | selectattr('nodeType', 'equalto', 'OTHER') | map(attribute='name') | list | sort
         )
-      retries: 10
+      retries: 30
       delay: 10
       notify: Node list refresh failed
       tags:
@@ -214,6 +227,7 @@
         return_content: true
         status_code: 200
         body_format: json
+        timeout: 30
       register: volume_groups_response_updated
       until: >-
         (
@@ -231,7 +245,7 @@
         (
           storages | selectattr('nodeType', 'equalto', 'OTHER') | map(attribute='name') | list | sort
         )
-      retries: 10
+      retries: 30
       delay: 10
       when: volume_group_name not in vg_names
       tags:
@@ -318,11 +332,11 @@
       tags:
         - debug
 
-    # 10. Add storage volumes
+    # 10. Add storage volumes (with retries)
     - name: Adding storage volumes
       block:
         # Check that the storage system exists
-        - name: Check for valid storage system before adding volumes
+        - name: Check for valid storage system before adding volumes (with retries)
           uri:
             url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes/{{ item.node.name|urlencode }}"
             user: "{{ hsuser }}"
@@ -333,10 +347,11 @@
             status_code: 200
             body_format: json
             validate_certs: no
-            timeout: 60
+            timeout: 30
           register: __node_results
-          failed_when:
-            - __node_results.status == 500
+          until: __node_results.status == 200
+          retries: 30
+          delay: 10
           loop: "{{ volumes_for_next_task }}"
           loop_control:
             label: "{{ item.name }}"
@@ -355,7 +370,7 @@
             - volume_management
 
         # Add storage volumes
-        - name: Add the storage volume
+        - name: Add the storage volume (with retries)
           uri:
             url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/storage-volumes?force=true&skipPerfTest=false&createPlacementObjectives=true"
             user: "{{ hsuser }}"
@@ -366,8 +381,11 @@
             status_code: 202
             body_format: json
             validate_certs: no
-            timeout: 180
+            timeout: 30
           register: __results
+          until: __results.status == 202
+          retries: 30
+          delay: 10
           failed_when:
             - __results.status == 500
           loop: "{{ volumes_for_next_task }}"
@@ -388,7 +406,7 @@
             - debug
 
         # Wait for completion
-        - name: Check status of add storage volume (wait for COMPLETED)
+        - name: Check status of add storage volume (wait for COMPLETED, with retries)
           uri:
             url: "{{ item.location }}"
             user: "{{ hsuser }}"
@@ -399,6 +417,7 @@
             status_code: 200
             body_format: json
             validate_certs: no
+            timeout: 30
           register: _result
           until: _result.json.status == "COMPLETED"
           retries: 30
@@ -425,11 +444,11 @@
       tags:
         - volume_management
 
-    # 11. Adding a share
+    # 11. Adding a share (with retries)
     - name: Adding a share
       block:
         # Create a share
-        - name: Create a share
+        - name: Create a share (with retries)
           uri:
             url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/shares"
             user: "{{ hsuser }}"
@@ -440,12 +459,16 @@
             status_code: 202
             body_format: json
             validate_certs: no
+            timeout: 30
           register: __results
+          until: __results.status == 202
+          retries: 30
+          delay: 10
           failed_when:
             - __results.status == 500
 
-        # Check the status of share creation
-        - name: Check status of share create
+        # Check the status of share creation (with retries)
+        - name: Check status of share create (wait for COMPLETED, with retries)
           when: __results.status == 202
           uri:
             url: "{{ __results.location }}"
@@ -457,9 +480,10 @@
             status_code: 200
             body_format: json
             validate_certs: no
+            timeout: 30
           register: _result
           until: _result.json.status == "COMPLETED"
-          retries: 6
+          retries: 30
           delay: 10
 
   handlers:
@@ -486,9 +510,4 @@
         msg: "Failed to check the existence of storage systems before adding volumes."
     - name: Storage volume addition failed
       fail:
-        msg: "One or more storage volumes failed to initiate addition. Review previous task output."
-    - name: Storage volume status check failed
-      fail:
-        msg: "One or more storage volumes did not reach 'COMPLETED' status within the allowed retries."
-      when: non_reserved_volumes | length > 0
-
+        msg: "One or more storage volumes failed to initiate addition. Review previous task output
