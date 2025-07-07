@@ -134,3 +134,25 @@ variable "share_name" {
   type        = string
   default     = ""
 }
+
+# ECGroup specific variable
+
+variable "ecgroup_instances" {
+  description = "ECGroup instances"
+  type        = list(string)
+}
+
+variable "ecgroup_nodes" {
+  description = "ECGroup nodes"
+  type        = list(string)
+}
+
+variable "ecgroup_metadata_array" {
+  description = "ECGroup metadata array."
+  type        = string
+}
+
+variable "ecgroup_storage_array" {
+  description = "ECGroup storage array."
+  type        = string
+}

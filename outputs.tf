@@ -77,6 +77,24 @@ output "hammerspace_dsx_private_ips" {
   value       = module.hammerspace[*].dsx_private_ips
 }
 
+output "ecgroup_nodes" {
+  description = "ECGroup node details"
+  sensitive   = true
+  value       = module.ecgroup[*].nodes
+}
+
+output "ecgroup_metadata_array" {
+  description = "ECGroup metadata array"
+  sensitive   = true
+  value       = module.ecgroup[*].metadata_array
+}
+
+output "ecgroup_storage_array" {
+  description = "ECGroup storage array"
+  sensitive   = true
+  value       = module.ecgroup[*].storage_array
+}
+
 output "ansible_details" {
   description = "Ansible configuration details"
   value = module.ansible[*].instance_details
