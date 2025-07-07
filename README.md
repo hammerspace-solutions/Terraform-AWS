@@ -13,11 +13,15 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
   - [Ansible Variables](#ansible-variables)
+- [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
   - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
   - [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
 - [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
+- [Securely Accessing Instances](#securely-accessing-instances)
+  - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
+  - [Option 2: AWS Systems Manager Session Manager (Most Secure)](#option-2-aws-systems-manager-session-manager-most-secure)
 - [Prerequisites](#prerequisites)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
@@ -36,9 +40,8 @@ These variables apply to the overall deployment:
 
 * `region`: AWS region for all resources (Default: "us-west-2").
 * `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned. (Default: `false`).
-* `availability_zone`: AWS availability zone for resource placement (Default: "us-west-2b").
 * `vpc_id`: (Required) VPC ID for all resources.
-* `subnet_id`: (Required) Subnet ID for resources.
+* `subnet_id`: (Required) Subnet ID for resources. The Availability Zone is automatically derived from this subnet.
 * `key_name`: (Required) SSH key pair name for instance access.
 * `tags`: Common tags to apply to all resources (Default: `{}`).
 * `project_name`: (Required) Project name used for tagging and resource naming.
@@ -47,6 +50,7 @@ These variables apply to the overall deployment:
 * `placement_group_name`: (Optional) The name of the placement group to create and launch instances into.
 * `placement_group_strategy`: The strategy for the placement group: `cluster`, `spread`, or `partition` (Default: `cluster`).
 * `capacity_reservation_create_timeout`: The maximum time to wait for a capacity reservation to be fulfilled before failing (e.g., `"5m"`). (Default: `"5m"`).
+* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this for private or partner AMIs. (Default: `[]`).
 
 ---
 
@@ -134,6 +138,25 @@ These variables configure the Ansible controller instance and its playbook. Pref
 * `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
 ---
+
+## Infrastructure Guardrails and Validation
+
+To prevent common errors and ensure a smooth deployment, this project includes several "pre-flight" checks that run during the `terraform plan` phase. If any of these checks fail, the plan will stop with a clear error message before any resources are created.
+
+* **Network Validation**:
+    * **VPC and Subnet Existence**: Verifies that the `vpc_id` and `subnet_id` you provide correspond to real resources in the target AWS region.
+    * **Subnet in VPC**: Confirms that the provided subnet is actually part of the specified VPC.
+
+* **Resource Availability Validation**:
+    * **Instance Type Availability**: Checks if your chosen EC2 instance types (e.g., `m5n.8xlarge`) are offered by AWS in the specific Availability Zone of your subnet.
+    * **AMI Existence**: Verifies that the AMI IDs you provide for clients, storage, Hammerspace, and Ansible are valid and accessible in the target region. This check supports both public AMIs and private/partner AMIs (via the `custom_ami_owner_ids` variable).
+
+* **Capacity and Provisioning Guardrails**:
+    * **On-Demand Capacity Reservations**: Before attempting to create instances, Terraform will first try to reserve the necessary capacity. If AWS cannot fulfill the reservation due to a real-time capacity shortage, the `terraform apply` will fail quickly instead of hanging.
+    * **Destruction Safety**: The standalone Anvil instance is protected by a `lifecycle` block to prevent accidental deletion. You must explicitly set `sa_anvil_destruction = true` to destroy it.
+
+---
+
 ## Dealing with AWS Capacity and Timeouts
 
 When deploying large or specialized EC2 instances, you may encounter `InsufficientInstanceCapacity` errors from AWS. This project includes several advanced features to manage this issue and provide predictable behavior.
@@ -235,6 +258,25 @@ If you are using the `hammerspace_profile_id` variable to provide a pre-existing
 * **HAInstanceDiscovery**: Allows the Anvil HA nodes to discover each other's state and tags.
 * **HAFloatingIP**: **(Crucial for HA)** Allows an Anvil node to take over the floating cluster IP address from its partner during a failover.
 * **MarketplaceMetering**: Required for instances launched from the AWS Marketplace to report usage for billing.
+
+---
+
+## Securely Accessing Instances
+
+For production or security-conscious environments, allowing SSH access from the entire internet (`0.0.0.0/0`) is not recommended. The best practice is to limit access to a controlled entry point.
+
+### Option 1: Bastion Host (Recommended)
+
+A Bastion Host (or "jump box") is a single, hardened EC2 instance that lives in a public subnet and is the only instance that accepts connections from the internet (or a corporate VPN). Users first SSH into the bastion host, and from there, they can "jump" to other instances in private subnets using their private IP addresses.
+
+This project supports this pattern through the `allowed_ssh_source_security_group_ids` variable in the `storage_servers` module (and can be added to others). You would:
+1.  Create a security group for your bastion host.
+2.  Pass the ID of that security group to the module.
+3.  The module will then create an ingress rule allowing SSH traffic *only* from resources within that bastion host security group.
+
+### Option 2: AWS Systems Manager Session Manager (Most Secure)
+
+A more modern approach is to use AWS Systems Manager Session Manager. This service allows you to get a secure shell connection to your instances without opening **any** inbound ports (not even port 22). Access is controlled entirely through IAM policies, providing the highest level of security and auditability. This requires setting up the SSM Agent on your instances and configuring the appropriate IAM permissions.
 
 ---
 
