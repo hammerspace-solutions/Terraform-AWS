@@ -36,6 +36,10 @@ data "aws_ec2_instance_type_offering" "storage" {
   location_type = "availability-zone"
 }
 
+data "aws_subnet" "selected" {
+  id = var.common_config.subnet_id
+}
+
 locals {
   device_letters = [
     "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
@@ -88,6 +92,13 @@ resource "aws_security_group" "storage" {
       cidr_blocks = ["0.0.0.0/0"]
       description = "Allow ICMP from anywhere for CI/CD tests"
     }
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_subnet.selected.cidr_block]
   }
 
   egress {
