@@ -50,7 +50,7 @@ locals {
     
     # These variables are for the Ansible playbooks
     TARGET_NODES_JSON = var.target_nodes_json,
-    ADMIN_PRIVATE_KEY = var.admin_private_key,
+    ADMIN_PRIVATE_KEY = var.admin_private_key_path,
     STORAGE_INSTANCES = jsonencode(var.storage_instances),
     VG_NAME           = var.volume_group_name,
     SHARE_NAME        = var.share_name

@@ -39,6 +39,7 @@ project_name		             = "AWS-Project"
 key_name   			     = "Some-PEM-Key"
 vpc_id     			     = "vpc-e3b5890"
 subnet_id  			     = "subnet-0d8a5034456df"
+region				     = "us-west-2"
 
 # You can put in as many tags as you would like. The format should be self-explanatory
 
@@ -143,7 +144,6 @@ hammerspace_dsx_ebs_type	     = "gp3"
 hammerspace_dsx_ebs_iops	     = 6000
 hammerspace_dsx_ebs_throughput	     = 1000
 
-
 # ECGroup specific
 
 ecgroup_instance_type               = "m5n.2xlarge"
@@ -157,7 +157,7 @@ ecgroup_storage_volume_type         = "gp3"
 ecgroup_storage_volume_size         = 1024
 ecgroup_storage_volume_throughput   = 1000
 ecgroup_storage_volume_iops         = 9000
-ecgroup_user_data 		 	            = "./templates/ecgroup_node.sh"
+ecgroup_user_data 	            = "./templates/ecgroup_node.sh"
 
 # Ansible specific variables (ansible_ prefix)
 #
