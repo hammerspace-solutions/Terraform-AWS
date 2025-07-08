@@ -143,6 +143,22 @@ hammerspace_dsx_ebs_type	     = "gp3"
 hammerspace_dsx_ebs_iops	     = 6000
 hammerspace_dsx_ebs_throughput	     = 1000
 
+
+# ECGroup specific
+
+ecgroup_instance_type               = "m5n.2xlarge"
+ecgroup_node_count                  = 4
+ecgroup_metadata_volume_type        = "gp3"
+ecgroup_metadata_volume_size        = 4096
+ecgroup_metadata_volume_throughput  = 1000
+ecgroup_metadata_volume_iops        = 9000
+ecgroup_storage_volume_count        = 2
+ecgroup_storage_volume_type         = "gp3"
+ecgroup_storage_volume_size         = 1024
+ecgroup_storage_volume_throughput   = 1000
+ecgroup_storage_volume_iops         = 9000
+ecgroup_user_data 		 	            = "./templates/ecgroup_node.sh"
+
 # Ansible specific variables (ansible_ prefix)
 #
 # The only thing that might be confusing are the variables:
