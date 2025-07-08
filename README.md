@@ -18,6 +18,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
   - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
   - [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
+  - [Important Warning on Capacity Reservation Billing](#important-warning-on-capacity-reservation-billing)
 - [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
 - [Securely Accessing Instances](#securely-accessing-instances)
   - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
@@ -196,6 +197,14 @@ This is not a bug; it is the fundamental behavior of the AWS Capacity Reservatio
 5.  The `Still creating...` message you see during `terraform apply` corresponds to this waiting period.
 
 The `capacity_reservation_create_timeout` you set applies to this **entire waiting period**. If the reservation does not become `active` within that time (e.g., `"5m"`), Terraform will stop waiting and fail the `apply`. The timeout is working correctly by putting a boundary on the wait, but it will not cause an *instant* failure if the capacity isn't immediately available.
+
+### Important Warning on Capacity Reservation Billing
+
+> **Warning:** On-Demand Capacity Reservations begin to incur charges at the standard On-Demand rate as soon as they are successfully created, **whether you are running an instance in them or not.**
+>
+> `terraform destroy` is designed to cancel these reservations. However, if the `destroy` command fails for any reason (e.g., an instance fails to terminate), the reservation will be "orphaned" and **will continue to incur charges**.
+>
+> If you encounter a failed `destroy`, it is crucial to **run `terraform destroy` a second time** to ensure all resources, including the capacity reservations, are properly cleaned up.
 
 ---
 
