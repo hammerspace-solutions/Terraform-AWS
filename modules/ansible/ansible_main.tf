@@ -38,8 +38,6 @@ locals {
     []
   )
 
-  private_key = file("${pathexpand("~")}/.ssh/${var.common_config.key_name}.pem")
-
   # This is the corrected user data processing block.
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
     TARGET_USER = var.target_user,
@@ -59,7 +57,6 @@ locals {
     
     # Theres are for the ECGroup playbook
     KEY_NAME                = var.common_config.key_name,
-    KEYPAIR                 = local.private_key,
     ECGROUP_INSTANCES       = join(" ", var.ecgroup_instances),
     ECGROUP_HOSTS           = length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
     ECGROUP_NODES           = join(" ", var.ecgroup_nodes),
