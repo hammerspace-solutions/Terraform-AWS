@@ -82,14 +82,14 @@ variable "ssh_keys_dir" {
 }
 
 variable "deploy_components" {
-  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ansible\"."
+  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\", \"ansible\"."
   type        = list(string)
   default     = ["all"]
   validation {
     condition = alltrue([
-      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ansible"], c)
+      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup", "ansible"], c)
     ])
-    error_message = "Each item in deploy_components must be one of: \"all\", \"ansible\", \"clients\", \"storage\", or \"hammerspace\"."
+    error_message = "Each item in deploy_components must be one of: \"all\", \"ansible\", \"clients\", \"storage\", \"ecgroup\" or \"hammerspace\"."
   }
 }
 
@@ -395,6 +395,92 @@ variable "placement_group_strategy" {
   }
 }
 
+# ECGroup specific variables
+variable "ecgroup_instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "m6i.16xlarge"
+}
+
+variable "ecgroup_node_count" {
+  description = "Number of EC2 nodes to create"
+  type        = number
+  default     = 4
+}
+
+variable "ecgroup_boot_volume_size" {
+  description = "Root volume size (GB) for ecgroup nodes"
+  type        = number
+  default     = 100
+}
+
+variable "ecgroup_boot_volume_type" {
+  description = "Root volume type for ecgroup nodes"
+  type        = string
+  default     = "gp2"
+}
+
+variable "ecgroup_metadata_volume_size" {
+  description = "Size of the ecgroup metadata EBS volume in GiB"
+  type        = number
+  default     = 4096
+}
+
+variable "ecgroup_metadata_volume_type" {
+  description = "Type of EBS metadata volume for ecgroup nodes"
+  type        = string
+  default     = "io2"
+}
+
+variable "ecgroup_metadata_volume_throughput" {
+  description = "Throughput for metadata EBS volumes for ecgroup nodes (MB/s)"
+  type        = number
+  default     = null
+}
+
+variable "ecgroup_metadata_volume_iops" {
+  description = "IOPS for gp3/io1/io2 the metadata EBS volumes for ecgroup nodes"
+  type        = number
+  default     = null
+}
+
+variable "ecgroup_storage_volume_count" {
+  description = "Number of ecgroup storage volumes to attach to each node"
+  type        = number
+  default     = 4
+}
+
+variable "ecgroup_storage_volume_size" {
+  description = "Size of each EBS storage volume (GB) for ecgroup nodes"
+  type        = number
+  default     = 4096
+}
+
+variable "ecgroup_storage_volume_type" {
+  description = "Type of EBS storage volume for ecgroup nodes"
+  type        = string
+  default     = "gp3"
+}
+
+variable "ecgroup_storage_volume_throughput" {
+  description = "Throughput for each EBS storage volumes for ecgroup nodes (MB/s)"
+  type        = number
+  default     = null
+}
+
+variable "ecgroup_storage_volume_iops" {
+  description = "IOPS for gp3/io1/io2 each EBS storage volumes for ecgroup nodes"
+  type        = number
+  default     = null
+}
+
+variable "ecgroup_user_data" {
+  description = "Path to user data script for ECGroup"
+  type = string
+  default = ""
+}
+
+# Ansible specific variables
 variable "ansible_instance_count" {
   description = "Number of ansible instances"
   type        = number
