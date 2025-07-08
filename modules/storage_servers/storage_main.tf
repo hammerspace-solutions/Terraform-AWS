@@ -21,7 +21,7 @@
 # modules/storage_servers/storage_main.tf
 #
 # This file contains the main logic for the Storage Servers module. It creates
-# the EC2 instances, security group, EBS volumes, and attachments.
+# the EC2 instances, security group, and attached EBS volumes.
 # -----------------------------------------------------------------------------
 
 data "aws_ec2_instance_type_offering" "storage" {
@@ -106,8 +106,24 @@ resource "aws_instance" "this" {
   vpc_security_group_ids = [aws_security_group.storage.id]
 
   root_block_device {
-    volume_size = var.boot_volume_size
-    volume_type = var.boot_volume_type
+    volume_size           = var.boot_volume_size
+    volume_type           = var.boot_volume_type
+    delete_on_termination = true
+  }
+
+  # --- THIS IS THE CHANGE ---
+  # Define the data volumes inline using a dynamic block.
+  # The `delete_on_termination` argument defaults to `true` here.
+  dynamic "ebs_block_device" {
+    for_each = range(var.ebs_count)
+    content {
+      device_name           = "/dev/xvd${local.device_letters[ebs_block_device.key]}"
+      volume_type           = var.ebs_type
+      volume_size           = var.ebs_size
+      iops                  = var.ebs_iops
+      throughput            = var.ebs_throughput
+      delete_on_termination = true
+    }
   }
 
   dynamic "capacity_reservation_specification" {
@@ -138,25 +154,4 @@ resource "aws_instance" "this" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.common_config.project_name
   })
-}
-
-resource "aws_ebs_volume" "this" {
-  count             = var.instance_count * var.ebs_count
-  availability_zone = var.common_config.availability_zone
-  size              = var.ebs_size
-  type              = var.ebs_type
-  throughput        = var.ebs_throughput
-  iops              = var.ebs_iops
-
-  tags = merge(var.common_config.tags, {
-    Name    = "${local.resource_prefix}-ebs-${count.index + 1}"
-    Project = var.common_config.project_name
-  })
-}
-
-resource "aws_volume_attachment" "this" {
-  count       = var.instance_count * var.ebs_count
-  device_name = "/dev/xvd${local.device_letters[count.index % var.ebs_count]}"
-  volume_id   = aws_ebs_volume.this[count.index].id
-  instance_id = aws_instance.this[floor(count.index / var.ebs_count)].id
 }

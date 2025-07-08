@@ -103,8 +103,25 @@ resource "aws_instance" "this" {
   vpc_security_group_ids = [aws_security_group.client.id]
 
   root_block_device {
-    volume_size = var.boot_volume_size
-    volume_type = var.boot_volume_type
+    volume_size           = var.boot_volume_size
+    volume_type           = var.boot_volume_type
+    delete_on_termination = true
+  }
+
+  # --- THIS IS THE FIX ---
+  # Define the data volumes inline using a dynamic block.
+  # The `delete_on_termination` argument defaults to `true` here, which is
+  # exactly what you want.
+  dynamic "ebs_block_device" {
+    for_each = range(var.ebs_count)
+    content {
+      device_name = "/dev/xvd${local.device_letters[ebs_block_device.key]}"
+      volume_type = var.ebs_type
+      volume_size = var.ebs_size
+      iops        = var.ebs_iops
+      throughput  = var.ebs_throughput
+      # delete_on_termination = true # This is the default and can be omitted
+    }
   }
 
   dynamic "capacity_reservation_specification" {
@@ -129,25 +146,3 @@ resource "aws_instance" "this" {
   })
 }
 
-# Create extra EBS volumes for each client
-resource "aws_ebs_volume" "this" {
-  count             = var.instance_count * var.ebs_count
-  availability_zone = var.common_config.availability_zone
-  size              = var.ebs_size
-  type              = var.ebs_type
-  throughput        = var.ebs_throughput
-  iops              = var.ebs_iops
-
-  tags = merge(var.common_config.tags, {
-    Name    = "${local.resource_prefix}-ebs-${count.index + 1}"
-    Project = var.common_config.project_name
-  })
-}
-
-# Attach each EBS volume to the correct instance
-resource "aws_volume_attachment" "this" {
-  count       = var.instance_count * var.ebs_count
-  device_name = "/dev/xvd${local.device_letters[count.index % var.ebs_count]}"
-  volume_id   = aws_ebs_volume.this[count.index].id
-  instance_id = aws_instance.this[floor(count.index / var.ebs_count)].id
-}

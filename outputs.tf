@@ -33,21 +33,9 @@ output "client_instances" {
   value       = module.clients[*].instance_details
 }
 
-output "client_ebs_volumes" {
-  description = "Client EBS volume details (sensitive)."
-  value       = module.clients[*].ebs_volume_details
-  sensitive   = true
-}
-
 output "storage_instances" {
   description = "Storage instance details (non-sensitive)."
   value       = module.storage_servers[*].instance_details
-}
-
-output "storage_ebs_volumes" {
-  description = "Storage EBS volume details (sensitive)."
-  value       = module.storage_servers[*].ebs_volume_details
-  sensitive   = true
 }
 
 output "hammerspace_anvil" {
