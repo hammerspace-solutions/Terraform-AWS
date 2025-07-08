@@ -175,6 +175,8 @@ sudo systemctl enable --now nfs-server
 
 # SSH Key Management
 
+echo "Start Add SSH Keys to authorized_keys"
+
 if [ -n "$${SSH_KEYS}" ]; then
     mkdir -p "$${TARGET_HOME}/.ssh"
     chmod 700 "$${TARGET_HOME}/.ssh"
@@ -190,6 +192,8 @@ if [ -n "$${SSH_KEYS}" ]; then
     chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
     chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
 fi
+
+echo "End Add SSH Keys"
 
 # Verify RAID
 

@@ -81,8 +81,8 @@ variable "target_nodes_json" {
   default     = "[]"
 }
 
-variable "admin_private_key" {
-  description = "The private key material for the Ansible controller to use for bootstrapping."
+variable "admin_private_key_path" {
+  description = "The local path to the private key for the Ansible controller"
   type        = string
   sensitive   = true
   default     = ""

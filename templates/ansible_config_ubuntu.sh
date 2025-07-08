@@ -3,7 +3,6 @@
 # Variable placeholders - replaced by Terraform templatefile function)
 
 TARGET_NODES_JSON='${TARGET_NODES_JSON}'
-ADMIN_PRIVATE_KEY='${ADMIN_PRIVATE_KEY}'
 
 # --- Script ---
 set -euo pipefail
@@ -68,14 +67,6 @@ echo "[all_nodes]" > "$INVENTORY_FILE"
 
 echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
 chown ubuntu:ubuntu "$INVENTORY_FILE"
-
-# Write the private key for Ansible to use for its initial connection
-
-PRIVATE_KEY_FILE="/home/ubuntu/.ssh/ansible_admin_key"
-mkdir -p /home/ubuntu/.ssh
-echo "$ADMIN_PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
-chmod 600 "$PRIVATE_KEY_FILE"
-chown -R ubuntu:ubuntu /home/ubuntu/.ssh
 
 # Build the Anvil ansible playbook
 

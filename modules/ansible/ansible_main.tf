@@ -25,11 +25,6 @@
 # -----------------------------------------------------------------------------
 
 locals {
-  device_letters = [
-    "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-  ]
-
   ssh_public_keys = try(
     [
       for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
@@ -38,21 +33,15 @@ locals {
     []
   )
 
-  # This is the corrected user data processing block.
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    TARGET_USER = var.target_user,
-    TARGET_HOME = "/home/${var.target_user}",
-    SSH_KEYS    = join("\n", local.ssh_public_keys),
-
-    # Safely select the first element from the lists, or null if the list is empty.
-    MGMT_IP           = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : null,
-    ANVIL_ID          = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : null,
-    
-    # These variables are for the Ansible playbooks
-    TARGET_NODES_JSON = var.target_nodes_json,
-    ADMIN_PRIVATE_KEY = var.admin_private_key,
-    STORAGE_INSTANCES = jsonencode(var.storage_instances),
-    VG_NAME           = var.volume_group_name,
+    TARGET_USER       = var.target_user
+    TARGET_HOME       = "/home/${var.target_user}"
+    SSH_KEYS          = join("\n", local.ssh_public_keys)
+    TARGET_NODES_JSON = var.target_nodes_json
+    MGMT_IP           = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : null
+    ANVIL_ID          = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : null
+    STORAGE_INSTANCES = jsonencode(var.storage_instances)
+    VG_NAME           = var.volume_group_name
     SHARE_NAME        = var.share_name
   }) : null
 
@@ -91,7 +80,7 @@ resource "aws_instance" "this" {
   ami           = var.ami
   instance_type = var.instance_type
   user_data     = local.processed_user_data
-  
+
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   associate_public_ip_address = var.common_config.assign_public_ip
@@ -107,4 +96,47 @@ resource "aws_instance" "this" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.common_config.project_name
   })
+}
+
+# --- THIS IS THE FIX ---
+# Use a null_resource to conditionally run provisioners. This resource
+# does nothing by itself, but allows us to use `count` to control whether
+# the provisioners inside it are executed.
+resource "null_resource" "key_provisioner" {
+  # Only create this resource (and run its provisioners) if a key path is provided.
+  count = var.admin_private_key_path != "" ? var.instance_count : 0
+
+  # This trigger ensures the provisioner runs after the instance is created.
+  triggers = {
+    instance_id = aws_instance.this[count.index].id
+  }
+
+  # First provisioner copies the key file.
+  provisioner "file" {
+    source      = var.admin_private_key_path
+    destination = "/home/${var.target_user}/.ssh/ansible_admin_key"
+
+    connection {
+      type        = "ssh"
+      user        = var.target_user
+      # Use the *main* key (from var.common_config.key_name) for the initial connection.
+      private_key = file(var.admin_private_key_path)
+      host        = var.common_config.assign_public_ip ? aws_instance.this[count.index].public_ip : aws_instance.this[count.index].private_ip
+    }
+  }
+
+  # Second provisioner sets the correct permissions on the uploaded key.
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod 600 /home/${var.target_user}/.ssh/ansible_admin_key",
+      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/ansible_admin_key"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = var.target_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.common_config.assign_public_ip ? aws_instance.this[count.index].public_ip : aws_instance.this[count.index].private_ip
+    }
+  }
 }

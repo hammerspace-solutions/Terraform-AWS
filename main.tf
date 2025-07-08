@@ -376,7 +376,7 @@ module "ansible" {
 
   common_config     = local.common_config
   target_nodes_json = jsonencode(local.all_ssh_nodes)
-  admin_private_key = fileexists("./ansible_admin_key") ? file("./ansible_admin_key") : ""
+  admin_private_key_path = "./modules/ansible/ansible_admin_key"
 
   mgmt_ip           = flatten(module.hammerspace[*].management_ip)
   anvil_instances   = flatten(module.hammerspace[*].anvil_instances)
