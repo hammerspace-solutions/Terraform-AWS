@@ -1,9 +1,44 @@
-# ecg_main.tf
+# Copyright (c) 2025 Hammerspace, Inc
 #
-# Main terraform module to deploy ecg for AWS Sizing for AI Model
-# creation
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# -----------------------------------------------------------------------------
+# modules/ecgroup/ecgroup_main.tf
+#
+# This file contains the main logic for the ECGroup module. It creates the
+# EC2 instances, security group, and attached EBS volumes.
+# -----------------------------------------------------------------------------
 
-# Gather SSH public keys from directory and render user data if provided
+data "aws_ec2_instance_type_offering" "ecgroup" {
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.common_config.availability_zone]
+  }
+  location_type = "availability-zone"
+}
+
+data "aws_subnet" "selected" {
+  id = var.common_config.subnet_id
+}
 
 locals {
   device_letters = [
@@ -20,13 +55,11 @@ locals {
   )
 
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    SSH_KEYS    = join("\n", local.ssh_public_keys)
-   }) : null
+    SSH_KEYS = join("\n", local.ssh_public_keys)
+  }) : null
 
   resource_prefix = "${var.common_config.project_name}-ecgroup"
 }
-
-# Security group for ecgroup instances
 
 resource "aws_security_group" "this" {
   name        = "${local.resource_prefix}-sg"
@@ -53,8 +86,6 @@ resource "aws_security_group" "this" {
   })
 }
 
-# Launch EC2 ecg instances
-
 resource "aws_instance" "nodes" {
   count           = var.node_count
   placement_group = var.placement_group_name != "" ? var.placement_group_name : null
@@ -67,11 +98,33 @@ resource "aws_instance" "nodes" {
   vpc_security_group_ids = [aws_security_group.this.id]
 
   root_block_device {
-    volume_size = var.boot_volume_size
-    volume_type = var.boot_volume_type
+    volume_size           = var.boot_volume_size
+    volume_type           = var.boot_volume_type
+    delete_on_termination = true
   }
 
-  # Add this entire lifecycle block
+  # Define the metadata volume inline
+  ebs_block_device {
+    device_name           = "/dev/xvdz"
+    volume_type           = var.metadata_ebs_type
+    volume_size           = var.metadata_ebs_size
+    iops                  = var.metadata_ebs_iops
+    throughput            = var.metadata_ebs_throughput
+    delete_on_termination = true
+  }
+
+  # Define the storage volumes inline using a dynamic block
+  dynamic "ebs_block_device" {
+    for_each = range(var.storage_ebs_count)
+    content {
+      device_name           = "/dev/xvd${local.device_letters[ebs_block_device.key]}"
+      volume_type           = var.storage_ebs_type
+      volume_size           = var.storage_ebs_size
+      iops                  = var.storage_ebs_iops
+      throughput            = var.storage_ebs_throughput
+      delete_on_termination = true
+    }
+  }
 
   lifecycle {
     precondition {
@@ -82,7 +135,6 @@ resource "aws_instance" "nodes" {
       condition     = var.storage_ebs_count <= 22
       error_message = "EC-Group nodes are limited to 22 storage volumes, but ${var.storage_ebs_count} were specified."
     }
-
     precondition {
       condition     = var.storage_ebs_count * var.node_count >= 8
       error_message = "EC-Group requires at least 8 storage volumes, but only ${var.storage_ebs_count * var.node_count} were specified."
@@ -99,54 +151,4 @@ resource "aws_instance" "nodes" {
       capacity_reservation_id = var.capacity_reservation_id
     }
   }
-}
-
-# Create extra EBS metadata volume for each node
-
-resource "aws_ebs_volume" "metadata" {
-  count             = var.node_count
-  availability_zone = var.common_config.availability_zone
-  size              = var.metadata_ebs_size
-  type              = var.metadata_ebs_type
-  throughput        = var.metadata_ebs_throughput
-  iops              = var.metadata_ebs_iops
-
-  tags = merge(var.common_config.tags, {
-    Name    = "${local.resource_prefix}-metadata-ebs"
-    Project = var.common_config.project_name
-  })
-}
-
-# Create extra EBS storage volumes for each node
-
-resource "aws_ebs_volume" "storage" {
-  count             = var.node_count * var.storage_ebs_count
-  availability_zone = var.common_config.availability_zone
-  size              = var.storage_ebs_size
-  type              = var.storage_ebs_type
-  throughput        = var.storage_ebs_throughput
-  iops              = var.storage_ebs_iops
-
-  tags = merge(var.common_config.tags, {
-    Name    = "${local.resource_prefix}-storage-ebs-${count.index + 1}"
-    Project = var.common_config.project_name
-  })
-}
-
-# Attach each EBS metadata volume to the correct instance
-
-resource "aws_volume_attachment" "metadata" {
-  count       = var.node_count
-  device_name = "/dev/xvdz"
-  volume_id   = aws_ebs_volume.metadata[count.index].id
-  instance_id = aws_instance.nodes[count.index].id
-}
-
-# Attach each EBS storage volumes to the correct instance
-
-resource "aws_volume_attachment" "storage" {
-  count       = var.node_count * var.storage_ebs_count
-  device_name = "/dev/xvd${local.device_letters[count.index % var.storage_ebs_count]}"
-  volume_id   = aws_ebs_volume.storage[count.index].id
-  instance_id = aws_instance.nodes[floor(count.index / var.storage_ebs_count)].id
 }
