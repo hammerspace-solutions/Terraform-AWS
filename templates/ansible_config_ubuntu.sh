@@ -122,7 +122,6 @@ echo 'share:
   smbBrowsable: true
   shareSizeLimit: 0' > /tmp/share.yml
 
-
 cat <<EOF > /tmp/ecgroup.yml
 - name: Configure ECGroup from the controller node
   hosts: all
@@ -130,7 +129,7 @@ cat <<EOF > /tmp/ecgroup.yml
   vars:
     ecgroup_name: ecg
     ansible_user: admin
-    ansible_ssh_private_key_file: "~/.ssh/${KEY_NAME}.pem"
+    ansible_ssh_private_key_file: /home/ubuntu/.ssh/ansible_admin_key
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   become: true
   tasks:
@@ -252,13 +251,6 @@ if [ -n "${ECGROUP_INSTANCES}" ]; then
   echo "METADATA  :$ECGROUP_METADATA_ARRAY"
   echo "STORAGE   :$ECGROUP_STORAGE_ARRAY"
   
-  # Install the private key
-  mkdir -p /root/.ssh
-  KEYPATH="/root/.ssh/${KEY_NAME}.pem"
-  echo "${KEYPAIR}" > "$${KEYPATH}"
-  chmod 600 "/root/.ssh/${KEY_NAME}.pem"
-  chown "root:root" "/root/.ssh/${KEY_NAME}.pem"
-
   # Wait for the instances
   PEERS=($ECGROUP_NODES)
   ALL=true
