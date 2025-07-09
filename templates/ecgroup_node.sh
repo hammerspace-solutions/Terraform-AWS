@@ -21,6 +21,6 @@ if [ -n "$${SSH_KEYS}" ]; then
         fi
     done
 
-    chmod 600 "/admin/.ssh/authorized_keys"
+    chmod 600 "/home/admin/.ssh/authorized_keys"
     chown -R "admin:admin" "/home/admin/.ssh"
 fi
