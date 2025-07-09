@@ -213,7 +213,7 @@ check "ansible_ami_exists" {
 
 check "ecgroup_node_ami_exists" {
   data "aws_ami" "ecgroup_node_ami_check" {
-    provider = aws
+    provider    = aws
     most_recent = true
     owners      = ["self", "amazon"]
 
@@ -337,7 +337,7 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   instance_type     = var.ecgroup_instance_type
   instance_platform = "Linux/UNIX"
   availability_zone = data.aws_subnet.this.availability_zone
-  instance_count    = var.storage_instance_count
+  instance_count    = var.ecgroup_node_count
   tenancy           = "default"
   end_date_type     = "unlimited"
   tags              = merge(var.tags, { Name = "${var.project_name}-ECGroup-Reservation" })
@@ -437,28 +437,28 @@ module "hammerspace" {
 
 # Deploy the ECGroup module if requested
 module "ecgroup" {
-  count   = local.deploy_ecgroup ? 1 : 0
+  count = local.deploy_ecgroup ? 1 : 0
   source  = "./modules/ecgroup"
 
   common_config           = local.common_config
-  capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 0 ? aws_ec2_capacity_reservation.ecgroup_node[0].id: null
-  placement_group_name    = var.placement_group_name != "" ? aws_placement_group.this[0].name : ""
+  capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
+  placement_group_name    = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
 
-  node_count              = var.ecgroup_node_count
-  ami                     = local.select_ecgroup_ami_for_region
-  instance_type           = var.ecgroup_instance_type
-  boot_volume_size        = var.ecgroup_boot_volume_size
-  boot_volume_type        = var.ecgroup_boot_volume_type
-  metadata_ebs_type       = var.ecgroup_metadata_volume_type
-  metadata_ebs_size       = var.ecgroup_metadata_volume_size
-  metadata_ebs_throughput = var.ecgroup_metadata_volume_throughput
-  metadata_ebs_iops       = var.ecgroup_metadata_volume_iops
-  storage_ebs_count       = var.ecgroup_storage_volume_count
-  storage_ebs_type        = var.ecgroup_storage_volume_type
-  storage_ebs_size        = var.ecgroup_storage_volume_size
-  storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
-  storage_ebs_iops        = var.ecgroup_storage_volume_iops
-  user_data               = var.ecgroup_user_data
+  node_count                 = var.ecgroup_node_count
+  ami                        = local.select_ecgroup_ami_for_region
+  instance_type              = var.ecgroup_instance_type
+  boot_volume_size           = var.ecgroup_boot_volume_size
+  boot_volume_type           = var.ecgroup_boot_volume_type
+  metadata_ebs_type          = var.ecgroup_metadata_volume_type
+  metadata_ebs_size          = var.ecgroup_metadata_volume_size
+  metadata_ebs_throughput    = var.ecgroup_metadata_volume_throughput
+  metadata_ebs_iops          = var.ecgroup_metadata_volume_iops
+  storage_ebs_count          = var.ecgroup_storage_volume_count
+  storage_ebs_type           = var.ecgroup_storage_volume_type
+  storage_ebs_size           = var.ecgroup_storage_volume_size
+  storage_ebs_throughput     = var.ecgroup_storage_volume_throughput
+  storage_ebs_iops           = var.ecgroup_storage_volume_iops
+  user_data                  = var.ecgroup_user_data
 }
 
 
@@ -467,17 +467,19 @@ module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
 
-  common_config     = local.common_config
-  target_nodes_json = jsonencode(local.all_ssh_nodes)
-  admin_private_key_path = fileexists("./modules/ansible/ansible_admin_key") ? file("./modules/ansible/ansible_admin_key") : ""
+  common_config          = local.common_config
+  target_nodes_json      = jsonencode(local.all_ssh_nodes)
+  # --- THIS IS THE FIX ---
+  # Pass the path to the key, not the content of the key.
+  admin_private_key_path = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
 
-  mgmt_ip                 = flatten(module.hammerspace[*].management_ip)
-  anvil_instances         = flatten(module.hammerspace[*].anvil_instances)
-  storage_instances       = flatten(module.storage_servers[*].instance_details)
-  ecgroup_instances       = [for n in flatten(module.ecgroup[*].nodes) : n.id]
-  ecgroup_nodes           = [for n in flatten(module.ecgroup[*].nodes) : n.private_ip]
-  ecgroup_metadata_array  = module.ecgroup[0].metadata_array
-  ecgroup_storage_array   = module.ecgroup[0].storage_array
+  mgmt_ip                = flatten(module.hammerspace[*].management_ip)
+  anvil_instances        = flatten(module.hammerspace[*].anvil_instances)
+  storage_instances      = flatten(module.storage_servers[*].instance_details)
+  ecgroup_instances      = [for n in flatten(module.ecgroup[*].nodes) : n.id]
+  ecgroup_nodes          = [for n in flatten(module.ecgroup[*].nodes) : n.private_ip]
+  ecgroup_metadata_array = module.ecgroup[0].metadata_array
+  ecgroup_storage_array  = module.ecgroup[0].storage_array
 
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
