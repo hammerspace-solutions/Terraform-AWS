@@ -25,7 +25,7 @@
 
 output "terraform_project_version" {
   description = "The version of the Terraform-AWS project configuration."
-  value       = "2025.07.14-b1b6674"
+  value       = "2025.07.14-cc1da2a"
 }
 
 output "client_instances" {
@@ -67,7 +67,7 @@ output "hammerspace_dsx_private_ips" {
 
 output "ecgroup_nodes" {
   description = "ECGroup node details"
-  sensitive   = true
+  sensitive   = false
   value       = module.ecgroup[*].nodes
 }
 
