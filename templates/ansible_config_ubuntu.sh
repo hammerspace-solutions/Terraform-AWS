@@ -2,7 +2,6 @@
 
 # Variable placeholders - replaced by Terraform templatefile function
 TARGET_NODES_JSON='${TARGET_NODES_JSON}'
-ADMIN_PRIVATE_KEY='${ADMIN_PRIVATE_KEY}'
 MGMT_IP='${MGMT_IP}'
 ANVIL_ID='${ANVIL_ID}'
 STORAGE_INSTANCES='${STORAGE_INSTANCES}'
@@ -24,31 +23,49 @@ set -euo pipefail
 sudo apt-get -y update
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository --yes --update ppa:ansible/ansible
-sudo apt-get install -y ansible jq
+sudo apt-get install -y ansible jq net-tools
 
 echo "Upgrade the OS to make sure we have the latest"
 sudo apt-get -y upgrade
 
 # --- SSH Key Management for additional keys ---
-if [ -n "${SSH_KEYS}" ]; then
-    mkdir -p "${TARGET_HOME}/.ssh"
-    chmod 700 "${TARGET_HOME}/.ssh"
-    touch "${TARGET_HOME}/.ssh/authorized_keys"
+if [ -n "$${SSH_KEYS}" ]; then
+    mkdir -p "$${TARGET_HOME}/.ssh"
+    chmod 700 "$${TARGET_HOME}/.ssh"
+    touch "$${TARGET_HOME}/.ssh/authorized_keys"
     
-    echo "${SSH_KEYS}" | while read -r key; do
-        if [ -n "${key}" ] && ! grep -qF "${key}" "${TARGET_HOME}/.ssh/authorized_keys"; then
-            echo "${key}" >> "${TARGET_HOME}/.ssh/authorized_keys"
+    echo "$${SSH_KEYS}" | while read -r key; do
+        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
+            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
         fi
     done
 
-    chmod 600 "${TARGET_HOME}/.ssh/authorized_keys"
-    chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh"
+    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
+    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
 fi
 
+# Wait for the Terraform provisioner to copy the admin private key.
+# This loop prevents the script from running Ansible commands before the
+# key is available, resolving the race condition.
+PRIVATE_KEY_FILE="/home/ubuntu/.ssh/ansible_admin_key"
+echo "Waiting for Ansible private key to be provisioned at $${PRIVATE_KEY_FILE}..."
+SECONDS_WAITED=0
+while [ ! -f "$${PRIVATE_KEY_FILE}" ]; do
+    if [ "$${SECONDS_WAITED}" -gt 300 ]; then
+        echo "ERROR: Timed out after 5 minutes waiting for private key." >&2
+        exit 1
+    fi
+    sleep 5
+    SECONDS_WAITED=$((SECONDS_WAITED + 5))
+    echo "Still waiting for key..."
+done
+echo "Ansible private key found. Proceeding with configuration."
+
 # --- Passwordless SSH Setup (for clients and storage) ---
-if [ -n "${TARGET_NODES_JSON}" ] && [ "${TARGET_NODES_JSON}" != "[]" ]; then
+if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
     echo "Setting up for passwordless SSH..."
     sudo -u ubuntu ansible-galaxy collection install community.crypto
+
     INVENTORY_FILE="/home/ubuntu/inventory.ini"
     echo "[all_nodes]" > "$INVENTORY_FILE"
     echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
@@ -102,8 +119,7 @@ fi
 
 
 # --- Hammerspace Anvil Configuration ---
-# This section now only runs if an Anvil AND storage servers were deployed.
-if [ -n "${MGMT_IP}" ] && [ "${STORAGE_INSTANCES}" != "[]" ]; then
+if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ]; then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
 data_cluster_mgmt_ip: "${MGMT_IP}"
@@ -113,7 +129,7 @@ volume_group_name: "${VG_NAME}"
 share_name: "${SHARE_NAME}"
 EOF
 
-    echo '${STORAGE_INSTANCES}' | jq -r '
+    echo '$${STORAGE_INSTANCES}' | jq -r '
       "storages:",
       map(
         "- name: \"" + .name + "\"\n" +
@@ -153,8 +169,9 @@ else
     echo "No Hammerspace Anvil or no storage servers deployed, skipping Anvil configuration."
 fi
 
+
 # --- ECGroup Configuration ---
-if [ -n "${ECGROUP_INSTANCES}" ]; then
+if [ -n "$${ECGROUP_INSTANCES}" ]; then
     echo "Configuring ECGroup..."
     # Build the ECGroup ansible playbook
     cat <<EOF > /tmp/ecgroup.yml
@@ -198,7 +215,7 @@ EOF
     # Wait for the instances to be ready
     PEERS=($ECGROUP_NODES)
     ALL=true
-    for ip in "${PEERS[@]}"; do
+    for ip in "$${PEERS[@]}"; do
         echo "Waiting for $ip to open port 22..."
         SECONDS=0
         while ! nc -z -w1 "$ip" 22 &>/dev/null; do
@@ -211,9 +228,9 @@ EOF
         done
     done
 
-    if $ALL; then
+    if [ "$ALL" = true ]; then
         echo "All ECGroup instances are ready, provisioning!"
-        sudo ansible-playbook /tmp/ecgroup.yml -i "${ECGROUP_HOSTS},"
+        sudo ansible-playbook /tmp/ecgroup.yml -i "$${ECGROUP_HOSTS},"
     else
         echo "Could not get all ECGroup instances in a ready state! Aborting ECGroup configuration."
     fi
