@@ -274,7 +274,8 @@ resource "aws_ec2_capacity_reservation" "anvil" {
   availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
-  end_date_type     = "unlimited"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
   tags              = merge(var.tags, { Name = "${var.project_name}-Anvil-Reservation" })
 
   timeouts {
@@ -290,7 +291,8 @@ resource "aws_ec2_capacity_reservation" "dsx" {
   availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
-  end_date_type     = "unlimited"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
   tags              = merge(var.tags, { Name = "${var.project_name}-DSX-Reservation" })
 
   timeouts {
@@ -306,7 +308,8 @@ resource "aws_ec2_capacity_reservation" "clients" {
   availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.clients_instance_count
   tenancy           = "default"
-  end_date_type     = "unlimited"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
   tags              = merge(var.tags, { Name = "${var.project_name}-Clients-Reservation" })
 
   timeouts {
@@ -322,7 +325,8 @@ resource "aws_ec2_capacity_reservation" "storage" {
   availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.storage_instance_count
   tenancy           = "default"
-  end_date_type     = "unlimited"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
   tags              = merge(var.tags, { Name = "${var.project_name}-Storage-Reservation" })
 
   timeouts {
@@ -339,7 +343,8 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   availability_zone = data.aws_subnet.this.availability_zone
   instance_count    = var.ecgroup_node_count
   tenancy           = "default"
-  end_date_type     = "unlimited"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
   tags              = merge(var.tags, { Name = "${var.project_name}-ECGroup-Reservation" })
 
   timeouts {
@@ -459,6 +464,8 @@ module "ecgroup" {
   storage_ebs_throughput     = var.ecgroup_storage_volume_throughput
   storage_ebs_iops           = var.ecgroup_storage_volume_iops
   user_data                  = var.ecgroup_user_data
+
+  depends_on = [module.hammerspace]
 }
 
 
