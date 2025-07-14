@@ -129,7 +129,7 @@ volume_group_name: "${VG_NAME}"
 share_name: "${SHARE_NAME}"
 EOF
 
-    echo '$${STORAGE_INSTANCES}' | jq -r '
+    printf '%s' "$${STORAGE_INSTANCES}" | jq -r '
       "storages:",
       map(
         "- name: \"" + .name + "\"\n" +
@@ -140,7 +140,7 @@ EOF
       )[]
     ' > /tmp/nodes.yml
 
-    echo 'share:
+    printf '%s' 'share:
       name: "{{ share_name }}"
       path: "/{{ share_name }}"
       maxShareSize: 0
