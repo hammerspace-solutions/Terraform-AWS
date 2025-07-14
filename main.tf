@@ -476,17 +476,17 @@ module "ansible" {
 
   common_config          = local.common_config
   target_nodes_json      = jsonencode(local.all_ssh_nodes)
-  # --- THIS IS THE FIX ---
+
   # Pass the path to the key, not the content of the key.
   admin_private_key_path = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
 
-  mgmt_ip                = flatten(module.hammerspace[*].management_ip)
-  anvil_instances        = flatten(module.hammerspace[*].anvil_instances)
-  storage_instances      = flatten(module.storage_servers[*].instance_details)
-  ecgroup_instances      = [for n in flatten(module.ecgroup[*].nodes) : n.id]
-  ecgroup_nodes          = [for n in flatten(module.ecgroup[*].nodes) : n.private_ip]
-  ecgroup_metadata_array = module.ecgroup[0].metadata_array
-  ecgroup_storage_array  = module.ecgroup[0].storage_array
+  mgmt_ip                = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
+  anvil_instances        = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
+  storage_instances      = local.deploy_storage ? flatten(module.storage_servers[*].instance_details) : []
+  ecgroup_instances      = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.id] : []
+  ecgroup_nodes          = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.private_ip] : []
+  ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
+  ecgroup_storage_array  = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
 
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
