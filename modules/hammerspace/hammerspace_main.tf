@@ -108,73 +108,32 @@ resource "aws_security_group" "anvil_data_sg" {
     cidr_blocks = [var.sec_ip_cidr]
   }
 
+  # Rule 1: Allow all ICMP (Ping)
+  
   ingress {
     protocol    = "icmp"
     from_port   = -1
     to_port     = -1
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
-  # Anvil TCP Ports
-  dynamic "ingress" {
-    for_each = toset([22, 80, 111, 161, 443, 662, 2049, 2224, 4379, 8443, 9097, 9099, 9399, 20048, 20491, 20492, 21064, 50000, 51000, 53030])
-    content {
-      protocol    = "tcp"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      cidr_blocks = var.common_config.allowed_source_cidr_blocks
-    }
-  }
+
+  # Rule 2: Allow all TCP traffic
+  
   ingress {
     protocol    = "tcp"
-    from_port   = 4505
-    to_port     = 4506
+    from_port   = 0
+    to_port     = 65535
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
+    description = "Allow all TCP traffic from specified sources"
   }
+
+  # Rule 3: Allow all UDP traffic
+  
   ingress {
-    protocol    = "tcp"
-    from_port   = 7789
-    to_port     = 7790
+    protocol    = "udp"
+    from_port   = 0
+    to_port     = 65535
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 9093
-    to_port     = 9094
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 9298
-    to_port     = 9299
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 41001
-    to_port     = 41256
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 52000
-    to_port     = 52008
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 53000
-    to_port     = 53008
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  # Anvil UDP Ports
-  dynamic "ingress" {
-    for_each = toset([111, 123, 161, 662, 4379, 5405, 20048])
-    content {
-      protocol    = "udp"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      cidr_blocks = var.common_config.allowed_source_cidr_blocks
-    }
   }
 }
 
@@ -192,73 +151,32 @@ resource "aws_security_group" "dsx_sg" {
     cidr_blocks = [var.sec_ip_cidr]
   }
 
+  # Rule 1: Allow all ICMP (Ping)
+  
   ingress {
     protocol    = "icmp"
     from_port   = -1
     to_port     = -1
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
-  # DSX TCP Ports
-  dynamic "ingress" {
-    for_each = toset([22, 111, 139, 161, 445, 662, 2049, 3049, 4379, 9093, 9292, 20048, 20491, 20492, 30048, 30049, 50000, 51000, 53030])
-    content {
-      protocol    = "tcp"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      cidr_blocks = var.common_config.allowed_source_cidr_blocks
-    }
-  }
+
+  # Rule 2: Allow all TCP traffic
+  
   ingress {
     protocol    = "tcp"
-    from_port   = 4505
-    to_port     = 4506
+    from_port   = 0
+    to_port     = 65535
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
+    description = "Allow all TCP traffic from specified sources"
   }
+
+  # Rule 3: Allow all UDP traffic
+  
   ingress {
-    protocol    = "tcp"
-    from_port   = 9000
-    to_port     = 9009
+    protocol    = "udp"
+    from_port   = 0
+    to_port     = 65535
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 9095
-    to_port     = 9096
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 9098
-    to_port     = 9099
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 41001
-    to_port     = 41256
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 52000
-    to_port     = 52008
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 53000
-    to_port     = 53008
-    cidr_blocks = var.common_config.allowed_source_cidr_blocks
-  }
-  # DSX UDP Ports
-  dynamic "ingress" {
-    for_each = toset([111, 161, 662, 20048, 30048, 30049])
-    content {
-      protocol    = "udp"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      cidr_blocks = var.common_config.allowed_source_cidr_blocks
-    }
   }
 }
 
