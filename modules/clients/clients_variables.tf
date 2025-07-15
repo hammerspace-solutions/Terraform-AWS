@@ -36,6 +36,7 @@ variable "common_config" {
     assign_public_ip     = bool
     ssh_keys_dir         = string
     placement_group_name = string
+    allowed_source_cidr_blocks = list(string)
   })
 }
 

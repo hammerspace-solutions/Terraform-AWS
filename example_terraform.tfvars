@@ -5,8 +5,8 @@ capacity_reservation_create_timeout  = "3m"
 
 # Which components to deploy
 #
-# Valid answers are "clients", "storage", "hammerspace", or "all". The
-# structure is a list, so you can say "storage", "hammerspace" to deploy
+# Valid answers are "clients", "storage", "hammerspace", "ecgroup", or "all".
+# The structure is a list, so you can say "storage", "hammerspace" to deploy
 # both of those
 
 deploy_components		     = ["all"]
@@ -113,7 +113,7 @@ storage_target_user 		     = "ubuntu"
 
 hammerspace_ami			     = "ami-094d8e62982f34834"
 
-# --- Optional: Provide existing Security Group IDs for debugging ---
+# --- Optional: Provide existing Security Group IDs 
 # hammerspace_anvil_security_group_id  = "sg-0f888587d7e83bda2"
 # hammerspace_dsx_security_group_id    = "sg-0f888587d7e83bda2"
 
@@ -124,10 +124,16 @@ hammerspace_ami			     = "ami-094d8e62982f34834"
 
 # hammerspace_profile_id	       = "Hammerspace"
 
+# Once you deploy a standalone Anvil, it is hard to change that to a HA pair. The
+# anvil_destruction variable that follows prevents a user from changing the anvil_count
+# and trying to add another anvil to an already existing standalone anvil. Set this variable
+# to true if you wish to destroy the anvil on a terraform destroy.
+
+hammerspace_sa_anvil_destruction     = true
+
 # Anvil specific
 
 hammerspace_anvil_count		     = 2
-hammerspace_sa_anvil_destruction     = true
 hammerspace_anvil_instance_type      = "m5n.2xlarge"
 hammerspace_anvil_meta_disk_size     = 1000
 hammerspace_anvil_meta_disk_type     = "gp3"

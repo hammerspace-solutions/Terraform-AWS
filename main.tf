@@ -231,6 +231,9 @@ check "ecgroup_node_ami_exists" {
 
 # Determine which components to deploy and create a common configuration object
 locals {
+
+  all_allowed_cidr_blocks = distinct(concat([data.aws_vpc.validation.cidr_block], var.allowed_source_cidr_blocks))
+  
   common_config = {
     region               = var.region
     availability_zone    = data.aws_subnet.this.availability_zone
@@ -242,6 +245,7 @@ locals {
     assign_public_ip     = var.assign_public_ip
     ssh_keys_dir         = var.ssh_keys_dir
     placement_group_name = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
+    allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
   }
 
   deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")

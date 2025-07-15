@@ -12,6 +12,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Client Variables](#client-variables)
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
+  - [ECGroup Variables](#ecgroup-variables)
   - [Ansible Variables](#ansible-variables)
 - [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
@@ -52,6 +53,7 @@ These variables apply to the overall deployment:
 * `placement_group_strategy`: The strategy for the placement group: `cluster`, `spread`, or `partition` (Default: `cluster`).
 * `capacity_reservation_create_timeout`: The maximum time to wait for a capacity reservation to be fulfilled before failing (e.g., `"5m"`). (Default: `"5m"`).
 * `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this for private or partner AMIs. (Default: `[]`).
+* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow ingress traffic from (e.g., your corporate VPN range). The VPC's own CIDR block is automatically included.
 
 ---
 
@@ -121,6 +123,27 @@ These variables configure the Hammerspace deployment and are prefixed with `hamm
 * `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX.
 * `hammerspace_dsx_ebs_count`: Number of data EBS volumes per DSX instance (Default: `1`).
 * `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage (Default: `true`).
+
+---
+
+### ECGroup Variables
+
+These variables configure the ECGroup storage cluster and are prefixed with `ecgroup_` in your `terraform.tfvars` file.
+
+* `ecgroup_instance_type`: EC2 instance type for the cluster nodes.
+* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16).
+* `ecgroup_boot_volume_size`: Root volume size (GB) for each node.
+* `ecgroup_boot_volume_type`: Root volume type for each node.
+* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB.
+* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node.
+* `ecgroup_metadata_volume_throughput`: Throughput for metadata EBS volumes.
+* `ecgroup_metadata_volume_iops`: IOPS for the metadata EBS volumes.
+* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node.
+* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB).
+* `ecgroup_storage_volume_type`: Type of EBS storage volume.
+* `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
+* `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
+* `ecgroup_user_data`: Path to user data script for the nodes.
 
 ---
 
@@ -272,9 +295,11 @@ If you are using the `hammerspace_profile_id` variable to provide a pre-existing
 
 ## Securely Accessing Instances
 
-For production or security-conscious environments, allowing SSH access from the entire internet (`0.0.0.0/0`) is not recommended. The best practice is to limit access to a controlled entry point.
+For production or security-conscious environments, allowing ingress traffic from the entire internet (`0.0.0.0/0`) is not recommended. This project defaults to a more secure model. Ingress traffic is only allowed from two sources:
+1.  The CIDR block of the VPC itself, allowing all instances within the deployment to communicate with each other.
+2.  Any additional CIDR blocks you specify in the `allowed_source_cidr_blocks` variable, which is ideal for corporate VPNs or management networks.
 
-### Option 1: Bastion Host (Recommended)
+### Option 1: Bastion Host (Recommended for Production)
 
 A Bastion Host (or "jump box") is a single, hardened EC2 instance that lives in a public subnet and is the only instance that accepts connections from the internet (or a corporate VPN). Users first SSH into the bastion host, and from there, they can "jump" to other instances in private subnets using their private IP addresses.
 
@@ -340,13 +365,13 @@ This is normal and expected behavior due to a race condition in the AWS API. It 
 After a successful `apply`, Terraform will provide the following outputs. Sensitive values will be redacted and can be viewed with `terraform output <output_name>`.
 
 * `client_instances`: A list of non-sensitive details for each client instance (ID, IP, Name).
-* `client_ebs_volumes`: **(Sensitive)** A list of sensitive EBS volume details for each client.
 * `storage_instances`: A list of non-sensitive details for each storage instance.
-* `storage_ebs_volumes`: **(Sensitive)** A list of sensitive EBS volume details for each storage server.
 * `hammerspace_anvil`: **(Sensitive)** A list of detailed information for the deployed Anvil nodes.
 * `hammerspace_dsx`: **(Sensitive)** A list of detailed information for the deployed DSX nodes.
 * `hammerspace_dsx_private_ips`: A list of private IP addresses for the Hammerspace DSX instances.
 * `hammerspace_mgmt_url`: The URL to access the Hammerspace management interface.
+* `ecgroup_nodes`: Details about the deployed ECGroup nodes.
+* `ansible_details`: Details for the deployed Ansible controller.
 
 ---
 ## Modules
@@ -355,6 +380,8 @@ This project is structured into the following modules:
 * **clients**: Deploys client EC2 instances.
 * **storage_servers**: Deploys storage server EC2 instances with configurable RAID and NFS exports.
 * **hammerspace**: Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
+* **ecgroup**: Deploys a storage cluster that combines all of its storage into an erasure-coded array.
 * **ansible**: Deploys an Ansible controller instance which performs "Day 2" configuration tasks after the primary infrastructure is provisioned. Its key functions are:
     * **Hammerspace Integration**: It runs a playbook that connects to the Anvil's API to add the newly created storage servers as data nodes, create a volume group, and create a share.
+    * **ECGroup Configuration**: It runs a playbook to configure the ECGroup cluster, create the array, and set up the necessary services.
     * **Passwordless SSH Setup**: It runs a second playbook that orchestrates a key exchange between all client and storage nodes, allowing them to SSH to each other without passwords for automated scripting.

@@ -112,7 +112,7 @@ resource "aws_security_group" "anvil_data_sg" {
     protocol    = "icmp"
     from_port   = -1
     to_port     = -1
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   # Anvil TCP Ports
   dynamic "ingress" {
@@ -121,50 +121,50 @@ resource "aws_security_group" "anvil_data_sg" {
       protocol    = "tcp"
       from_port   = ingress.value
       to_port     = ingress.value
-      cidr_blocks = [var.sec_ip_cidr]
+      cidr_blocks = var.common_config.allowed_source_cidr_blocks
     }
   }
   ingress {
     protocol    = "tcp"
     from_port   = 4505
     to_port     = 4506
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 7789
     to_port     = 7790
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 9093
     to_port     = 9094
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 9298
     to_port     = 9299
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 41001
     to_port     = 41256
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 52000
     to_port     = 52008
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 53000
     to_port     = 53008
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   # Anvil UDP Ports
   dynamic "ingress" {
@@ -173,7 +173,7 @@ resource "aws_security_group" "anvil_data_sg" {
       protocol    = "udp"
       from_port   = ingress.value
       to_port     = ingress.value
-      cidr_blocks = [var.sec_ip_cidr]
+      cidr_blocks = var.common_config.allowed_source_cidr_blocks
     }
   }
 }
@@ -196,7 +196,7 @@ resource "aws_security_group" "dsx_sg" {
     protocol    = "icmp"
     from_port   = -1
     to_port     = -1
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   # DSX TCP Ports
   dynamic "ingress" {
@@ -205,50 +205,50 @@ resource "aws_security_group" "dsx_sg" {
       protocol    = "tcp"
       from_port   = ingress.value
       to_port     = ingress.value
-      cidr_blocks = [var.sec_ip_cidr]
+      cidr_blocks = var.common_config.allowed_source_cidr_blocks
     }
   }
   ingress {
     protocol    = "tcp"
     from_port   = 4505
     to_port     = 4506
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 9000
     to_port     = 9009
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 9095
     to_port     = 9096
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 9098
     to_port     = 9099
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 41001
     to_port     = 41256
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 52000
     to_port     = 52008
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   ingress {
     protocol    = "tcp"
     from_port   = 53000
     to_port     = 53008
-    cidr_blocks = [var.sec_ip_cidr]
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
   # DSX UDP Ports
   dynamic "ingress" {
@@ -257,7 +257,7 @@ resource "aws_security_group" "dsx_sg" {
       protocol    = "udp"
       from_port   = ingress.value
       to_port     = ingress.value
-      cidr_blocks = [var.sec_ip_cidr]
+      cidr_blocks = var.common_config.allowed_source_cidr_blocks
     }
   }
 }

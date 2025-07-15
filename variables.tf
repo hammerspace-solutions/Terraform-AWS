@@ -32,6 +32,12 @@ variable "region" {
   default     = "us-west-2"
 }
 
+variable "allowed_source_cidr_blocks" {
+  description = "A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range)."
+  type        = list(string)
+  default     = []
+}
+
 variable "assign_public_ip" {
   description = "If true, assigns a public IP address to all created EC2 instances. If false, only a private IP will be assigned."
   type        = bool
