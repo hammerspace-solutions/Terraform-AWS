@@ -30,6 +30,8 @@ sudo apt-get -y upgrade
 
 # --- SSH Key Management for additional keys ---
 if [ -n "$${SSH_KEYS}" ]; then
+
+    echo "Starting SSH Key Management Deployment"
     mkdir -p "$${TARGET_HOME}/.ssh"
     chmod 700 "$${TARGET_HOME}/.ssh"
     touch "$${TARGET_HOME}/.ssh/authorized_keys"
@@ -42,11 +44,13 @@ if [ -n "$${SSH_KEYS}" ]; then
 
     chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
     chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+    echo "Ending SSH Key Management Deployment"
 fi
 
 # Wait for the Terraform provisioner to copy the admin private key.
 # This loop prevents the script from running Ansible commands before the
 # key is available, resolving the race condition.
+
 PRIVATE_KEY_FILE="/home/ubuntu/.ssh/ansible_admin_key"
 echo "Waiting for Ansible private key to be provisioned at $${PRIVATE_KEY_FILE}..."
 SECONDS_WAITED=0
@@ -62,6 +66,7 @@ done
 echo "Ansible private key found. Proceeding with configuration."
 
 # --- Passwordless SSH Setup (for clients and storage) ---
+
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
     echo "Setting up for passwordless SSH..."
     sudo -u ubuntu ansible-galaxy collection install community.crypto
@@ -117,60 +122,8 @@ else
     echo "No clients or storage servers deployed, skipping passwordless SSH setup."
 fi
 
-
-# --- Hammerspace Anvil Configuration ---
-if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ]; then
-    echo "Configuring Hammerspace Anvil..."
-    cat > /tmp/anvil.yml << EOF
-data_cluster_mgmt_ip: "${MGMT_IP}"
-hsuser: admin
-password: "${ANVIL_ID}"
-volume_group_name: "${VG_NAME}"
-share_name: "${SHARE_NAME}"
-EOF
-
-    printf '%s' "$${STORAGE_INSTANCES}" | jq -r '
-      "storages:",
-      map(
-        "- name: \"" + .name + "\"\n" +
-        "  nodeType: \"OTHER\"\n" +
-        "  mgmtIpAddress:\n" +
-        "    address: \"" + .private_ip + "\"\n" +
-        "  _type: \"NODE\""
-      )[]
-    ' > /tmp/nodes.yml
-
-    printf '%s' 'share:
-      name: "{{ share_name }}"
-      path: "/{{ share_name }}"
-      maxShareSize: 0
-      alertThreshold: 90
-      maxShareSizeType: TB
-      smbAliases: []
-      exportOptions:
-      - subnet: "*"
-        rootSquash: false
-        accessPermissions: RW
-      shareSnapshots: []
-      shareObjectives:
-      - objective:
-          name: no-atime
-        applicability: "TRUE"
-      - objective:
-          name: confine-to-{{ volume_group_name }}
-        applicability: "TRUE"
-      smbBrowsable: true
-      shareSizeLimit: 0' > /tmp/share.yml
-
-    sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
-    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
-    echo "Finished Hammerspace Anvil configuration."
-else
-    echo "No Hammerspace Anvil or no storage servers deployed, skipping Anvil configuration."
-fi
-
-
 # --- ECGroup Configuration ---
+
 if [ -n "$${ECGROUP_INSTANCES}" ]; then
     echo "Configuring ECGroup..."
     # Build the ECGroup ansible playbook
@@ -232,11 +185,63 @@ EOF
         echo "All ECGroup instances are ready, provisioning!"
         sudo ansible-playbook /tmp/ecgroup.yml -i "$${ECGROUP_HOSTS},"
     else
-        echo "Could not get all ECGroup instances in a ready state! Aborting ECGroup configuration."
+        echo "Could not get all ECGroup instances in a ready state! Aborting configuration."
     fi
     echo "Finished ECGroup configuration."
 else
     echo "No ECGroup deployed, skipping ECGroup configuration."
+fi
+
+# --- Hammerspace Anvil Configuration ---
+
+if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ]; then
+    echo "Configuring Hammerspace Anvil..."
+    cat > /tmp/anvil.yml << EOF
+data_cluster_mgmt_ip: "${MGMT_IP}"
+hsuser: admin
+password: "${ANVIL_ID}"
+volume_group_name: "${VG_NAME}"
+share_name: "${SHARE_NAME}"
+EOF
+
+    printf '%s' "$${STORAGE_INSTANCES}" | jq -r '
+      "storages:",
+      map(
+        "- name: \"" + .name + "\"\n" +
+        "  nodeType: \"OTHER\"\n" +
+        "  mgmtIpAddress:\n" +
+        "    address: \"" + .private_ip + "\"\n" +
+        "  _type: \"NODE\""
+      )[]
+    ' > /tmp/nodes.yml
+
+    printf '%s' 'share:
+      name: "{{ share_name }}"
+      path: "/{{ share_name }}"
+      maxShareSize: 0
+      alertThreshold: 90
+      maxShareSizeType: TB
+      smbAliases: []
+      exportOptions:
+      - subnet: "*"
+        rootSquash: false
+        accessPermissions: RW
+      shareSnapshots: []
+      shareObjectives:
+      - objective:
+          name: no-atime
+        applicability: "TRUE"
+      - objective:
+          name: confine-to-{{ volume_group_name }}
+        applicability: "TRUE"
+      smbBrowsable: true
+      shareSizeLimit: 0' > /tmp/share.yml
+
+    sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
+    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
+    echo "Finished Hammerspace Anvil configuration."
+else
+    echo "No Hammerspace Anvil or no storage servers deployed, skipping Anvil configuration."
 fi
 
 echo "Ansible controller setup complete."
