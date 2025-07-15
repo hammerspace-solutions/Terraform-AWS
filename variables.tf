@@ -103,7 +103,6 @@ variable "capacity_reservation_create_timeout" {
 variable "clients_instance_count" {
   description = "Number of client instances"
   type        = number
-  default     = 1
 }
 
 variable "clients_ami" {
@@ -114,7 +113,6 @@ variable "clients_ami" {
 variable "clients_instance_type" {
   description = "Instance type for clients"
   type        = string
-  default     = "m5n.8xlarge"
 }
 
 variable "clients_boot_volume_size" {
@@ -132,7 +130,7 @@ variable "clients_boot_volume_type" {
 variable "clients_ebs_count" {
   description = "Number of extra EBS volumes per client"
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "clients_ebs_size" {
@@ -175,7 +173,7 @@ variable "clients_target_user" {
 variable "storage_instance_count" {
   description = "Number of storage instances"
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "storage_ami" {
@@ -186,7 +184,6 @@ variable "storage_ami" {
 variable "storage_instance_type" {
   description = "Instance type for storage"
   type        = string
-  default     = "m5n.8xlarge"
 }
 
 variable "storage_boot_volume_size" {
@@ -204,7 +201,7 @@ variable "storage_boot_volume_type" {
 variable "storage_ebs_count" {
   description = "Number of extra EBS volumes per storage"
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "storage_ebs_size" {
@@ -258,7 +255,7 @@ variable "storage_raid_level" {
 variable "hammerspace_ami" {
   description = "AMI ID for Hammerspace instances"
   type        = string
-  default     = "ami-04add4f19d296b3e7"
+  default     = ""
 }
 
 variable "hammerspace_iam_admin_group_id" {
@@ -406,6 +403,10 @@ variable "ecgroup_node_count" {
   description = "Number of EC2 nodes to create"
   type        = number
   default     = 4
+  validation {
+    condition     = var.ecgroup_node_count >= 4 && var.ecgroup_node_count <= 16
+    error_message = "ECGroup nodes must be between 4 and 16"
+  }
 }
 
 variable "ecgroup_boot_volume_size" {
