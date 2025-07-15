@@ -41,6 +41,11 @@ vpc_id     			     = "vpc-e3b5890"
 subnet_id  			     = "subnet-0d8a5034456df"
 region				     = "us-west-2"
 
+# This is the allowed ingress cidr blocks. These will be added to the vpc cidr automatically
+# upon instantiation.
+
+allowed_source_cidr_blocks	     = ["10.0.0.0/16", "10.20.0.0/16", "10.30.0.0/16", "10.41.0.0/16", "10.200.0.0/16", "192.168.254.0/24"]
+
 # You can put in as many tags as you would like. The format should be self-explanatory
 
 tags = {
