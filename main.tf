@@ -257,7 +257,7 @@ locals {
 
   ecgroup_ami_mapping = {
     "eu-west-3" = "ami-0366b4547202afb15"
-    "us-west-2" = "ami-0ee373e3712d6ed99"
+    "us-west-2" = "ami-029d555d8523da58d"
   }
 
   select_ecgroup_ami_for_region = lookup(local.ecgroup_ami_mapping, var.region, "")
