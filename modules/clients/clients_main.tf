@@ -153,7 +153,7 @@ resource "aws_instance" "this" {
       error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
     }
     precondition {
-      condition     = var.tier0 == "none" || 
+      condition     = var.tier0 == "" || 
                       (var.tier0 == "raid-0" && (var.ebs_count + local.nvme_count) >= 2) || 
                       (var.tier0 == "raid-5" && (var.ebs_count + local.nvme_count) >= 3) || 
                       (var.tier0 == "raid-6" && (var.ebs_count + local.nvme_count) >= 4)

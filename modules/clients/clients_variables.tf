@@ -65,13 +65,13 @@ variable "instance_type" {
 }
 
 variable "tier0" {
-  description = "RAID level to configure on client EBS volumes (raid-0, raid-5, or raid-6). Set to 'none' to skip RAID."
+  description = "RAID level to configure on client EBS volumes (raid-0, raid-5, or raid-6). Set to blank to skip RAID."
   type        = string
-  default     = "none"
+  default     = ""
 
   validation {
-    condition     = contains(["none", "raid-0", "raid-5", "raid-6"], var.raid_level)
-    error_message = "RAID level must be one of: none, raid-0, raid-5, or raid-6."
+    condition     = contains(["", "raid-0", "raid-5", "raid-6"], var.raid_level)
+    error_message = "RAID level must be one of: blank, raid-0, raid-5, or raid-6."
   }
 }
 
