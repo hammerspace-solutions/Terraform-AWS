@@ -34,7 +34,9 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 
 ## Configuration
 
-Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`.
+Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier
+for the user, we have supplied an `example_terraform.tfvars` file with all of the possible values. Just rename that file to terraform.tfvars and edit it to indicate
+what you would like to configure. The global and module variables are explained in detail below.
 
 ### Global Variables
 
@@ -225,9 +227,8 @@ The `capacity_reservation_create_timeout` you set applies to this **entire waiti
 
 > **Warning:** On-Demand Capacity Reservations begin to incur charges at the standard On-Demand rate as soon as they are successfully created, **whether you are running an instance in them or not.**
 >
-> `terraform destroy` is designed to cancel these reservations. However, if the `destroy` command fails for any reason (e.g., an instance fails to terminate), the reservation will be "orphaned" and **will continue to incur charges**.
->
-> If you encounter a failed `destroy`, it is crucial to **run `terraform destroy` a second time** to ensure all resources, including the capacity reservations, are properly cleaned up.
+> In order to avoid unnecessary charges, Capacity Reservations will automatically expire 10 minutes after creation. The sole purpose of the Capacity Reservation is to make sure that resources
+> are available so that Terraform doesn't hang during the `terraform apply` because those resources are unavailable in your availability zone. 
 
 ---
 
