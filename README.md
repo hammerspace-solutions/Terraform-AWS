@@ -1,7 +1,7 @@
 # Terraform-AWS
 This project uses Terraform to provision resources on AWS. The deployment is modular, allowing you to deploy client machines, storage servers, and a Hammerspace environment either together or independently.
 
-This project was originally written for internal Hammerspace use to size Hammerspace resources within AWS for inclusion in a LLM model for automated AI sizing. It has since expanded to allow customers to deploy linux clients, linux storage servers, and Hammerspace Anvil's and DSX's for any use that they wish.
+This project was originally written for internal Hammerspace use to size Hammerspace resources within AWS for inclusion in a LLM model for automated AI sizing. It has since expanded to allow customers to deploy linux clients, linux storage servers, EC Groups, and Hammerspace Anvil's and DSX's for any use that they wish.
 
 Guard-rails have been added to make sure that the deployments are as easy as possible for the uninitiated cloud user.
 
