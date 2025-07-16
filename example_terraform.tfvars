@@ -73,6 +73,7 @@ tags = {
 clients_instance_count		     = 2
 clients_ami 			     = "ami-04cfeb9ad57f3053a"
 clients_instance_type 		     = "m5n.2xlarge"
+clients_tier0			     = "" # Or "raid-0", "raid-5", or "raid-6"
 clients_boot_volume_size	     = 100
 clients_boot_volume_type	     = "gp2"
 clients_ebs_count 		     = 0

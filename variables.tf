@@ -106,9 +106,16 @@ variable "capacity_reservation_create_timeout" {
 }
 
 # CLIENT-SPECIFIC VARIABLES (WITH clients_ PREFIX)
+
 variable "clients_instance_count" {
   description = "Number of client instances"
   type        = number
+}
+
+variable "clients_tier0" {
+  description = "Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'."
+  type        = string
+  default     = ""
 }
 
 variable "clients_ami" {
@@ -176,6 +183,7 @@ variable "clients_target_user" {
 }
 
 # STORAGE-SPECIFIC VARIABLES (WITH storage_ PREFIX)
+
 variable "storage_instance_count" {
   description = "Number of storage instances"
   type        = number
@@ -258,6 +266,7 @@ variable "storage_raid_level" {
 }
 
 # Hammerspace-specific variables
+
 variable "hammerspace_ami" {
   description = "AMI ID for Hammerspace instances"
   type        = string
@@ -399,6 +408,7 @@ variable "placement_group_strategy" {
 }
 
 # ECGroup specific variables
+
 variable "ecgroup_instance_type" {
   description = "EC2 instance type"
   type        = string
@@ -488,6 +498,7 @@ variable "ecgroup_user_data" {
 }
 
 # Ansible specific variables
+
 variable "ansible_instance_count" {
   description = "Number of ansible instances"
   type        = number

@@ -64,6 +64,17 @@ variable "instance_type" {
   type        = string
 }
 
+variable "tier0" {
+  description = "RAID level to configure on client EBS volumes (raid-0, raid-5, or raid-6). Set to 'none' to skip RAID."
+  type        = string
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "raid-0", "raid-5", "raid-6"], var.raid_level)
+    error_message = "RAID level must be one of: none, raid-0, raid-5, or raid-6."
+  }
+}
+
 variable "boot_volume_size" {
   description = "Root volume size (GB) for clients"
   type        = number
