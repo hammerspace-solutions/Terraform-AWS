@@ -26,7 +26,7 @@
 output "instance_details" {
   description = "A list of non-sensitive details for client instances (ID, Name, IPs)."
   value = [
-    for i in aws_instance.this : {
+    for i in aws_instance.clients : {
       id         = i.id
       private_ip = i.private_ip
       public_ip  = i.public_ip

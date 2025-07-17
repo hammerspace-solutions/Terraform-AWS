@@ -40,7 +40,7 @@ data "aws_ec2_instance_type_offering" "clients" {
 
 # Get detail on the number of disks in the instance type
 
-data "aws_ec2_instance_type" "this" {
+data "aws_ec2_instance_type" "nvme_disks" {
   instance_type = var.instance_type
 }
 
@@ -51,8 +51,13 @@ locals {
   ]
 
   # Calculate NVMe drive count (0 if no instance storage)
-  
-  nvme_count = try(length(data.aws_ec2_instance_type.this.instance_storage_info[0].disks), 0)
+
+  nvme_count = try(
+    sum([
+      for v in data.aws_ec2_instance_type.nvme_disks.instance_store_volumes : v.count if v.type == "nvme"
+    ]),
+    0
+  )
   
   ssh_public_keys = try(
     [
@@ -102,7 +107,7 @@ resource "aws_security_group" "client" {
 
 # Launch EC2 client instances
 
-resource "aws_instance" "this" {
+resource "aws_instance" "clients" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
@@ -152,12 +157,14 @@ resource "aws_instance" "this" {
       condition     = local.client_instance_type_is_available
       error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
     }
+    
     precondition {
-      condition     = var.tier0 == "" || 
-                      (var.tier0 == "raid-0" && (var.ebs_count + local.nvme_count) >= 2) || 
-                      (var.tier0 == "raid-5" && (var.ebs_count + local.nvme_count) >= 3) || 
-                      (var.tier0 == "raid-6" && (var.ebs_count + local.nvme_count) >= 4)
-      error_message = "Insufficient total devices (EBS + NVMe) for tier0: If set, 'raid-0' needs >=2, 'raid-5' needs >=3, 'raid-6' needs >=4."
+      condition     = local.nvme_count >= {
+        "raid-0" = 2,
+	"raid=5" = 3,
+	"raid-6" = 4
+      }[var.tier0]
+      error_message = "Insufficient total devices for tier0: If set, 'raid-0' needs >=2, 'raid-5' needs >=3, 'raid-6' needs >=4."
     }
   }
 

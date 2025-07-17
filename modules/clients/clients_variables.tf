@@ -70,7 +70,7 @@ variable "tier0" {
   default     = ""
 
   validation {
-    condition     = contains(["", "raid-0", "raid-5", "raid-6"], var.raid_level)
+    condition     = contains(["", "raid-0", "raid-5", "raid-6"], var.tier0)
     error_message = "RAID level must be one of: blank, raid-0, raid-5, or raid-6."
   }
 }
