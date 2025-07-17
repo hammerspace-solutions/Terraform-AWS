@@ -49,8 +49,10 @@ allowed_source_cidr_blocks	     = ["10.0.0.0/16", "10.20.0.0/16", "10.30.0.0/16"
 # You can put in as many tags as you would like. The format should be self-explanatory
 
 tags = {
-  Owner				     = "Terraform Owner"
-  Project 			     = "Terraform Testing"
+  Name		= "Example Project Name" # AWS Sizing (example)
+  Owner		= "Example Owner" # Your name
+  Environemtn	= "Example Environment" # development, qa, staging, production, sandbox
+  CostCenter	= "Sales" # Name of a cost center
 }
 
 # Client specific variables (clients_ prefix)
