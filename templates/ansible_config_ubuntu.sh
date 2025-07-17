@@ -204,16 +204,34 @@ volume_group_name: "${VG_NAME}"
 share_name: "${SHARE_NAME}"
 EOF
 
-    printf '%s' "$${STORAGE_INSTANCES}" | jq -r '
-      "storages:",
-      map(
-        "- name: \"" + .name + "\"\n" +
-        "  nodeType: \"OTHER\"\n" +
-        "  mgmtIpAddress:\n" +
-        "    address: \"" + .private_ip + "\"\n" +
-        "  _type: \"NODE\""
-      )[]
-    ' > /tmp/nodes.yml
+    NODE_SRC="$${ECGROUP_NODES:-$${STORAGE_INSTANCES}}"
+
+    if [ -n "$NODE_SRC" ]; then
+      if [ -n "$${ECGROUP_NODES}" ]; then
+        FIRST_IP=$(echo "$NODE_SRC" | awk '{print $1}')
+        cat > /tmp/nodes.yml <<EOF
+    storages:
+      - name: "ECGroup"
+        nodeType: "OTHER"
+        mgmtIpAddress:
+          address: "$FIRST_IP"
+        _type: "NODE"
+    EOF
+    
+      else
+        printf '%s' "$NODE_SRC" | jq -r '
+          "storages:",
+          map(
+            "- name: \"" + .name + "\"\n" +
+            "  nodeType: \"OTHER\"\n" +
+            "  mgmtIpAddress:\n" +
+            "    address: \"" + .private_ip + "\"\n" +
+            "  _type: \"NODE\""
+          )[]
+        ' > /tmp/nodes.yml
+      fi
+    fi
+
 
     printf '%s' 'share:
       name: "{{ share_name }}"
