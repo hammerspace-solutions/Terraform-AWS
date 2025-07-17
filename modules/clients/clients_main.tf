@@ -50,14 +50,18 @@ locals {
     "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
   ]
 
-  # Calculate NVMe drive count (0 if no instance storage)
+  # Grab the first (and only) storage‐info block, or empty map if none
+  
+#  storage_info = try(data.aws_ec2_instance_type.nvme_disks.InstanceStorageInfo[0], {})
 
-  nvme_count = try(
-    sum([
-      for v in data.aws_ec2_instance_type.nvme_disks.instance_store_volumes : v.count if v.type == "nvme"
-    ]),
-    0
-  )
+# Calculate NVMe drive count (0 if no instance storage)
+
+#  nvme_count = (
+#    contains(["required","supported"], storage_info.NvmeSupport)
+#    ? storage_info.disks[0].count
+#    : 0
+#  )
+  nvme_count = 0
   
   ssh_public_keys = try(
     [

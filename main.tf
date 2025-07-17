@@ -37,6 +37,10 @@ data "aws_vpc" "validation" {
   id = var.vpc_id
 }
 
+data "aws_ec2_instance_type" "m5d24x" {
+  instance_type = "m5d.24xlarge"
+}
+
 data "aws_subnet" "this" {
   id = var.subnet_id
 }

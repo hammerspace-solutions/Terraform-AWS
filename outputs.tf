@@ -23,6 +23,10 @@
 # Terraform file to output results of any deployment
 # -----------------------------------------------------------------------------
 
+output "m5d24x_full" {
+  value = data.aws_ec2_instance_type.m5d24x
+}
+
 output "terraform_project_version" {
   description = "The version of the Terraform-AWS project configuration."
   value       = "2025.07.15-7ee91ea"
