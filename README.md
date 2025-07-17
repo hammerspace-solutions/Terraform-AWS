@@ -77,6 +77,9 @@ These variables configure the client instances and are prefixed with `clients_` 
 * `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes.
 * `clients_user_data`: Path to user data script for clients.
 * `clients_target_user`: Default system user for client EC2s (Default: `"ubuntu"`).
+* `clients_tier0`: Tier-0 RAID on NVMe instance-store.
+  * **Valid Values**: `""` (no RAID), `raid-0`, `raid-5`, `raid-6` (Default: `""`)
+  * When set, Terrform detects all locally attached NVMe disks on the instance. The startup script then configures a RAID array at the chosen level (raid-0 = strip, raid-5 = parity, raid-6 = double parity).
 
 ---
 
