@@ -39,7 +39,7 @@ jobs:
           aws-region: ${{ vars.REGION || 'us-west-2' }}
 
       - name: Copy example tfvars for testing
-        run: cp example_terraform.tfvars terraform.tfvars
+        run: cp example_terraform.tfvars.rename terraform.tfvars
 
       - name: Terraform Format Check
         id: fmt
