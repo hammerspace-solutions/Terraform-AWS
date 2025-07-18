@@ -194,7 +194,7 @@ fi
 
 # --- Hammerspace Anvil Configuration ---
 
-if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ]; then
+if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ] && [ "$${ECGROUP_INSTANCES}" !== "[]" ]; then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
 data_cluster_mgmt_ip: "${MGMT_IP}"
@@ -216,7 +216,7 @@ EOF
         mgmtIpAddress:
           address: "$FIRST_IP"
         _type: "NODE"
-    EOF
+EOF
     
       else
         printf '%s' "$NODE_SRC" | jq -r '
@@ -231,7 +231,6 @@ EOF
         ' > /tmp/nodes.yml
       fi
     fi
-
 
     printf '%s' 'share:
       name: "{{ share_name }}"
@@ -259,7 +258,7 @@ EOF
     sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
     echo "Finished Hammerspace Anvil configuration."
 else
-    echo "No Hammerspace Anvil or no storage servers deployed, skipping Anvil configuration."
+    echo "Either storage servers, ecgroup, or Anvil missing. Skipping Anvil configuration."
 fi
 
 echo "Ansible controller setup complete."
