@@ -33,23 +33,42 @@ locals {
     []
   )
 
-  processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    TARGET_USER            = var.target_user,
-    TARGET_HOME            = "/home/${var.target_user}",
-    SSH_KEYS               = join("\n", local.ssh_public_keys),
-    TARGET_NODES_JSON      = var.target_nodes_json,
-    MGMT_IP                = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
-    ANVIL_ID               = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
-    STORAGE_INSTANCES      = jsonencode(var.storage_instances),
-    VG_NAME                = var.volume_group_name,
-    SHARE_NAME             = var.share_name,
-    ECGROUP_INSTANCES      = join(" ", var.ecgroup_instances),
-    ECGROUP_HOSTS          = length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
-    ECGROUP_NODES          = join(" ", var.ecgroup_nodes),
-    ECGROUP_METADATA_ARRAY = var.ecgroup_metadata_array,
-    ECGROUP_STORAGE_ARRAY  = var.ecgroup_storage_array
-  }) : null
+  # Get user_data script and send it to the instance with arguments
 
+  raw_user_data = file(var.user_data)
+
+  processed_user_data = format(
+    local.raw_user_data,
+    # TARGET_USER
+    var.target_user,
+    # TARGET_HOME
+    "/home/${var.target_user}",
+    # SSH_KEYS
+    join("\n", local.ssh_public_keys),
+    # TARGET_NODES_JSON
+    var.target_nodes_json,
+    # MGMT_IP
+    length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
+    # ANVIL_ID
+    length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
+    # STORAGE_INSTANCES
+    jsonencode(var.storage_instances),
+    # VG_NAME
+    var.volume_group_name,
+    # SHARE_NAME
+    var.share_name,
+    # ECGROUP_INSTANCES
+    join(" ", var.ecgroup_instances),
+    # ECGROUP_HOSTS
+    length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
+    # ECGROUP_NODES
+    join(" ", var.ecgroup_nodes),
+    # ECGROUP_METADATA_ARRAY
+    var.ecgroup_metadata_array,
+    # ECGROUP_STORAGE_ARRAY
+    var.ecgroup_storage_array
+  }
+  
   resource_prefix = "${var.common_config.project_name}-ansible"
 }
 

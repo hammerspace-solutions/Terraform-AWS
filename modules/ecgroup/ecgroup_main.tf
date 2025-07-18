@@ -54,9 +54,14 @@ locals {
     []
   )
 
-  processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    SSH_KEYS = join("\n", local.ssh_public_keys)
-  }) : null
+  # Get user data script and send it to the instance with arguments
+
+  raw_user_data = file(var.user_data)
+
+  processed_user_data = format(
+    local.raw_user_data,
+    join("\n", local.ssh_public_keys)
+  }
 
   resource_prefix = "${var.common_config.project_name}-ecgroup"
 }

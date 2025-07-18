@@ -1,34 +1,39 @@
 #!/bin/bash
 
 # Variable placeholders - replaced by Terraform templatefile function
-TARGET_NODES_JSON='${TARGET_NODES_JSON}'
-MGMT_IP='${MGMT_IP}'
-ANVIL_ID='${ANVIL_ID}'
-STORAGE_INSTANCES='${STORAGE_INSTANCES}'
-VG_NAME='${VG_NAME}'
-SHARE_NAME='${SHARE_NAME}'
-ECGROUP_INSTANCES='${ECGROUP_INSTANCES}'
-ECGROUP_HOSTS='${ECGROUP_HOSTS}'
-ECGROUP_NODES='${ECGROUP_NODES}'
-ECGROUP_METADATA_ARRAY='${ECGROUP_METADATA_ARRAY}'
-ECGROUP_STORAGE_ARRAY='${ECGROUP_STORAGE_ARRAY}'
-TARGET_USER='${TARGET_USER}'
-TARGET_HOME='${TARGET_HOME}'
-SSH_KEYS='${SSH_KEYS}'
+
+TARGET_USER="%[1]s"
+TARGET_HOME="%[2]s"
+SSH_KEYS="%[3]s"
+TARGET_NODES_JSON="%[4]s"
+MGMT_IP="%[5]s"
+ANVIL_ID="%[6]s"
+STORAGE_INSTANCES="%[7]s"
+VG_NAME="%[8]s"
+SHARE_NAME="%[9]s"
+ECGROUP_INSTANCES="%[10]s"
+ECGROUP_HOSTS="%[11]s"
+ECGROUP_NODES="%[12]s"
+ECGROUP_METADATA_ARRAY="%[13]s"
+ECGROUP_STORAGE_ARRAY="%[14]s"
 
 # --- Script ---
+
 set -euo pipefail
 
 # --- Package Installation ---
+
 sudo apt-get -y update
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository --yes --update ppa:ansible/ansible
 sudo apt-get install -y ansible jq net-tools
 
 echo "Upgrade the OS to make sure we have the latest"
+
 sudo apt-get -y upgrade
 
 # --- SSH Key Management for additional keys ---
+
 if [ -n "$${SSH_KEYS}" ]; then
 
     echo "Starting SSH Key Management Deployment"
@@ -217,7 +222,6 @@ EOF
           address: "$FIRST_IP"
         _type: "NODE"
 EOF
-    
       else
         printf '%s' "$NODE_SRC" | jq -r '
           "storages:",
