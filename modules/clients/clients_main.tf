@@ -24,6 +24,8 @@
 # EC2 instances, security group, EBS volumes, and attachments.
 # -----------------------------------------------------------------------------
 
+# Make sure the instance type is available in this availability zone
+
 data "aws_ec2_instance_type_offering" "clients" {
   filter {
     name   = "instance-type"
@@ -36,12 +38,32 @@ data "aws_ec2_instance_type_offering" "clients" {
   location_type = "availability-zone"
 }
 
+# Get detail on the number of disks in the instance type
+
+data "aws_ec2_instance_type" "nvme_disks" {
+  instance_type = var.instance_type
+}
+
 locals {
   device_letters = [
     "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
     "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
   ]
 
+  # Grab the first (and only) storage‐info block, or empty map if none
+  
+  instance_info = data.aws_ec2_instance_type.nvme_disks
+
+  # Calculate NVMe drive count (0 if no instance storage)
+
+  nvme_count = try(
+    sum([
+      for disk in local.instance_info.instance_disks : disk.count
+      if disk.type == "ssd"
+    ]),
+    0
+  )
+  
   ssh_public_keys = try(
     [
       for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
@@ -52,11 +74,22 @@ locals {
 
   client_instance_type_is_available = length(data.aws_ec2_instance_type_offering.clients.instance_type) > 0
 
-  processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    SSH_KEYS    = join("\n", local.ssh_public_keys),
-    TARGET_USER = var.target_user,
-    TARGET_HOME = "/home/${var.target_user}"
-  }) : null
+  raw_user_data = file(var.user_data)
+
+  processed_user_data = format(
+    local.raw_user_data,
+    var.target_user,
+    "/home/${var.target_user}",
+    join("\n", local.ssh_public_keys),
+    var.tier0,
+  )
+
+#  processed_user_data = var.user_data != "" ? file(var.user_data, {
+#    SSH_KEYS    = join("\n", local.ssh_public_keys),
+#    TARGET_USER = var.target_user,
+#    TARGET_HOME = "/home/${var.target_user}",
+#    TIER0	= var.tier0
+#  }) : null
 
   resource_prefix = "${var.common_config.project_name}-client"
 }
@@ -88,7 +121,8 @@ resource "aws_security_group" "client" {
 }
 
 # Launch EC2 client instances
-resource "aws_instance" "this" {
+
+resource "aws_instance" "clients" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
@@ -108,10 +142,10 @@ resource "aws_instance" "this" {
     delete_on_termination = true
   }
 
-  # --- THIS IS THE FIX ---
   # Define the data volumes inline using a dynamic block.
   # The `delete_on_termination` argument defaults to `true` here, which is
   # exactly what you want.
+
   dynamic "ebs_block_device" {
     for_each = range(var.ebs_count)
     content {
@@ -138,8 +172,21 @@ resource "aws_instance" "this" {
       condition     = local.client_instance_type_is_available
       error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
     }
-  }
+    
+    precondition {
+      condition = (
+        var.tier0 == "" ||  # if no tier0 requested, skip the check
+	local.nvme_count >= lookup({
+          "raid-0" = 2,
+          "raid-5" = 3,
+	  "raid-6" = 4,
+        }, var.tier0)
+      )
 
+      error_message = "Insufficient total devices for tier0: if set, 'raid-0' needs ≥2, 'raid-5' needs ≥3, 'raid-6' needs ≥4."
+    }
+  }
+  
   tags = merge(var.common_config.tags, {
     Name    = "${local.resource_prefix}-${count.index + 1}"
     Project = var.common_config.project_name

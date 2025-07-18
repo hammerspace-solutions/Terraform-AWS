@@ -384,6 +384,7 @@ module "clients" {
   ebs_type         = var.clients_ebs_type
   ebs_throughput   = var.clients_ebs_throughput
   ebs_iops         = var.clients_ebs_iops
+  tier0		   = var.clients_tier0
   user_data        = var.clients_user_data
   target_user      = var.clients_target_user
 

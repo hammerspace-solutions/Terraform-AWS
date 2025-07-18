@@ -15,9 +15,10 @@ sudo apt-get -y upgrade
 # DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
 # ----------------------------------------------------------------------------
 
-TARGET_USER="${TARGET_USER}"
-TARGET_HOME="${TARGET_HOME}"
-SSH_KEYS="${SSH_KEYS}"
+TARGET_USER="%[1]s"
+TARGET_HOME="%[2]s"
+SSH_KEYS="%[3]s"
+TIER0="%[4]s"
 
 # Get rid of fingerprint checking on ssh
 # We need this in case somebody wants to run automated scripts. Otherwise,
@@ -36,22 +37,90 @@ sudo chmod 777 /mnt/nfs-test
 
 # SSH Key Management
 
-if [ -n "$${SSH_KEYS}" ]; then
-    mkdir -p "$${TARGET_HOME}/.ssh"
-    chmod 700 "$${TARGET_HOME}/.ssh"
-    touch "$${TARGET_HOME}/.ssh/authorized_keys"
+if [ -n "${SSH_KEYS}" ]; then
+    mkdir -p "${TARGET_HOME}"/.ssh
+    chmod 700 "${TARGET_HOME}"/.ssh
+    touch "${TARGET_HOME}"/.ssh/authorized_keys
     
     # Process keys one by one to avoid multi-line issues
 
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
+    echo "${SSH_KEYS}" | while read -r key; do
+        if [ -n "${key}" ] && ! grep -qF "${key}" "${TARGET_HOME}"/.ssh/authorized_keys; then
+            echo "${key}" >> "${TARGET_HOME}"/.ssh/authorized_keys
         fi
     done
 
-    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
-    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+    chmod 600 "${TARGET_HOME}"/.ssh/authorized_keys
+    chown -R "${TARGET_USER}":"${TARGET_USER}" "${TARGET_HOME}"/.ssh
 fi
+
+# If Tier0 is enabled, then work on the nvme drives
+
+if [ -n "${TIER0}" ]; then
+    echo "Tier0 is enabled (${TIER0}). Installing mdadm & detecing NVMe..."
+
+    # Load packages needed for Tier0
+
+    echo "Loading Tier0 packages"
+    sudo apt -y update
+    sudo apt -y install mdadm nvme-cli jq
+
+    # Read each matching NVMe device into one array element per line
+    
+    mapfile -t NVME_DEVICES < <(
+      nvme list | awk '/Amazon EC2 NVMe Instance Storage/ {print $1}'
+    )
+    echo "Found ${#NVME_DEVICES[@]} NVMe device(s): ${NVME_DEVICES[*]}"
+
+    # If none, bail out cleanly
+
+    if [ "${#NVME_DEVICES[@]}" -eq 0 ]; then
+        echo "No NVMe instance-store devices found; skipping RAID creation."
+        exit 0
+    fi
+
+    # Determine minimum count per RAID level
+
+    case "${TIER0}" in
+      raid-0) MIN_REQUIRED=2 ;;
+      raid-5) MIN_REQUIRED=3 ;;
+      raid-6) MIN_REQUIRED=4 ;;
+      *)
+        echo "Error: Invalid TIER0 value '${TIER0}'." >&2
+        exit 1
+        ;;
+    esac
+
+    TOTAL_DEVICES="${#NVME_DEVICES[@]}"
+    if [ "${TOTAL_DEVICES}" -lt "${MIN_REQUIRED}" ]; then
+        echo "Error: Insufficient devices (${TOTAL_DEVICES}) for ${TIER0} (needs ≥${MIN_REQUIRED}). Skipping."
+        exit 1
+    fi
+
+    # Build the RAID device
+
+    RAID_NUM="${TIER0#raid-}"
+    echo "Creating RAID${RAID_NUM} on ${TOTAL_DEVICES} devices…"
+    sudo mdadm --create --verbose /dev/md0 --level="${RAID_NUM}" --raid-devices="${TOTAL_DEVICES}" ${NVME_DEVICES[*]}
+
+    # Format, mount, permissions
+
+    sudo mkfs.xfs /dev/md0
+    sudo mkdir -p /tier0
+    sudo mount /dev/md0 /tier0
+    sudo chown -R "${TARGET_USER}":"${TARGET_USER}" /tier0
+    sudo chmod 777 /tier0
+
+    # Persist in fstab & mdadm config
+
+    echo "/dev/md0 /tier0 xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
+    sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
+    sudo update-initramfs -u
+
+else
+    echo "Tier0 is not enabled on this machine"
+fi
+
 
 # Reboot
 sudo reboot

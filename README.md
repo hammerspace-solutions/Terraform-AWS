@@ -24,6 +24,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 - [Securely Accessing Instances](#securely-accessing-instances)
   - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
   - [Option 2: AWS Systems Manager Session Manager (Most Secure)](#option-2-aws-systems-manager-session-manager-most-secure)
+- [Production Backend](#production-backend)
 - [Prerequisites](#prerequisites)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
@@ -77,6 +78,9 @@ These variables configure the client instances and are prefixed with `clients_` 
 * `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes.
 * `clients_user_data`: Path to user data script for clients.
 * `clients_target_user`: Default system user for client EC2s (Default: `"ubuntu"`).
+* `clients_tier0`: Tier-0 RAID on NVMe instance-store.
+  * **Valid Values**: `""` (no RAID), `raid-0`, `raid-5`, `raid-6` (Default: `""`)
+  * When set, Terrform detects all locally attached NVMe disks on the instance. The startup script then configures a RAID array at the chosen level (raid-0 = strip, raid-5 = parity, raid-6 = double parity).
 
 ---
 
@@ -314,6 +318,58 @@ This project supports this pattern through the `allowed_ssh_source_security_grou
 A more modern approach is to use AWS Systems Manager Session Manager. This service allows you to get a secure shell connection to your instances without opening **any** inbound ports (not even port 22). Access is controlled entirely through IAM policies, providing the highest level of security and auditability. This requires setting up the SSM Agent on your instances and configuring the appropriate IAM permissions.
 
 ---
+
+## Production Backend
+
+A `backend.tf` file defines **where Terraform stores its state.**. For production environments, it is best practice to use a **remote backend like Amazon S3 with DynamoDB for state locking**--ensuring collaboration and preventing corruption.
+
+#### Example `backend.tf` for AWS (S3 + DynamoDB)
+```
+terraform {
+  backend "s3" {
+    bucket         = "my-terraform-state-bucket"
+    key            = "hammerspace/production/terraform.tfstate"
+    region         = "us-west-2"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}
+```
+
+#### Explanation
+
+| Parameter        | Purpose                                        |
+| ---------------- | ---------------------------------------------- |
+| `bucket`         | S3 bucket that stores the `.tfstate` file      |
+| `key`            | Path/key within the bucket (like a filename)   |
+| `region`         | AWS region for the S3 bucket and DynamoDB      |
+| `dynamodb_table` | Enables state locking to avoid concurrent runs |
+| `encrypt`        | Ensures the state file is encrypted at rest    |
+
+### One time backend setup commands
+
+You'll need to create the S3 bucket and DynamoDB table **before the first Terraform run**:
+
+```
+# Create the S3 bucket
+aws s3api create-bucket \
+  --bucket my-terraform-state-bucket \
+  --region us-west-2 \
+  --create-bucket-configuration LocationConstraint=us-west-2
+
+# Enable versioning (recommended)
+aws s3api put-bucket-versioning \
+  --bucket my-terraform-state-bucket \
+  --versioning-configuration Status=Enabled
+
+# Create DynamoDB table for locking
+aws dynamodb create-table \
+  --table-name terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+  --region us-west-2
+```
 
 ## Prerequisites
 

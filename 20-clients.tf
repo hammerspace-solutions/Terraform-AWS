@@ -18,106 +18,85 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/clients/clients_variables.tf
+# clients variables.tf
 #
-# This file defines all the input variables for the Clients module.
+# This file defines all the input clients variables for the root module of the
+# Terraform-AWS project.
 # -----------------------------------------------------------------------------
 
-variable "common_config" {
-  description = "A map containing common configuration values like region, VPC, subnet, etc."
-  type = object({
-    region               = string
-    availability_zone    = string
-    vpc_id               = string
-    subnet_id            = string
-    key_name             = string
-    tags                 = map(string)
-    project_name         = string
-    assign_public_ip     = bool
-    ssh_keys_dir         = string
-    placement_group_name = string
-    allowed_source_cidr_blocks = list(string)
-  })
-}
+# CLIENT-SPECIFIC VARIABLES (WITH clients_ PREFIX)
 
-variable "capacity_reservation_id" {
-  description = "The ID of the On-Demand Capacity Reservation to target."
-  type        = string
-  default     = null
-}
-
-
-# --- Client-specific variables (these remain) ---
-
-variable "instance_count" {
+variable "clients_instance_count" {
   description = "Number of client instances"
   type        = number
 }
 
-variable "ami" {
+variable "clients_tier0" {
+  description = "Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'."
+  type        = string
+  default     = ""
+}
+
+variable "clients_ami" {
   description = "AMI for client instances"
   type        = string
 }
 
-variable "instance_type" {
+variable "clients_instance_type" {
   description = "Instance type for clients"
   type        = string
 }
 
-variable "tier0" {
-  description = "RAID level to configure on client EBS volumes (raid-0, raid-5, or raid-6). Set to blank to skip RAID."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = contains(["", "raid-0", "raid-5", "raid-6"], var.tier0)
-    error_message = "RAID level must be one of: blank, raid-0, raid-5, or raid-6."
-  }
-}
-
-variable "boot_volume_size" {
+variable "clients_boot_volume_size" {
   description = "Root volume size (GB) for clients"
   type        = number
+  default     = 100
 }
 
-variable "boot_volume_type" {
+variable "clients_boot_volume_type" {
   description = "Root volume type for clients"
   type        = string
+  default     = "gp2"
 }
 
-variable "ebs_count" {
+variable "clients_ebs_count" {
   description = "Number of extra EBS volumes per client"
   type        = number
+  default     = 0
 }
 
-variable "ebs_size" {
+variable "clients_ebs_size" {
   description = "Size of each EBS volume (GB) for clients"
   type        = number
+  default     = 1000
 }
 
-variable "ebs_type" {
+variable "clients_ebs_type" {
   description = "Type of EBS volume for clients"
   type        = string
+  default     = "gp3"
 }
 
-variable "ebs_throughput" {
+variable "clients_ebs_throughput" {
   description = "Throughput for gp3 EBS volumes for clients (MB/s)"
   type        = number
   default     = null
 }
 
-variable "ebs_iops" {
+variable "clients_ebs_iops" {
   description = "IOPS for gp3/io1/io2 EBS volumes for clients"
   type        = number
   default     = null
 }
 
-variable "user_data" {
+variable "clients_user_data" {
   description = "Path to user data script for clients"
   type        = string
+  default     = ""
 }
 
-variable "target_user" {
+variable "clients_target_user" {
   description = "Default system user for client EC2s"
   type        = string
+  default     = "ubuntu"
 }
