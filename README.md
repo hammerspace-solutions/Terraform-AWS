@@ -323,7 +323,7 @@ A more modern approach is to use AWS Systems Manager Session Manager. This servi
 
 A `backend.tf` file defines **where Terraform stores its state.**. For production environments, it is best practice to use a **remote backend like Amazon S3 with DynamoDB for state locking**--ensuring collaboration and preventing corruption.
 
-***Example `backend.tf` for AWS (S3 + DynamoDB)
+#### Example `backend.tf` for AWS (S3 + DynamoDB)
 ```
 terraform {
   backend "s3" {
@@ -334,6 +334,41 @@ terraform {
     encrypt        = true
   }
 }
+```
+
+#### Explanation
+
+| Parameter        | Purpose                                        |
+| ---------------- | ---------------------------------------------- |
+| `bucket`         | S3 bucket that stores the `.tfstate` file      |
+| `key`            | Path/key within the bucket (like a filename)   |
+| `region`         | AWS region for the S3 bucket and DynamoDB      |
+| `dynamodb_table` | Enables state locking to avoid concurrent runs |
+| `encrypt`        | Ensures the state file is encrypted at rest    |
+
+### One time backend setup commands
+
+You'll need to create the S3 bucket and DynamoDB table **before the first Terraform run**:
+
+```
+# Create the S3 bucket
+aws s3api create-bucket \
+  --bucket my-terraform-state-bucket \
+  --region us-west-2 \
+  --create-bucket-configuration LocationConstraint=us-west-2
+
+# Enable versioning (recommended)
+aws s3api put-bucket-versioning \
+  --bucket my-terraform-state-bucket \
+  --versioning-configuration Status=Enabled
+
+# Create DynamoDB table for locking
+aws dynamodb create-table \
+  --table-name terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+  --region us-west-2
 ```
 
 ## Prerequisites
