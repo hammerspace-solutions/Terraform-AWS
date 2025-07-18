@@ -56,13 +56,16 @@ locals {
 
   storage_instance_type_is_available = length(data.aws_ec2_instance_type_offering.storage.instance_type) > 0
 
-  processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    SSH_KEYS    = join("\n", local.ssh_public_keys),
-    TARGET_USER = var.target_user,
-    TARGET_HOME = "/home/${var.target_user}",
-    EBS_COUNT   = var.ebs_count,
-    RAID_LEVEL  = var.raid_level
-  }) : null
+  raw_user_data = file(var.user_data)
+
+  processed_user_data = format(
+    local.raw_user_data,
+    join("\n", local.ssh_public_keys),
+    var.target_user,
+    "/home/${var.target_user}",
+    var.ebs_count,
+    var.raid_level
+  }
 
   resource_prefix = "${var.common_config.project_name}-storage"
 }

@@ -121,6 +121,5 @@ else
     echo "Tier0 is not enabled on this machine"
 fi
 
-
 # Reboot
 sudo reboot
