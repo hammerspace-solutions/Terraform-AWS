@@ -24,6 +24,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 - [Securely Accessing Instances](#securely-accessing-instances)
   - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
   - [Option 2: AWS Systems Manager Session Manager (Most Secure)](#option-2-aws-systems-manager-session-manager-most-secure)
+- [Production Backend](#production-backend)
 - [Prerequisites](#prerequisites)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
@@ -317,6 +318,23 @@ This project supports this pattern through the `allowed_ssh_source_security_grou
 A more modern approach is to use AWS Systems Manager Session Manager. This service allows you to get a secure shell connection to your instances without opening **any** inbound ports (not even port 22). Access is controlled entirely through IAM policies, providing the highest level of security and auditability. This requires setting up the SSM Agent on your instances and configuring the appropriate IAM permissions.
 
 ---
+
+## Production Backend
+
+A `backend.tf` file defines **where Terraform stores its state.**. For production environments, it is best practice to use a **remote backend like Amazon S3 with DynamoDB for state locking**--ensuring collaboration and preventing corruption.
+
+***Example `backend.tf` for AWS (S3 + DynamoDB)
+```
+terraform {
+  backend "s3" {
+    bucket         = "my-terraform-state-bucket"
+    key            = "hammerspace/production/terraform.tfstate"
+    region         = "us-west-2"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}
+```
 
 ## Prerequisites
 
