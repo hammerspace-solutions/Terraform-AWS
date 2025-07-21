@@ -55,8 +55,8 @@ PRIVATE_KEY_FILE="/home/ubuntu/.ssh/ansible_admin_key"
 echo "Waiting for Ansible private key to be provisioned at $${PRIVATE_KEY_FILE}..."
 SECONDS_WAITED=0
 while [ ! -f "$${PRIVATE_KEY_FILE}" ]; do
-    if [ "$${SECONDS_WAITED}" -gt 300 ]; then
-        echo "ERROR: Timed out after 5 minutes waiting for private key." >&2
+    if [ "$${SECONDS_WAITED}" -gt 1200 ]; then
+        echo "ERROR: Timed out after 20 minutes waiting for private key." >&2
         exit 1
     fi
     sleep 5
@@ -194,7 +194,9 @@ fi
 
 # --- Hammerspace Anvil Configuration ---
 
-if [ -n "$${MGMT_IP}" ] && [ "$${STORAGE_INSTANCES}" != "[]" ] && [ "$${ECGROUP_INSTANCES}" !== "[]" ]; then
+if [ -n "${MGMT_IP}" ] && \
+   [ "$(wc -w <<< "${STORAGE_INSTANCES}")" -gt 0 ] && \
+   [ "$(wc -w <<< "${ECGROUP_INSTANCES}")" -gt 0 ]; then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
 data_cluster_mgmt_ip: "${MGMT_IP}"
