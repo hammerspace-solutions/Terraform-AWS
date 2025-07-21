@@ -51,7 +51,7 @@ allowed_source_cidr_blocks	     = ["10.0.0.0/16", "10.20.0.0/16", "10.30.0.0/16"
 tags = {
   Name		= "Example Project Name" # AWS Sizing (example)
   Owner		= "Example Owner" # Your name
-  Environemtn	= "Example Environment" # development, qa, staging, production, sandbox
+  Environment	= "Example Environment" # development, qa, staging, production, sandbox
   CostCenter	= "Sales" # Name of a cost center
 }
 
