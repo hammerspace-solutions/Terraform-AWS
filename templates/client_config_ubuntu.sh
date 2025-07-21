@@ -63,7 +63,7 @@ if [ -n "${TIER0}" ]; then
 
     echo "Loading Tier0 packages"
     sudo apt -y update
-    sudo apt -y install mdadm nvme-cli jq
+    sudo apt -y install mdadm nvme-cli jq nfs-kernel-server sysstat
 
     # Read each matching NVMe device into one array element per line
     
@@ -82,9 +82,18 @@ if [ -n "${TIER0}" ]; then
     # Determine minimum count per RAID level
 
     case "${TIER0}" in
-      raid-0) MIN_REQUIRED=2 ;;
-      raid-5) MIN_REQUIRED=3 ;;
-      raid-6) MIN_REQUIRED=4 ;;
+	raid-0)
+	    MIN_REQUIRED=2
+	    raid_options="--level=0 --raid-devices=${TOTAL_DEVICES}"
+	    ;;
+	raid-5)
+	    MIN_REQUIRED=3
+	    raid_options="--level=5 --raid-devices=${TOTAL_DEVICES}"
+	    ;;
+	raid-6)
+	    MIN_REQUIRED=4
+	    raid_options="--level=6 --raid-devices=${TOTAL_DEVICES}"
+	    ;;
       *)
         echo "Error: Invalid TIER0 value '${TIER0}'." >&2
         exit 1
@@ -101,7 +110,8 @@ if [ -n "${TIER0}" ]; then
 
     RAID_NUM="${TIER0#raid-}"
     echo "Creating RAID${RAID_NUM} on ${TOTAL_DEVICES} devices…"
-    sudo mdadm --create --verbose /dev/md0 --level="${RAID_NUM}" --raid-devices="${TOTAL_DEVICES}" ${NVME_DEVICES[*]}
+    sudo mdadm --create --verbose /dev/md0 \
+	 ${raid_options} ${NVME_DEVICES[*]}
 
     # Format, mount, permissions
 
@@ -117,10 +127,40 @@ if [ -n "${TIER0}" ]; then
     sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
     sudo update-initramfs -u
 
+    # Configure NFS exports
+
+    echo "/tier0 *(rw,sync,no_root_squash,secure,mp,no_subtree_check)" | sudo tee -a /etc/exports
+
+    # Optimize NFS config
+
+    sudo tee /etc/nfs.conf.d/local.conf > /dev/null <<'EOF'
+[nfsd]
+threads = 128
+vers3=y
+vers4.0=n
+vers4.1=n
+vers4.2=y
+rdma=y
+rdma-port=20049
+
+[mountd]
+manage-gids = 1
+EOF
+
+    # Increase NFS threads
+
+    sudo tee /etc/default/nfs-kernel-server > /dev/null <<'EOF'
+RPCNFSDCOUNT=128
+RPCMOUNTDOPTS="--manage-gids"
+EOF
+
+    # Start services
+
+    sudo systemctl restart nfs-kernel-server
+
 else
     echo "Tier0 is not enabled on this machine"
 fi
-
 
 # Reboot
 sudo reboot
