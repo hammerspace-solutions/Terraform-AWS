@@ -194,9 +194,9 @@ fi
 
 # --- Hammerspace Anvil Configuration ---
 
-if [ -n "${MGMT_IP}" ] && \
-   [ "$(wc -w <<< "${STORAGE_INSTANCES}")" -gt 0 ] && \
-   [ "$(wc -w <<< "${ECGROUP_INSTANCES}")" -gt 0 ]; then
+if [ -n "$${MGMT_IP}" ] && \
+   ( [ "$(echo "$${STORAGE_INSTANCES}" | jq length)" -gt 0 ] || \
+     [ "$(wc -w <<< "$${ECGROUP_INSTANCES}")" -gt 0 ] ); then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
 data_cluster_mgmt_ip: "${MGMT_IP}"
