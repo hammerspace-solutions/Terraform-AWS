@@ -81,6 +81,8 @@ if [ -n "${TIER0}" ]; then
 
     # Determine minimum count per RAID level
 
+    TOTAL_DEVICES="${#NVME_DEVICES[@]}"
+
     case "${TIER0}" in
 	raid-0)
 	    MIN_REQUIRED=2
@@ -100,7 +102,6 @@ if [ -n "${TIER0}" ]; then
         ;;
     esac
 
-    TOTAL_DEVICES="${#NVME_DEVICES[@]}"
     if [ "${TOTAL_DEVICES}" -lt "${MIN_REQUIRED}" ]; then
         echo "Error: Insufficient devices (${TOTAL_DEVICES}) for ${TIER0} (needs ≥${MIN_REQUIRED}). Skipping."
         exit 1
