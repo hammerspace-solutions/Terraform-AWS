@@ -219,6 +219,29 @@ EOF
           address: "$FIRST_IP"
         _type: "NODE"
 EOF
+    # Start the additional IP addresses YAML file
+    cat > /tmp/additional_ip_addresses.yml << 'EOF'
+    additional_ip_addresses:
+      additionalAddresses: [
+EOF
+
+    # Add IP addresses starting from index 1 (skip first)
+    for i in "$${!ECGROUP_NODES[@]}"; do
+        if [ $i -gt 0 ]; then
+            # Check if this is the last item to avoid trailing comma
+            if [ $i -eq $(($${#ECGROUP_NODES[@]} - 1)) ]; then
+                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}" >> additional_ip_addresses.yml
+            else
+                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}," >> additional_ip_addresses.yml
+            fi
+        fi
+    done
+
+    # Close the YAML structure
+    echo "  ]" >> additional_ip_addresses.yml
+
+    echo "Created additional_ip_addresses.yml:"
+    cat /tmp/additional_ip_addresses.yml
     
       else
         printf '%s' "$NODE_SRC" | jq -r '
@@ -257,7 +280,7 @@ EOF
       shareSizeLimit: 0' > /tmp/share.yml
 
     sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
-    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
+    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml -e @/tmp/additional_ip_addresses.yml
     echo "Finished Hammerspace Anvil configuration."
 else
     echo "Either storage servers, ecgroup, or Anvil missing. Skipping Anvil configuration."
