@@ -199,12 +199,37 @@ if [ -n "$${MGMT_IP}" ] && \
      [ "$(wc -w <<< "$${ECGROUP_INSTANCES}")" -gt 0 ] ); then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
-data_cluster_mgmt_ip: "${MGMT_IP}"
-hsuser: admin
-password: "${ANVIL_ID}"
-volume_group_name: "${VG_NAME}"
-share_name: "${SHARE_NAME}"
+      data_cluster_mgmt_ip: "${MGMT_IP}"
+      hsuser: admin
+      password: "${ANVIL_ID}"
+      volume_group_name: "${VG_NAME}"
+      share_name: "${SHARE_NAME}"
 EOF
+
+    ECGROUP_NODES_ARRAY=($${ECGROUP_NODES})
+    
+    # Start the YAML file
+    cat > /tmp/additional_ip_addresses.yml << 'EOF'
+additional_ip_addresses:
+  additionalAddresses: [
+EOF
+
+    # Add IP addresses starting from index 1 (skip first)
+    for i in "$${!ECGROUP_NODES_ARRAY[@]}"; do
+      if [ $${i} -gt 0 ]; then
+        if [ $${i} -eq $(($${#ECGROUP_NODES_ARRAY[@]} - 1)) ]; then
+          echo "        {ip: {address: \"$${ECGROUP_NODES_ARRAY[$i]}\", prefixLength: 32}}" >> /tmp/additional_ip_addresses.yml
+        else
+          echo "        {ip: {address: \"$${ECGROUP_NODES_ARRAY[$i]}\", prefixLength: 32}}," >> /tmp/additional_ip_addresses.yml
+        fi
+      fi
+    done
+
+    # Close the YAML structure
+    echo "  ]" >> /tmp/additional_ip_addresses.yml
+
+    echo "Created additional_ip_addresses.yml:"
+    cat /tmp/additional_ip_addresses.yml
 
     NODE_SRC="$${ECGROUP_NODES:-$${STORAGE_INSTANCES}}"
 
@@ -219,29 +244,6 @@ EOF
           address: "$FIRST_IP"
         _type: "NODE"
 EOF
-    # Start the additional IP addresses YAML file
-    cat > /tmp/additional_ip_addresses.yml << 'EOF'
-    additional_ip_addresses:
-      additionalAddresses: [
-EOF
-
-    # Add IP addresses starting from index 1 (skip first)
-    for i in "$${!ECGROUP_NODES[@]}"; do
-        if [ $i -gt 0 ]; then
-            # Check if this is the last item to avoid trailing comma
-            if [ $i -eq $(($${#ECGROUP_NODES[@]} - 1)) ]; then
-                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}" >> /tmp/additional_ip_addresses.yml
-            else
-                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}," >> /tmp/additional_ip_addresses.yml
-            fi
-        fi
-    done
-
-    # Close the YAML structure
-    echo "  ]" >> /tmp/additional_ip_addresses.yml
-
-    echo "Created additional_ip_addresses.yml:"
-    cat /tmp/additional_ip_addresses.yml
     
       else
         printf '%s' "$NODE_SRC" | jq -r '
