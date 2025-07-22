@@ -199,12 +199,37 @@ if [ -n "$${MGMT_IP}" ] && \
      [ "$(wc -w <<< "$${ECGROUP_INSTANCES}")" -gt 0 ] ); then
     echo "Configuring Hammerspace Anvil..."
     cat > /tmp/anvil.yml << EOF
-data_cluster_mgmt_ip: "${MGMT_IP}"
-hsuser: admin
-password: "${ANVIL_ID}"
-volume_group_name: "${VG_NAME}"
-share_name: "${SHARE_NAME}"
+      data_cluster_mgmt_ip: "${MGMT_IP}"
+      hsuser: admin
+      password: "${ANVIL_ID}"
+      volume_group_name: "${VG_NAME}"
+      share_name: "${SHARE_NAME}"
 EOF
+
+    ECGROUP_NODES_ARRAY=($${ECGROUP_NODES})
+    
+    # Start the YAML file
+    cat > /tmp/additional_ip_addresses.yml << 'EOF'
+additional_ip_addresses:
+  additionalAddresses: [
+EOF
+
+    # Add IP addresses starting from index 1 (skip first)
+    for i in "$${!ECGROUP_NODES_ARRAY[@]}"; do
+      if [ $${i} -gt 0 ]; then
+        if [ $${i} -eq $(($${#ECGROUP_NODES_ARRAY[@]} - 1)) ]; then
+          echo "        {ip: {address: \"$${ECGROUP_NODES_ARRAY[$i]}\", prefixLength: 32}}" >> /tmp/additional_ip_addresses.yml
+        else
+          echo "        {ip: {address: \"$${ECGROUP_NODES_ARRAY[$i]}\", prefixLength: 32}}," >> /tmp/additional_ip_addresses.yml
+        fi
+      fi
+    done
+
+    # Close the YAML structure
+    echo "  ]" >> /tmp/additional_ip_addresses.yml
+
+    echo "Created additional_ip_addresses.yml:"
+    cat /tmp/additional_ip_addresses.yml
 
     NODE_SRC="$${ECGROUP_NODES:-$${STORAGE_INSTANCES}}"
 
@@ -257,7 +282,7 @@ EOF
       shareSizeLimit: 0' > /tmp/share.yml
 
     sudo wget -O /tmp/hs-ansible.yml https://raw.githubusercontent.com/hammerspace-solutions/Terraform-AWS/main/modules/ansible/hs-ansible.yml
-    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml
+    sudo ansible-playbook /tmp/hs-ansible.yml -e @/tmp/anvil.yml -e @/tmp/nodes.yml -e @/tmp/share.yml -e @/tmp/additional_ip_addresses.yml
     echo "Finished Hammerspace Anvil configuration."
 else
     echo "Either storage servers, ecgroup, or Anvil missing. Skipping Anvil configuration."

@@ -319,6 +319,9 @@
               },
               "_type": "STORAGE_VOLUME",
               "accessType": "READ_WRITE"
+              {% if additional_ip_addresses.additionalAddresses %}
+              ,"additionalAddresses": {{ additional_ip_addresses.additionalAddresses | to_json }}
+              {% endif %}
             }{% if not loop.last %},{% endif %}
           {% endfor %}]
       when: non_reserved_volumes is defined and non_reserved_volumes | length > 0
