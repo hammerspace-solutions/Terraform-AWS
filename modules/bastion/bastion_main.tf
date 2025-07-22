@@ -18,15 +18,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/clients/clients_main.tf
+# modules/bastion/bastion_main.tf
 #
-# This file contains the main logic for the Clients module. It creates the
-# EC2 instances, security group, EBS volumes, and attachments.
+# This file contains the main logic for the bastion client  module. It creates
+# the EC2 instances and security group.
 # -----------------------------------------------------------------------------
 
 # Make sure the instance type is available in this availability zone
 
-data "aws_ec2_instance_type_offering" "clients" {
+data "aws_ec2_instance_type_offering" "bastion" {
   filter {
     name   = "instance-type"
     values = [var.instance_type]
@@ -38,31 +38,8 @@ data "aws_ec2_instance_type_offering" "clients" {
   location_type = "availability-zone"
 }
 
-# Get detail on the number of disks in the instance type
-
-data "aws_ec2_instance_type" "nvme_disks" {
-  instance_type = var.instance_type
-}
-
 locals {
-  device_letters = [
-    "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-  ]
-
   # Grab the first (and only) storage‐info block, or empty map if none
-  
-  instance_info = data.aws_ec2_instance_type.nvme_disks
-
-  # Calculate NVMe drive count (0 if no instance storage)
-
-  nvme_count = try(
-    sum([
-      for disk in local.instance_info.instance_disks : disk.count
-      if disk.type == "ssd"
-    ]),
-    0
-  )
   
   ssh_public_keys = try(
     [
@@ -72,26 +49,20 @@ locals {
     []
   )
 
-  client_instance_type_is_available = length(data.aws_ec2_instance_type_offering.clients.instance_type) > 0
+  bastion_instance_type_is_available = length(data.aws_ec2_instance_type_offering.bastion.instance_type) > 0
 
-  raw_user_data = file(var.user_data)
+  resource_prefix = "${var.common_config.project_name}-bastion"
 
-  processed_user_data = format(
-    local.raw_user_data,
-    var.target_user,
-    "/home/${var.target_user}",
-    join("\n", local.ssh_public_keys),
-    var.tier0,
-  )
-
-  resource_prefix = "${var.common_config.project_name}-client"
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
+  })
 }
 
-# Security group for client instances
+# Security group for the bastion instances
 
-resource "aws_security_group" "client" {
+resource "aws_security_group" "bastion" {
   name        = "${local.resource_prefix}-sg"
-  description = "Client instance security group"
+  description = "Bastion instance security group"
   vpc_id      = var.common_config.vpc_id
 
   ingress {
@@ -114,41 +85,55 @@ resource "aws_security_group" "client" {
   })
 }
 
+# Build a network interface JUST in case we need a public IP
+
+resource "aws_network_interface" "bastion_ni" {
+  count	              = 1
+  subnet_id 	      = var.common_config.subnet_id
+  security_groups     = []
+  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Bastion" })
+}
+
+resource "aws_eip" "bastion" {
+  count	 	      = var.assign_public_ip ? 1 : 0
+  domain	      = "vpc"
+  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Bastion-EIP" })
+}
+
+resource "aws_eip_association" "bastion" {
+  count	 	           = var.assign_public_ip ? 1 : 0
+  network_interface_id     = aws_network_interface.bastion_ni[0].id
+  allocation_id		   = aws_eip.bastion[0].id
+}
+
 # Launch EC2 client instances
 
-resource "aws_instance" "clients" {
+resource "aws_instance" "bastion" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
-  user_data     = local.processed_user_data
 
+  # Use a public ip for the bastion
+
+  associate_public_ip_address = var.assign_public_ip
+  
   # Use values from the common_config object
+
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.client.id]
+  vpc_security_group_ids = [aws_security_group.bastion.id]
 
+  network_interface {
+    device_index	  = 0
+    network_interface_id  = aws_network_interface.bastion_ni[0].id
+  }
+  
   root_block_device {
     volume_size           = var.boot_volume_size
     volume_type           = var.boot_volume_type
     delete_on_termination = true
-  }
-
-  # Define the data volumes inline using a dynamic block.
-  # The `delete_on_termination` argument defaults to `true` here, which is
-  # exactly what you want.
-
-  dynamic "ebs_block_device" {
-    for_each = range(var.ebs_count)
-    content {
-      device_name = "/dev/xvd${local.device_letters[ebs_block_device.key]}"
-      volume_type = var.ebs_type
-      volume_size = var.ebs_size
-      iops        = var.ebs_iops
-      throughput  = var.ebs_throughput
-      # delete_on_termination = true # This is the default and can be omitted
-    }
   }
 
   dynamic "capacity_reservation_specification" {
@@ -162,21 +147,8 @@ resource "aws_instance" "clients" {
 
   lifecycle {
     precondition {
-      condition     = local.client_instance_type_is_available
-      error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
-    }
-    
-    precondition {
-      condition = (
-        var.tier0 == "" ||  # if no tier0 requested, skip the check
-	local.nvme_count >= lookup({
-          "raid-0" = 2,
-          "raid-5" = 3,
-	  "raid-6" = 4,
-        }, var.tier0)
-      )
-
-      error_message = "Insufficient total devices for tier0: if set, 'raid-0' needs ≥2, 'raid-5' needs ≥3, 'raid-6' needs ≥4."
+      condition     = local.bastion_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.instance_type} for the Bastion is not available in AZ ${var.common_config.availability_zone}."
     }
   }
   

@@ -42,7 +42,7 @@ output "anvil_instances" {
       id                         = one(aws_instance.anvil[*].id)
       arn                        = one(aws_instance.anvil[*].arn)
       private_ip                 = one(aws_instance.anvil[*].private_ip)
-      public_ip                  = var.common_config.assign_public_ip ? one(aws_eip.anvil_sa[*].public_ip) : null
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil_sa[*].public_ip) : null
       key_name                   = one(aws_instance.anvil[*].key_name)
       iam_profile                = one(aws_instance.anvil[*].iam_instance_profile)
       placement_group            = one(aws_instance.anvil[*].placement_group)
@@ -55,7 +55,7 @@ output "anvil_instances" {
       id                         = one(aws_instance.anvil1[*].id)
       arn                        = one(aws_instance.anvil1[*].arn)
       private_ip                 = one(aws_instance.anvil1[*].private_ip)
-      public_ip                  = var.common_config.assign_public_ip ? one(aws_eip.anvil1_ha[*].public_ip) : null
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil1_ha[*].public_ip) : null
       key_name                   = one(aws_instance.anvil1[*].key_name)
       iam_profile                = one(aws_instance.anvil1[*].iam_instance_profile)
       placement_group            = one(aws_instance.anvil1[*].placement_group)
@@ -86,7 +86,6 @@ output "dsx_instances" {
       id              = inst.id
       arn             = inst.arn
       private_ip      = inst.private_ip
-      public_ip       = var.common_config.assign_public_ip ? aws_eip.dsx[i].public_ip : null
       key_name        = inst.key_name
       iam_profile     = inst.iam_instance_profile
       placement_group = inst.placement_group

@@ -86,6 +86,18 @@ clients_ebs_throughput	 	     = 1000
 clients_user_data 		     = "./templates/client_config_ubuntu.sh"
 clients_target_user 		     = "ubuntu"
 
+# Bastion specific variables (bastion_ prefix)
+#
+# The Bastion is a specific type of client. It has no configuration and exists
+# solely so that a user can login with a public IP address and access their
+# clients and storage instances.
+
+bastion_ami 			     = "ami-04cfeb9ad57f3053a"
+bastion_instance_type 		     = "m5n.2xlarge"
+bastion_boot_volume_size	     = 100
+bastion_boot_volume_type	     = "gp2"
+bastion_target_user 		     = "ubuntu"
+
 # Storage specific variables (storage_ prefix)
 #
 # The only thing that might be confusing are the variables:

@@ -101,7 +101,6 @@ resource "aws_instance" "this" {
   placement_group             = var.common_config.placement_group_name
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
-  associate_public_ip_address = var.common_config.assign_public_ip
 
   vpc_security_group_ids = [aws_security_group.storage.id]
 

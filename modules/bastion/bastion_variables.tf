@@ -18,9 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/storage_servers/storage_variables.tf
+# modules/bastion/bastion_variables.tf
 #
-# This file defines all the input variables for the Storage Servers module.
+# This file defines all the input variables for the Bastion client module.
 # -----------------------------------------------------------------------------
 
 variable "common_config" {
@@ -39,83 +39,47 @@ variable "common_config" {
   })
 }
 
+variable "assign_public_ip" {
+  description = "Assign a public IP to this host"
+  type        = bool
+  default     = false
+}
+
 variable "capacity_reservation_id" {
   description = "The ID of the On-Demand Capacity Reservation to target."
   type        = string
   default     = null
 }
 
-variable "allow_test_ingress" {
-  description = "If true, adds ingress rules to the security group to allow SSH and ICMP for testing purposes."
-  type        = bool
-  default     = false
-}
 
-# --- Storage-specific variables (these remain) ---
+# --- Client-specific variables (these remain) ---
 
 variable "instance_count" {
-  description = "Number of storage instances"
+  description = "Number of bastion client instances"
   type        = number
 }
 
 variable "ami" {
-  description = "AMI for storage instances"
+  description = "AMI for the bastion client instances"
   type        = string
 }
 
 variable "instance_type" {
-  description = "Instance type for storage"
+  description = "Instance type for the bastion client"
   type        = string
 }
 
 variable "boot_volume_size" {
-  description = "Root volume size (GB) for storage"
+  description = "Root volume size (GB) for the bastion client"
   type        = number
 }
 
 variable "boot_volume_type" {
-  description = "Root volume type for storage"
-  type        = string
-}
-
-variable "ebs_count" {
-  description = "Number of extra EBS volumes per server for RAID"
-  type        = number
-}
-
-variable "raid_level" {
-  description = "One of raid-0, raid-5, or raid-6"
-  type        = string
-}
-
-variable "ebs_size" {
-  description = "Size of each EBS volume (GB) for storage"
-  type        = number
-}
-
-variable "ebs_type" {
-  description = "Type of EBS volume for storage"
-  type        = string
-}
-
-variable "ebs_throughput" {
-  description = "Throughput for gp3 EBS volumes for storage (MB/s)"
-  type        = number
-  default     = null
-}
-
-variable "ebs_iops" {
-  description = "IOPS for gp3/io1/io2 EBS volumes for storage"
-  type        = number
-  default     = null
-}
-
-variable "user_data" {
-  description = "Path to user data script for storage"
+  description = "Root volume type for the bastion client"
   type        = string
 }
 
 variable "target_user" {
-  description = "Default system user for storage EC2s"
+  description = "Default system user for the bastion client EC2s"
   type        = string
 }

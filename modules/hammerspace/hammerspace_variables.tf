@@ -33,11 +33,16 @@ variable "common_config" {
     key_name             = string
     tags                 = map(string)
     project_name         = string
-    assign_public_ip     = bool
     ssh_keys_dir         = string
     placement_group_name = string
     allowed_source_cidr_blocks = list(string)
   })
+}
+
+variable "assign_public_ip" {
+  description = "Assign a public IP to the Anvil"
+  type	      = bool
+  default     = false
 }
 
 variable "anvil_capacity_reservation_id" {

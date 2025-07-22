@@ -28,6 +28,11 @@ output "terraform_project_version" {
   value       = "2025.07.15-7ee91ea"
 }
 
+output "bastion_instances" {
+  description = "Bastion client instance details (non-sensitive)."
+  value       = module.bastion[*].instance_details
+}
+
 output "client_instances" {
   description = "Client instance details (non-sensitive)."
   value       = module.clients[*].instance_details

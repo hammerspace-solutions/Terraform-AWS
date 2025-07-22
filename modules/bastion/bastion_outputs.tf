@@ -18,17 +18,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/clients/clients_outputs.tf
+# modules/bastion/bastion_outputs.tf
 #
-# This file defines the outputs for the Clients module.
+# This file defines the outputs for the Bastion client module.
 # -----------------------------------------------------------------------------
 
 output "instance_details" {
-  description = "A list of non-sensitive details for client instances (ID, Name, IPs)."
+  description = "A list of non-sensitive details for the Bastion instance (ID, Name, IPs)."
   value = [
-    for i in aws_instance.clients : {
+    for i in aws_instance.bastion : {
       id         = i.id
       private_ip = i.private_ip
+      public_ip  = i.public_ip
       name       = i.tags.Name
     }
   ]

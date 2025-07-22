@@ -242,7 +242,6 @@ locals {
     key_name             = var.key_name
     tags                 = var.tags
     project_name         = var.project_name
-    assign_public_ip     = var.assign_public_ip
     ssh_keys_dir         = var.ssh_keys_dir
     placement_group_name = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
     allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
@@ -253,6 +252,7 @@ locals {
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ansible     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
+  deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
 
   all_ssh_nodes = concat(
     local.deploy_clients ? module.clients[0].instance_details : [],
@@ -321,6 +321,23 @@ resource "aws_ec2_capacity_reservation" "clients" {
   }
 }
 
+resource "aws_ec2_capacity_reservation" "bastion" {
+  count = local.deploy_bastion && var.bastion_instance_count > 0 ? 1 : 0
+
+  instance_type     = var.bastion_instance_type
+  instance_platform = "Linux/UNIX"
+  availability_zone = data.aws_subnet.this.availability_zone
+  instance_count    = var.bastion_instance_count
+  tenancy           = "default"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
+  tags              = merge(var.tags, { Name = "${var.project_name}-Bastion-Reservation" })
+
+  timeouts {
+    create = var.capacity_reservation_create_timeout
+  }
+}
+
 resource "aws_ec2_capacity_reservation" "storage" {
   count = local.deploy_storage && var.storage_instance_count > 0 ? 1 : 0
 
@@ -339,6 +356,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
 }
 
 # ECGroup
+
 resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   count = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? 1 : 0
 
@@ -391,6 +409,26 @@ module "clients" {
   depends_on = [module.hammerspace]
 }
 
+# Deploy the bastion client if requested
+
+module "bastion" {
+  count = local.deploy_bastion ? 1 : 0
+  source = "./modules/bastion"
+
+  common_config           = local.common_config
+  assign_public_ip     	  = var.assign_public_ip
+  capacity_reservation_id = local.deploy_bastion && var.bastion_instance_count > 0 ? one(aws_ec2_capacity_reservation.bastion[*].id) : null
+
+  instance_count   	  = var.bastion_instance_count
+  ami              	  = var.bastion_ami
+  instance_type    	  = var.bastion_instance_type
+  boot_volume_size 	  = var.bastion_boot_volume_size
+  boot_volume_type 	  = var.bastion_boot_volume_type
+  target_user      	  = var.bastion_target_user
+
+  depends_on 		  = [module.hammerspace]
+}
+
 module "storage_servers" {
   count = local.deploy_storage ? 1 : 0
   source = "./modules/storage_servers"
@@ -398,51 +436,52 @@ module "storage_servers" {
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_storage && var.storage_instance_count > 0 ? one(aws_ec2_capacity_reservation.storage[*].id) : null
 
-  instance_count   = var.storage_instance_count
-  ami              = var.storage_ami
-  instance_type    = var.storage_instance_type
-  boot_volume_size = var.storage_boot_volume_size
-  boot_volume_type = var.storage_boot_volume_type
-  raid_level       = var.storage_raid_level
-  ebs_count        = var.storage_ebs_count
-  ebs_size         = var.storage_ebs_size
-  ebs_type         = var.storage_ebs_type
-  ebs_throughput   = var.storage_ebs_throughput
-  ebs_iops         = var.storage_ebs_iops
-  user_data        = var.storage_user_data
-  target_user      = var.storage_target_user
+  instance_count   	  = var.storage_instance_count
+  ami              	  = var.storage_ami
+  instance_type    	  = var.storage_instance_type
+  boot_volume_size 	  = var.storage_boot_volume_size
+  boot_volume_type 	  = var.storage_boot_volume_type
+  raid_level       	  = var.storage_raid_level
+  ebs_count        	  = var.storage_ebs_count
+  ebs_size         	  = var.storage_ebs_size
+  ebs_type         	  = var.storage_ebs_type
+  ebs_throughput   	  = var.storage_ebs_throughput
+  ebs_iops         	  = var.storage_ebs_iops
+  user_data        	  = var.storage_user_data
+  target_user      	  = var.storage_target_user
 
-  depends_on = [module.hammerspace]
+  depends_on 		  = [module.hammerspace]
 }
 
 module "hammerspace" {
   count = local.deploy_hammerspace ? 1 : 0
   source = "./modules/hammerspace"
 
-  common_config                 = local.common_config
+  common_config           = local.common_config
+  assign_public_ip     	  = var.assign_public_ip
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? one(aws_ec2_capacity_reservation.anvil[*].id) : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? one(aws_ec2_capacity_reservation.dsx[*].id) : null
 
-  ami                          = var.hammerspace_ami
-  iam_admin_group_id           = var.hammerspace_iam_admin_group_id
-  profile_id                   = var.hammerspace_profile_id
-  anvil_security_group_id      = var.hammerspace_anvil_security_group_id
-  dsx_security_group_id        = var.hammerspace_dsx_security_group_id
-  anvil_count                  = var.hammerspace_anvil_count
-  sa_anvil_destruction         = var.hammerspace_sa_anvil_destruction
-  anvil_type                   = var.hammerspace_anvil_instance_type
-  anvil_meta_disk_size         = var.hammerspace_anvil_meta_disk_size
-  anvil_meta_disk_type         = var.hammerspace_anvil_meta_disk_type
-  anvil_meta_disk_iops         = var.hammerspace_anvil_meta_disk_iops
+  ami                     = var.hammerspace_ami
+  iam_admin_group_id      = var.hammerspace_iam_admin_group_id
+  profile_id              = var.hammerspace_profile_id
+  anvil_security_group_id = var.hammerspace_anvil_security_group_id
+  dsx_security_group_id   = var.hammerspace_dsx_security_group_id
+  anvil_count             = var.hammerspace_anvil_count
+  sa_anvil_destruction    = var.hammerspace_sa_anvil_destruction
+  anvil_type              = var.hammerspace_anvil_instance_type
+  anvil_meta_disk_size    = var.hammerspace_anvil_meta_disk_size
+  anvil_meta_disk_type    = var.hammerspace_anvil_meta_disk_type
+  anvil_meta_disk_iops    = var.hammerspace_anvil_meta_disk_iops
   anvil_meta_disk_throughput   = var.hammerspace_anvil_meta_disk_throughput
-  dsx_count                    = var.hammerspace_dsx_count
-  dsx_type                     = var.hammerspace_dsx_instance_type
-  dsx_ebs_size                 = var.hammerspace_dsx_ebs_size
-  dsx_ebs_type                 = var.hammerspace_dsx_ebs_type
-  dsx_ebs_iops                 = var.hammerspace_dsx_ebs_iops
-  dsx_ebs_throughput           = var.hammerspace_dsx_ebs_throughput
-  dsx_ebs_count                = var.hammerspace_dsx_ebs_count
-  dsx_add_vols                 = var.hammerspace_dsx_add_vols
+  dsx_count               = var.hammerspace_dsx_count
+  dsx_type                = var.hammerspace_dsx_instance_type
+  dsx_ebs_size            = var.hammerspace_dsx_ebs_size
+  dsx_ebs_type            = var.hammerspace_dsx_ebs_type
+  dsx_ebs_iops            = var.hammerspace_dsx_ebs_iops
+  dsx_ebs_throughput      = var.hammerspace_dsx_ebs_throughput
+  dsx_ebs_count           = var.hammerspace_dsx_ebs_count
+  dsx_add_vols            = var.hammerspace_dsx_add_vols
 }
 
 # Deploy the ECGroup module if requested
@@ -454,23 +493,23 @@ module "ecgroup" {
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
   placement_group_name    = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
 
-  node_count                 = var.ecgroup_node_count
-  ami                        = local.select_ecgroup_ami_for_region
-  instance_type              = var.ecgroup_instance_type
-  boot_volume_size           = var.ecgroup_boot_volume_size
-  boot_volume_type           = var.ecgroup_boot_volume_type
-  metadata_ebs_type          = var.ecgroup_metadata_volume_type
-  metadata_ebs_size          = var.ecgroup_metadata_volume_size
-  metadata_ebs_throughput    = var.ecgroup_metadata_volume_throughput
-  metadata_ebs_iops          = var.ecgroup_metadata_volume_iops
-  storage_ebs_count          = var.ecgroup_storage_volume_count
-  storage_ebs_type           = var.ecgroup_storage_volume_type
-  storage_ebs_size           = var.ecgroup_storage_volume_size
-  storage_ebs_throughput     = var.ecgroup_storage_volume_throughput
-  storage_ebs_iops           = var.ecgroup_storage_volume_iops
-  user_data                  = var.ecgroup_user_data
+  node_count              = var.ecgroup_node_count
+  ami                     = local.select_ecgroup_ami_for_region
+  instance_type           = var.ecgroup_instance_type
+  boot_volume_size        = var.ecgroup_boot_volume_size
+  boot_volume_type        = var.ecgroup_boot_volume_type
+  metadata_ebs_type       = var.ecgroup_metadata_volume_type
+  metadata_ebs_size       = var.ecgroup_metadata_volume_size
+  metadata_ebs_throughput = var.ecgroup_metadata_volume_throughput
+  metadata_ebs_iops       = var.ecgroup_metadata_volume_iops
+  storage_ebs_count       = var.ecgroup_storage_volume_count
+  storage_ebs_type        = var.ecgroup_storage_volume_type
+  storage_ebs_size        = var.ecgroup_storage_volume_size
+  storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
+  storage_ebs_iops        = var.ecgroup_storage_volume_iops
+  user_data               = var.ecgroup_user_data
 
-  depends_on = [module.hammerspace]
+  depends_on 		  = [module.hammerspace]
 }
 
 
@@ -479,31 +518,32 @@ module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
 
-  common_config          = local.common_config
-  target_nodes_json      = jsonencode(local.all_ssh_nodes)
+  common_config           = local.common_config
+  target_nodes_json       = jsonencode(local.all_ssh_nodes)
 
   # Pass the path to the key, not the content of the key.
-  admin_private_key_path = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
+  admin_private_key_path  = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
 
-  mgmt_ip                = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
-  anvil_instances        = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
-  storage_instances      = local.deploy_storage ? flatten(module.storage_servers[*].instance_details) : []
-  ecgroup_instances      = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.id] : []
-  ecgroup_nodes          = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.private_ip] : []
-  ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
-  ecgroup_storage_array  = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
+  mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
+  anvil_instances         = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
+  storage_instances       = local.deploy_storage ? flatten(module.storage_servers[*].instance_details) : []
+  ecgroup_instances       = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.id] : []
+  ecgroup_nodes           = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.private_ip] : []
+  ecgroup_metadata_array  = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
+  ecgroup_storage_array   = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
 
-  instance_count   = var.ansible_instance_count
-  ami              = var.ansible_ami
-  instance_type    = var.ansible_instance_type
-  boot_volume_size = var.ansible_boot_volume_size
-  boot_volume_type = var.ansible_boot_volume_type
-  user_data        = var.ansible_user_data
-  target_user      = var.ansible_target_user
-  volume_group_name = var.volume_group_name
-  share_name       = var.share_name
+  instance_count   	  = var.ansible_instance_count
+  ami              	  = var.ansible_ami
+  instance_type    	  = var.ansible_instance_type
+  boot_volume_size 	  = var.ansible_boot_volume_size
+  boot_volume_type 	  = var.ansible_boot_volume_type
+  user_data        	  = var.ansible_user_data
+  target_user      	  = var.ansible_target_user
+  volume_group_name 	  = var.volume_group_name
+  share_name       	  = var.share_name
 
   depends_on = [
+    module.bastion,
     module.clients,
     module.storage_servers,
     module.hammerspace,

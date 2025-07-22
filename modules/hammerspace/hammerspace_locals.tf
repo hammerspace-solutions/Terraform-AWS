@@ -26,11 +26,13 @@
 
 locals {
   # --- Anvil Creation Logic based on anvil_count ---
+
   should_create_any_anvils = var.anvil_count > 0
   create_standalone_anvil  = var.anvil_count == 1
   create_ha_anvils         = var.anvil_count >= 2
 
   # --- General Conditions ---
+
   provides_key_name      = var.common_config.key_name != null && var.common_config.key_name != ""
   enable_iam_admin_group = var.iam_user_access == "Enable"
   create_iam_admin_group = local.enable_iam_admin_group && var.iam_admin_group_id == ""
@@ -38,6 +40,7 @@ locals {
   dsx_add_volumes_bool   = local.should_create_any_anvils && var.dsx_add_vols
 
   # --- Mappings & Derived Values ---
+
   anvil_instance_type_actual = var.anvil_type
   dsx_instance_type_actual   = var.dsx_type
   common_tags = merge(var.common_config.tags, {
@@ -50,15 +53,18 @@ locals {
   ]
 
   # --- IAM References ---
+
   effective_iam_admin_group_name = local.create_iam_admin_group ? one(aws_iam_group.admin_group[*].name) : var.iam_admin_group_id
   effective_iam_admin_group_arn  = local.create_iam_admin_group ? one(aws_iam_group.admin_group[*].arn) : (var.iam_admin_group_id != "" ? "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:group/${var.iam_admin_group_id}" : null)
   effective_instance_profile_ref = local.create_profile ? one(aws_iam_instance_profile.profile[*].name) : var.profile_id
 
   # --- Security Group Selection Logic ---
+
   effective_anvil_sg_id = var.anvil_security_group_id != "" ? var.anvil_security_group_id : one(aws_security_group.anvil_data_sg[*].id)
   effective_dsx_sg_id   = var.dsx_security_group_id != "" ? var.dsx_security_group_id : one(aws_security_group.dsx_sg[*].id)
 
   # --- IP and ID Discovery ---
+
   anvil2_ha_ni_secondary_ip = (
     local.create_ha_anvils &&
     length(aws_network_interface.anvil2_ha_ni) > 0 &&
@@ -85,6 +91,7 @@ locals {
   )
 
   # --- UserData Configuration Maps ---
+
   aws_config_map = local.enable_iam_admin_group && local.effective_iam_admin_group_name != null ? {
     iam_admin_group = local.effective_iam_admin_group_name
   } : {}

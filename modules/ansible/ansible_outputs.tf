@@ -29,7 +29,6 @@ output "instance_details" {
     for i in aws_instance.this : {
       id         = i.id
       private_ip = i.private_ip
-      public_ip  = i.public_ip
       name       = i.tags.Name
     }
   ]

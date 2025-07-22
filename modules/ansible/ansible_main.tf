@@ -88,7 +88,6 @@ resource "aws_instance" "this" {
 
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
-  associate_public_ip_address = var.common_config.assign_public_ip
 
   vpc_security_group_ids = [aws_security_group.ansible.id]
 
@@ -125,7 +124,7 @@ resource "null_resource" "key_provisioner" {
       user        = var.target_user
       # The key used for the initial connection is the main one for the instance.
       private_key = file(var.admin_private_key_path)
-      host        = var.common_config.assign_public_ip ? aws_instance.this[count.index].public_ip : aws_instance.this[count.index].private_ip
+      host        = aws_instance.this[count.index].private_ip
     }
   }
 
@@ -140,7 +139,7 @@ resource "null_resource" "key_provisioner" {
       type        = "ssh"
       user        = var.target_user
       private_key = file(var.admin_private_key_path)
-      host        = var.common_config.assign_public_ip ? aws_instance.this[count.index].public_ip : aws_instance.this[count.index].private_ip
+      host        = aws_instance.this[count.index].private_ip
     }
   }
 }

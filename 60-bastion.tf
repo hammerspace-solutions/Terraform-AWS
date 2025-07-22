@@ -18,18 +18,44 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/clients/clients_outputs.tf
+# bastion variables.tf
 #
-# This file defines the outputs for the Clients module.
+# This file defines all the input variables for the bastion client in the
+# root module of the Terraform-AWS project.
 # -----------------------------------------------------------------------------
 
-output "instance_details" {
-  description = "A list of non-sensitive details for client instances (ID, Name, IPs)."
-  value = [
-    for i in aws_instance.clients : {
-      id         = i.id
-      private_ip = i.private_ip
-      name       = i.tags.Name
-    }
-  ]
+# BASTION-SPECIFIC VARIABLES (WITH bastion_ PREFIX)
+
+variable "bastion_instance_count" {
+  description = "Number of bastion client instances"
+  type        = number
+  default     = 1
+}
+
+variable "bastion_ami" {
+  description = "AMI for the bastion client instances"
+  type        = string
+}
+
+variable "bastion_instance_type" {
+  description = "Instance type for the bastion client"
+  type        = string
+}
+
+variable "bastion_boot_volume_size" {
+  description = "Root volume size (GB) for the bastion client"
+  type        = number
+  default     = 100
+}
+
+variable "bastion_boot_volume_type" {
+  description = "Root volume type for the bastion client"
+  type        = string
+  default     = "gp2"
+}
+
+variable "bastion_target_user" {
+  description = "Default system user for bastion EC2s"
+  type        = string
+  default     = "ubuntu"
 }
