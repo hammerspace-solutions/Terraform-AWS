@@ -230,15 +230,15 @@ EOF
         if [ $i -gt 0 ]; then
             # Check if this is the last item to avoid trailing comma
             if [ $i -eq $(($${#ECGROUP_NODES[@]} - 1)) ]; then
-                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}" >> additional_ip_addresses.yml
+                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}" >> /tmp/additional_ip_addresses.yml
             else
-                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}," >> additional_ip_addresses.yml
+                echo "        {ip: {address: \"$${ECGROUP_NODES[$i]}\", prefixLength: 32}}," >> /tmp/additional_ip_addresses.yml
             fi
         fi
     done
 
     # Close the YAML structure
-    echo "  ]" >> additional_ip_addresses.yml
+    echo "  ]" >> /tmp/additional_ip_addresses.yml
 
     echo "Created additional_ip_addresses.yml:"
     cat /tmp/additional_ip_addresses.yml
