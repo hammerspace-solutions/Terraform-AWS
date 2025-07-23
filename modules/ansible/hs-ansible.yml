@@ -311,7 +311,10 @@
               "name": "{{ item.node.name }}::{{ item.exportPath }}",
               "logicalVolume": {
                 "name": "{{ item.exportPath }}",
-                "_type": "LOGICAL_VOLUME"
+                "_type": "LOGICAL_VOLUME",
+                "lowThreshold": 90,
+                "highThreshold": 95,
+                "thresholdRange": "90% - 95%"
               },
               "node": {
                 "name": "{{ item.node.name }}",
