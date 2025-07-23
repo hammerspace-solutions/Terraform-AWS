@@ -112,18 +112,14 @@ resource "aws_instance" "bastion" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
-
-  # Use a public ip for the bastion
-
-  associate_public_ip_address = var.assign_public_ip
   
   # Use values from the common_config object
 
-  subnet_id                   = var.common_config.subnet_id
+#  subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.bastion.id]
+#  vpc_security_group_ids = [aws_security_group.bastion.id]
 
   network_interface {
     device_index	  = 0

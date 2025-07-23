@@ -67,7 +67,7 @@ output "anvil_instances" {
       id                         = one(aws_instance.anvil2[*].id)
       arn                        = one(aws_instance.anvil2[*].arn)
       private_ip                 = one(aws_instance.anvil2[*].private_ip)
-      public_ip                  = var.common_config.assign_public_ip ? one(aws_eip.anvil2_ha[*].public_ip) : null
+      public_ip                  = var.assign_public_ip ? one(aws_eip.anvil2_ha[*].public_ip) : null
       key_name                   = one(aws_instance.anvil2[*].key_name)
       iam_profile                = one(aws_instance.anvil2[*].iam_instance_profile)
       placement_group            = one(aws_instance.anvil2[*].placement_group)
