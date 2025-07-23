@@ -183,7 +183,7 @@ resource "aws_security_group" "dsx_sg" {
 # --- Anvil Standalone Resources ---
 resource "aws_network_interface" "anvil_sa_ni" {
   count           = local.create_standalone_anvil ? 1 : 0
-  subnet_id       = var.common_config.subnet_id
+  subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
   tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
@@ -212,6 +212,10 @@ resource "aws_instance" "anvil" {
   placement_group       = var.common_config.placement_group_name
 
   lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Hammerspace Anvil, 'public_subnet_id' must be provided."
+    }
     precondition {
       condition     = var.sa_anvil_destruction == true
       error_message = "The standalone Anvil is protected. To destroy it, set 'sa_anvil_destruction = true'."
@@ -261,7 +265,7 @@ resource "aws_volume_attachment" "anvil_meta_vol_attach" {
 # --- Anvil HA Resources ---
 resource "aws_network_interface" "anvil1_ha_ni" {
   count           = local.create_ha_anvils ? 1 : 0
-  subnet_id       = var.common_config.subnet_id
+  subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
   tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
@@ -290,6 +294,10 @@ resource "aws_instance" "anvil1" {
   placement_group       = var.common_config.placement_group_name
 
   lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Hammerspace Anvil, 'public_subnet_id' must be provided."
+    }
     precondition {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."
@@ -335,7 +343,7 @@ resource "aws_volume_attachment" "anvil1_meta_vol_attach" {
 
 resource "aws_network_interface" "anvil2_ha_ni" {
   count             = local.create_ha_anvils ? 1 : 0
-  subnet_id         = var.common_config.subnet_id
+  subnet_id         = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups   = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
   private_ips_count = 1
   tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-NI" })
@@ -365,6 +373,10 @@ resource "aws_instance" "anvil2" {
   placement_group       = var.common_config.placement_group_name
 
   lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Hammerspace Anvil, 'public_subnet_id' must be provided."
+    }
     precondition {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."

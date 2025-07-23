@@ -45,6 +45,12 @@ variable "assign_public_ip" {
   default     = false
 }
 
+variable "public_subnet_id" {
+  description = "The ID of the public subnet where instances requiring a public IP will be launched. Required if assign_public_ip is true."
+  type        = string
+  default     = null
+}
+
 variable "anvil_capacity_reservation_id" {
   description = "The ID of the On-Demand Capacity Reservation to target for Anvil nodes."
   type        = string
