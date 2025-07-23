@@ -311,17 +311,20 @@
               "name": "{{ item.node.name }}::{{ item.exportPath }}",
               "logicalVolume": {
                 "name": "{{ item.exportPath }}",
-                "_type": "LOGICAL_VOLUME",
-                "lowThreshold": 90,
-                "highThreshold": 95,
-                "thresholdRange": "90% - 95%"
+                "_type": "LOGICAL_VOLUME"
               },
               "node": {
                 "name": "{{ item.node.name }}",
                 "_type": "NODE"
               },
               "_type": "STORAGE_VOLUME",
-              "accessType": "READ_WRITE"
+              "accessType": "READ_WRITE",
+              "storageCapabilities": {
+                "performance": {
+                    "utilizationThreshold": 0.95,
+                    "utilizationEvacuationThreshold": 0.9
+                }
+              }
               {% if additional_ip_addresses.additionalAddresses %}
               ,"additionalAddresses": {{ additional_ip_addresses.additionalAddresses | to_json }}
               {% endif %}
