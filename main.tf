@@ -414,6 +414,25 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   }
 }
 
+# Ansible
+
+resource "aws_ec2_capacity_reservation" "ansible" {
+  count = local.deploy_ansible && var.ansible_instance_count > 0 ? 1 : 0
+
+  instance_type     = var.ansible_instance_type
+  instance_platform = "Linux/UNIX"
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  instance_count    = var.ansible_instance_count
+  tenancy           = "default"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
+  tags              = merge(var.tags, { Name = "${var.project_name}-Ansible-Reservation" })
+
+  timeouts {
+    create = var.capacity_reservation_create_timeout
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Resource and Module Definitions
 # -----------------------------------------------------------------------------
@@ -564,9 +583,14 @@ module "ansible" {
   source  = "./modules/ansible"
 
   common_config           = local.common_config
+  assign_public_ip	  = var.assign_public_ip
+  public_subnet_id	  = var.public_subnet_id
+  capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
+  
   target_nodes_json       = jsonencode(local.all_ssh_nodes)
 
   # Pass the path to the key, not the content of the key.
+
   admin_private_key_path  = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
 
   mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []

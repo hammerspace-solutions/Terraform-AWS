@@ -58,7 +58,7 @@ variable "capacity_reservation_id" {
 }
 
 
-# --- Client-specific variables (these remain) ---
+# --- Bastion-specific variables (these remain) ---
 
 variable "instance_count" {
   description = "Number of bastion client instances"

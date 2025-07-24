@@ -106,21 +106,21 @@ resource "aws_network_interface" "ansible_ni" {
   tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible" })
 }
 
-resource "aws_eip" "bastion" {
+resource "aws_eip" "ansible" {
   count	 	      = var.assign_public_ip ? 1 : 0
   domain	      = "vpc"
-  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Bastion-EIP" })
+  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible-EIP" })
 }
 
-resource "aws_eip_association" "bastion" {
+resource "aws_eip_association" "ansible" {
   count	 	           = var.assign_public_ip ? 1 : 0
-  network_interface_id     = aws_network_interface.bastion_ni[0].id
-  allocation_id		   = aws_eip.bastion[0].id
+  network_interface_id     = aws_network_interface.ansible_ni[0].id
+  allocation_id		   = aws_eip.ansible[0].id
 }
 
 # Launch EC2 Ansible instances
 
-resource "aws_instance" "this" {
+resource "aws_instance" "ansible" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
@@ -129,13 +129,41 @@ resource "aws_instance" "this" {
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
 
-  vpc_security_group_ids = [aws_security_group.ansible.id]
+  # Connect the network interface with the instance
 
-  root_block_device {
-    volume_size = var.boot_volume_size
-    volume_type = var.boot_volume_type
+  network_interface {
+    device_index	      = 0
+    network_interface_id      = aws_network_interface.ansible_ni[0].id
   }
 
+  # Create the boot disk
+  
+  root_block_device {
+    volume_size               = var.boot_volume_size
+    volume_type 	      = var.boot_volume_type
+    delete_on_termination     = true
+  }
+
+  dynamic "capacity_reservation_specification" {
+    for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
+    content {
+      capacity_reservation_target {
+        capacity_reservation_id = capacity_reservation_specification.value.id
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Ansible, 'public_subnet_id' must be provided."
+    }
+    precondition {
+      condition     = local.ansible_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.instance_type} for the Ansible is not available in AZ ${var.common_config.availability_zone}."
+    }
+  }
+  
   tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-${count.index + 1}"
   })
@@ -152,7 +180,7 @@ resource "null_resource" "key_provisioner" {
   # This trigger ensures the provisioner runs after the instance is created.
 
   triggers = {
-    instance_id = aws_instance.this[count.index].id
+    instance_id = aws_instance.ansible[count.index].id
   }
 
   # First provisioner copies the key file.
@@ -166,11 +194,12 @@ resource "null_resource" "key_provisioner" {
       user        = var.target_user
       # The key used for the initial connection is the main one for the instance.
       private_key = file(var.admin_private_key_path)
-      host        = aws_instance.this[count.index].private_ip
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
     }
   }
 
   # Second provisioner sets the correct permissions on the uploaded key.
+
   provisioner "remote-exec" {
     inline = [
       "sudo chmod 600 /home/${var.target_user}/.ssh/ansible_admin_key",
@@ -181,7 +210,7 @@ resource "null_resource" "key_provisioner" {
       type        = "ssh"
       user        = var.target_user
       private_key = file(var.admin_private_key_path)
-      host        = aws_instance.this[count.index].private_ip
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
     }
   }
 }

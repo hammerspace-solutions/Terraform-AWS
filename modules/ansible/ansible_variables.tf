@@ -39,7 +39,26 @@ variable "common_config" {
   })
 }
 
+variable "public_subnet_id" {
+  description = "The ID of the public subnet where the ansible instance will be launched. Required if assign_public_ip is true."
+  type	      = string
+  default     = null
+}
+
+variable "assign_public_ip" {
+  description = "Assign a public IP to this host"
+  type	      = bool
+  default     = false
+}
+
+variable "capacity_reservation_id" {
+  description = "The ID of the On-Demand Capacity Reservation to target."
+  type	      = string
+  default     = null
+}
+
 # Ansible specific variables
+
 variable "instance_count" {
   description = "Number of Ansible instances"
   type        = number
