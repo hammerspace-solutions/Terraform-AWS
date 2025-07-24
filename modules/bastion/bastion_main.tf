@@ -51,6 +51,15 @@ locals {
 
   bastion_instance_type_is_available = length(data.aws_ec2_instance_type_offering.bastion.instance_type) > 0
 
+  raw_user_data = file(var.user_data)
+
+  processed_user_data = format(
+    local.raw_user_data,
+    var.target_user,
+    "/home/${var.target_user}",
+    join("\n", local.ssh_public_keys)
+  )
+  
   resource_prefix = "${var.common_config.project_name}-bastion"
 
   common_tags = merge(var.common_config.tags, {
@@ -112,6 +121,7 @@ resource "aws_instance" "bastion" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
+  user_data	= local.processed_user_data
   
   # Use values from the common_config object
 

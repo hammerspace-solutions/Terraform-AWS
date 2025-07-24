@@ -57,7 +57,6 @@ variable "capacity_reservation_id" {
   default     = null
 }
 
-
 # --- Bastion-specific variables (these remain) ---
 
 variable "instance_count" {
@@ -83,6 +82,11 @@ variable "boot_volume_size" {
 variable "boot_volume_type" {
   description = "Root volume type for the bastion client"
   type        = string
+}
+
+variable "user_data" {
+  description = "Path to user data script for the bastion client"
+  type	      = string
 }
 
 variable "target_user" {

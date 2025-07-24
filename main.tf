@@ -549,6 +549,7 @@ module "bastion" {
   instance_type    	  = var.bastion_instance_type
   boot_volume_size 	  = var.bastion_boot_volume_size
   boot_volume_type 	  = var.bastion_boot_volume_type
+  user_data		  = var.bastion_user_data
   target_user      	  = var.bastion_target_user
 
   depends_on 		  = [module.hammerspace]
