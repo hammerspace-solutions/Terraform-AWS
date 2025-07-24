@@ -51,8 +51,14 @@ data "aws_subnet" "public_subnet_data" {
   id    = var.public_subnet_id
 }
 
-data "aws_ami" "hammerspace_ami_check" {
-  count = local.deploy_hammerspace ? 1 : 0
+# These group of checks make sure that the AMIs exist in the region
+# where you are trying to start them up. This only gets the data,
+# it does not trigger the check and error message. That comes later.
+
+# Ansible AMI Exists?
+
+data "aws_ami" "ansible_ami_check" {
+  count = local.deploy_ansible ? 1 : 0
 
   provider    = aws
   most_recent = true
@@ -60,11 +66,41 @@ data "aws_ami" "hammerspace_ami_check" {
 
   filter {
     name   = "image-id"
-    values = [var.hammerspace_ami]
+    values = [var.ansible_ami]
   }
 }
 
-# This checks if the AMI for the ecgroup is available in this region
+# Bastion Client AMI Exists?
+
+data "aws_ami" "bastion_ami_check" {
+  count = local.deploy_bastion ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
+
+  filter {
+    name   = "image-id"
+    values = [var.bastion_ami]
+  }
+}
+
+# Client AMI Exists?
+
+data "aws_ami" "client_ami_check" {
+  count = local.deploy_clients ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
+
+  filter {
+    name   = "image-id"
+    values = [var.clients_ami]
+  }
+}
+
+# ECGroup AMI Exists?
 
 data "aws_ami" "ecgroup_node_ami_check" {
   count = local.deploy_ecgroup ? 1 : 0
@@ -79,7 +115,39 @@ data "aws_ami" "ecgroup_node_ami_check" {
   }
 }
 
-# Check that the subnet belongs to the vpc
+# Hammerspace Anvil and DSX share an AMI
+
+data "aws_ami" "hammerspace_ami_check" {
+  count = local.deploy_hammerspace ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
+
+  filter {
+    name   = "image-id"
+    values = [var.hammerspace_ami]
+  }
+}
+
+# Storage Server AMI Exists?
+
+data "aws_ami" "storage_ami_check" {
+  count = local.deploy_storage ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
+
+  filter {
+    name   = "image-id"
+    values = [var.storage_ami]
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Pre-flight check that the subnet is in the vpc
+# -----------------------------------------------------------------------------
 
 check "vpc_and_subnet_validation" {
   assert {
@@ -88,16 +156,16 @@ check "vpc_and_subnet_validation" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# Pre-flight checks for instance type existence.
-# -----------------------------------------------------------------------------
-
 check "public_subnet_validation" {
   assert {
     condition     = var.public_subnet_id == "" || (data.aws_subnet.public_subnet_data[0].vpc_id == data.aws_vpc.validation.id)
     error_message = "Validation Error: The provided public_subnet_id (ID: ${var.public_subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."
   }
 }
+
+# -----------------------------------------------------------------------------
+# Pre-flight checks for instance type existence.
+# -----------------------------------------------------------------------------
 
 check "anvil_instance_type_is_available" {
   data "aws_ec2_instance_type_offerings" "anvil_check" {
@@ -201,33 +269,44 @@ check "ecgroup_node_instance_type_is_available" {
 # Pre-flight checks for AMI existence.
 # -----------------------------------------------------------------------------
 
-check "client_ami_exists" {
-  data "aws_ami" "client_ami_check" {
-    most_recent = true
-    owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
-    filter {
-      name   = "image-id"
-      values = [var.clients_ami]
-    }
-  }
+check "ansible_ami_exists" {
   assert {
-    condition     = data.aws_ami.client_ami_check.id == var.clients_ami
+    condition     = !local.deploy_ansible || (
+      length(data.aws_ami.ansible_ami_check) > 0 &&
+      data.aws_ami.ansible_ami_check[0].id != ""
+    )
+    error_message = "Validation Error: The specified ansible_ami (ID: ${var.ansible_ami}) was not found in the region ${var.region}."
+  }
+}
+
+check "bastion_ami_exists" {
+  assert {
+    condition     = !local.deploy_bastion || (
+      length(data.aws_ami.bastion_ami_check) > 0 &&
+      data.aws_ami.bastion_ami_check[0].id != ""
+    )
+    error_message = "Validation Error: The specified bastion_ami (ID: ${var.bastion_ami}) was not found in the region ${var.region}."
+  }
+}
+
+check "client_ami_exists" {
+  assert {
+    condition     = !local.deploy_clients || (
+      length(data.aws_ami.client_ami_check) > 0 &&
+      data.aws_ami.client_ami_check[0].id != ""
+    )
     error_message = "Validation Error: The specified clients_ami (ID: ${var.clients_ami}) was not found in the region ${var.region}."
   }
 }
 
-check "storage_ami_exists" {
-  data "aws_ami" "storage_ami_check" {
-    most_recent = true
-    owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
-    filter {
-      name   = "image-id"
-      values = [var.storage_ami]
-    }
-  }
+check "ecgroup_node_ami_exists" {
   assert {
-    condition     = data.aws_ami.storage_ami_check.id == var.storage_ami
-    error_message = "Validation Error: The specified storage_ami (ID: ${var.storage_ami}) was not found in the region ${var.region}."
+    condition = !local.deploy_ecgroup || (
+                local.select_ecgroup_ami_for_region != null &&
+                length(data.aws_ami.ecgroup_node_ami_check) > 0 &&
+                data.aws_ami.ecgroup_node_ami_check[0].id != ""
+              )
+    error_message = "EC-Group not available for the specified region (${var.region})."
   }
 }
 
@@ -241,29 +320,13 @@ check "hammerspace_ami_exists" {
   }
 }
 
-check "ansible_ami_exists" {
-  data "aws_ami" "ansible_ami_check" {
-    most_recent = true
-    owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
-    filter {
-      name   = "image-id"
-      values = [var.ansible_ami]
-    }
-  }
+check "storage_ami_exists" {
   assert {
-    condition     = data.aws_ami.ansible_ami_check.id == var.ansible_ami
-    error_message = "Validation Error: The specified ansible_ami (ID: ${var.ansible_ami}) was not found in the region ${var.region}."
-  }
-}
-
-check "ecgroup_node_ami_exists" {
-  assert {
-    condition = !local.deploy_ecgroup || (
-                local.select_ecgroup_ami_for_region != null &&
-                length(data.aws_ami.ecgroup_node_ami_check) > 0 &&
-                data.aws_ami.ecgroup_node_ami_check[0].id != ""
-              )
-    error_message = "EC-Group not available for the specified region (${var.region})."
+    condition     = !local.deploy_storage || (
+      length(data.aws_ami.storage_ami_check) > 0 &&
+      data.aws_ami.storage_ami_check[0].id != ""
+    )
+    error_message = "Validation Error: The specified storage_ami (ID: ${var.storage_ami}) was not found in the region ${var.region}."
   }
 }
 
