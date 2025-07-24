@@ -110,9 +110,9 @@ resource "aws_instance" "this" {
     delete_on_termination = true
   }
 
-  # --- THIS IS THE CHANGE ---
   # Define the data volumes inline using a dynamic block.
   # The `delete_on_termination` argument defaults to `true` here.
+
   dynamic "ebs_block_device" {
     for_each = range(var.ebs_count)
     content {
