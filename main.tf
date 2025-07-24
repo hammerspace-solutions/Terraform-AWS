@@ -25,6 +25,7 @@
 # -----------------------------------------------------------------------------
 
 # Setup the provider
+
 provider "aws" {
   region      = var.region
   max_retries = 5
@@ -33,17 +34,56 @@ provider "aws" {
 # -----------------------------------------------------------------------------
 # Pre-flight Validation for Networking
 # -----------------------------------------------------------------------------
+
 data "aws_vpc" "validation" {
   id = var.vpc_id
 }
 
-data "aws_subnet" "this" {
+data "aws_subnet" "private_subnet" {
   id = var.subnet_id
 }
 
+# Define the public subnet data source. It will only be instantiated (count = 1)
+# if var.public_subnet_id is not null. Otherwise, it will be an empty list (count = 0).
+
+data "aws_subnet" "public_subnet_data" {
+  count = var.public_subnet_id != "" ? 1 : 0
+  id    = var.public_subnet_id
+}
+
+data "aws_ami" "hammerspace_ami_check" {
+  count = local.deploy_hammerspace ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
+
+  filter {
+    name   = "image-id"
+    values = [var.hammerspace_ami]
+  }
+}
+
+# This checks if the AMI for the ecgroup is available in this region
+
+data "aws_ami" "ecgroup_node_ami_check" {
+  count = local.deploy_ecgroup ? 1 : 0
+
+  provider    = aws
+  most_recent = true
+  owners      = ["self", "amazon"]
+
+  filter {
+    name   = "image-id"
+    values = [local.select_ecgroup_ami_for_region]
+  }
+}
+
+# Check that the subnet belongs to the vpc
+
 check "vpc_and_subnet_validation" {
   assert {
-    condition     = data.aws_subnet.this.vpc_id == data.aws_vpc.validation.id
+    condition     = data.aws_subnet.private_subnet.vpc_id == data.aws_vpc.validation.id
     error_message = "Validation Error: The provided subnet (ID: ${var.subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."
   }
 }
@@ -51,6 +91,14 @@ check "vpc_and_subnet_validation" {
 # -----------------------------------------------------------------------------
 # Pre-flight checks for instance type existence.
 # -----------------------------------------------------------------------------
+
+check "public_subnet_validation" {
+  assert {
+    condition     = var.public_subnet_id == "" || (data.aws_subnet.public_subnet_data[0].vpc_id == data.aws_vpc.validation.id)
+    error_message = "Validation Error: The provided public_subnet_id (ID: ${var.public_subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."
+  }
+}
+
 check "anvil_instance_type_is_available" {
   data "aws_ec2_instance_type_offerings" "anvil_check" {
     provider = aws
@@ -60,13 +108,13 @@ check "anvil_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.this.availability_zone]
+      values = [data.aws_subnet.private_subnet.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.anvil_check.instance_types) > 0
-    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
   }
 }
 
@@ -79,13 +127,13 @@ check "dsx_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.this.availability_zone]
+      values = [data.aws_subnet.private_subnet.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.dsx_check.instance_types) > 0
-    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
   }
 }
 
@@ -98,13 +146,13 @@ check "client_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.this.availability_zone]
+      values = [data.aws_subnet.private_subnet.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.client_check.instance_types) > 0
-    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
   }
 }
 
@@ -117,17 +165,18 @@ check "storage_server_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.this.availability_zone]
+      values = [data.aws_subnet.private_subnet.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.storage_check.instance_types) > 0
-    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
   }
 }
 
 # ECGroup
+
 check "ecgroup_node_instance_type_is_available" {
   data "aws_ec2_instance_type_offerings" "ecgroup_node_check" {
     provider = aws
@@ -137,20 +186,21 @@ check "ecgroup_node_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.this.availability_zone]
+      values = [data.aws_subnet.private_subnet.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.ecgroup_node_check.instance_types) > 0
-    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.this.availability_zone})."
+    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
   }
 }
 
 # -----------------------------------------------------------------------------
 # Pre-flight checks for AMI existence.
 # -----------------------------------------------------------------------------
+
 check "client_ami_exists" {
   data "aws_ami" "client_ami_check" {
     most_recent = true
@@ -182,16 +232,11 @@ check "storage_ami_exists" {
 }
 
 check "hammerspace_ami_exists" {
-  data "aws_ami" "hammerspace_ami_check" {
-    most_recent = true
-    owners      = distinct(compact(concat(["self", "amazon", "aws-marketplace"], var.custom_ami_owner_ids)))
-    filter {
-      name   = "image-id"
-      values = [var.hammerspace_ami]
-    }
-  }
   assert {
-    condition     = data.aws_ami.hammerspace_ami_check.id == var.hammerspace_ami
+    condition     = !local.deploy_hammerspace || (
+      length(data.aws_ami.hammerspace_ami_check) > 0 &&
+      data.aws_ami.hammerspace_ami_check[0].id != ""
+    )
     error_message = "Validation Error: The specified hammerspace_ami (ID: ${var.hammerspace_ami}) was not found in the region ${var.region}."
   }
 }
@@ -212,31 +257,25 @@ check "ansible_ami_exists" {
 }
 
 check "ecgroup_node_ami_exists" {
-  data "aws_ami" "ecgroup_node_ami_check" {
-    provider    = aws
-    most_recent = true
-    owners      = ["self", "amazon"]
-
-    filter {
-      name   = "image-id"
-      values = [local.select_ecgroup_ami_for_region]
-    }
-  }
-
   assert {
-    condition     = local.select_ecgroup_ami_for_region != null && data.aws_ami.ecgroup_node_ami_check.id != ""
+    condition = !local.deploy_ecgroup || (
+                local.select_ecgroup_ami_for_region != null &&
+                length(data.aws_ami.ecgroup_node_ami_check) > 0 &&
+                data.aws_ami.ecgroup_node_ami_check[0].id != ""
+              )
     error_message = "EC-Group not available for the specified region (${var.region})."
   }
 }
 
 # Determine which components to deploy and create a common configuration object
+
 locals {
 
   all_allowed_cidr_blocks = distinct(concat([data.aws_vpc.validation.cidr_block], var.allowed_source_cidr_blocks))
-  
+
   common_config = {
     region               = var.region
-    availability_zone    = data.aws_subnet.this.availability_zone
+    availability_zone    = data.aws_subnet.private_subnet.availability_zone
     vpc_id               = var.vpc_id
     subnet_id            = var.subnet_id
     key_name             = var.key_name
@@ -270,12 +309,13 @@ locals {
 # -----------------------------------------------------------------------------
 # On-Demand Capacity Reservations
 # -----------------------------------------------------------------------------
+
 resource "aws_ec2_capacity_reservation" "anvil" {
   count = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? 1 : 0
 
   instance_type     = var.hammerspace_anvil_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -292,7 +332,7 @@ resource "aws_ec2_capacity_reservation" "dsx" {
 
   instance_type     = var.hammerspace_dsx_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -309,7 +349,7 @@ resource "aws_ec2_capacity_reservation" "clients" {
 
   instance_type     = var.clients_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.clients_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -326,7 +366,7 @@ resource "aws_ec2_capacity_reservation" "bastion" {
 
   instance_type     = var.bastion_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.bastion_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -343,7 +383,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
 
   instance_type     = var.storage_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.storage_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -362,7 +402,7 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
 
   instance_type     = var.ecgroup_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.this.availability_zone
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
   instance_count    = var.ecgroup_node_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -374,9 +414,29 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   }
 }
 
+# Ansible
+
+resource "aws_ec2_capacity_reservation" "ansible" {
+  count = local.deploy_ansible && var.ansible_instance_count > 0 ? 1 : 0
+
+  instance_type     = var.ansible_instance_type
+  instance_platform = "Linux/UNIX"
+  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  instance_count    = var.ansible_instance_count
+  tenancy           = "default"
+  end_date_type     = "limited"
+  end_date	    = timeadd(timestamp(), "10m")
+  tags              = merge(var.tags, { Name = "${var.project_name}-Ansible-Reservation" })
+
+  timeouts {
+    create = var.capacity_reservation_create_timeout
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Resource and Module Definitions
 # -----------------------------------------------------------------------------
+
 resource "aws_placement_group" "this" {
   count    = var.placement_group_name != "" ? 1 : 0
   name     = var.placement_group_name
@@ -385,6 +445,7 @@ resource "aws_placement_group" "this" {
 }
 
 # Deploy the clients module if requested
+
 module "clients" {
   count = local.deploy_clients ? 1 : 0
   source = "./modules/clients"
@@ -417,6 +478,7 @@ module "bastion" {
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip
+  public_subnet_id	  = var.public_subnet_id
   capacity_reservation_id = local.deploy_bastion && var.bastion_instance_count > 0 ? one(aws_ec2_capacity_reservation.bastion[*].id) : null
 
   instance_count   	  = var.bastion_instance_count
@@ -459,6 +521,7 @@ module "hammerspace" {
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip
+  public_subnet_id	  = var.public_subnet_id
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? one(aws_ec2_capacity_reservation.anvil[*].id) : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? one(aws_ec2_capacity_reservation.dsx[*].id) : null
 
@@ -485,6 +548,7 @@ module "hammerspace" {
 }
 
 # Deploy the ECGroup module if requested
+
 module "ecgroup" {
   count = local.deploy_ecgroup ? 1 : 0
   source  = "./modules/ecgroup"
@@ -512,16 +576,21 @@ module "ecgroup" {
   depends_on 		  = [module.hammerspace]
 }
 
-
 # Deploy the Ansible module if requested
+
 module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
 
   common_config           = local.common_config
+  assign_public_ip	  = var.assign_public_ip
+  public_subnet_id	  = var.public_subnet_id
+  capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
+  
   target_nodes_json       = jsonencode(local.all_ssh_nodes)
 
   # Pass the path to the key, not the content of the key.
+
   admin_private_key_path  = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
 
   mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []

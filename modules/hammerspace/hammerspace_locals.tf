@@ -24,7 +24,42 @@
 # Hammerspace module.
 # -----------------------------------------------------------------------------
 
+# Make sure the instance type for the Anvil is available in this availability zone
+
+data "aws_ec2_instance_type_offering" "anvil" {
+  filter {
+    name   = "instance-type"
+    values = [var.anvil_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.common_config.availability_zone]
+  }
+  location_type = "availability-zone"
+}
+
+# Make sure the instance type for the DSX is available in this availability zone
+
+data "aws_ec2_instance_type_offering" "dsx" {
+  filter {
+    name   = "instance-type"
+    values = [var.dsx_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.common_config.availability_zone]
+  }
+  location_type = "availability-zone"
+}
+
 locals {
+  # Determine if the instance type for the Anvil and DSX are available
+  # These are checked in the main logic for the Hammerspace module
+
+  anvil_instance_type_is_available = length(data.aws_ec2_instance_type_offering.anvil.instance_type) > 0
+
+  dsx_instance_type_is_available = length(data.aws_ec2_instance_type_offering.dsx.instance_type) > 0
+  
   # --- Anvil Creation Logic based on anvil_count ---
 
   should_create_any_anvils = var.anvil_count > 0

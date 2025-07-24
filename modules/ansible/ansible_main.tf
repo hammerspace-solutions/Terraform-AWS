@@ -24,6 +24,18 @@
 # EC2 instance, security group, and processes the user data script.
 # -----------------------------------------------------------------------------
 
+data "aws_ec2_instance_type_offering" "ansible" {
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+  filter {
+    name   = "location"
+    values = [var.common_config.availability_zone]
+  }
+  location_type = "availability-zone"
+}
+
 locals {
   ssh_public_keys = try(
     [
@@ -33,6 +45,8 @@ locals {
     []
   )
 
+  ansible_instance_type_is_available = length(data.aws_ec2_instance_type_offering.ansible.instance_type) > 0
+  
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
     TARGET_USER            = var.target_user,
     TARGET_HOME            = "/home/${var.target_user}",
@@ -51,9 +65,14 @@ locals {
   }) : null
 
   resource_prefix = "${var.common_config.project_name}-ansible"
+
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
+  })
 }
 
 # Security group for ansible instances
+
 resource "aws_security_group" "ansible" {
   name        = "${local.resource_prefix}-sg"
   description = "Ansible instance security group"
@@ -73,14 +92,35 @@ resource "aws_security_group" "ansible" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.common_config.tags, {
+  tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-sg"
-    Project = var.common_config.project_name
   })
 }
 
+# Build a network interface JUST in case we need a public IP
+
+resource "aws_network_interface" "ansible_ni" {
+  count	              = 1
+  subnet_id 	      = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
+  security_groups     = [aws_security_group.ansible.id]
+  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible" })
+}
+
+resource "aws_eip" "ansible" {
+  count	 	      = var.assign_public_ip ? 1 : 0
+  domain	      = "vpc"
+  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible-EIP" })
+}
+
+resource "aws_eip_association" "ansible" {
+  count	 	           = var.assign_public_ip ? 1 : 0
+  network_interface_id     = aws_network_interface.ansible_ni[0].id
+  allocation_id		   = aws_eip.ansible[0].id
+}
+
 # Launch EC2 Ansible instances
-resource "aws_instance" "this" {
+
+resource "aws_instance" "ansible" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
@@ -89,32 +129,62 @@ resource "aws_instance" "this" {
   subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
 
-  vpc_security_group_ids = [aws_security_group.ansible.id]
+  # Connect the network interface with the instance
 
-  root_block_device {
-    volume_size = var.boot_volume_size
-    volume_type = var.boot_volume_type
+  network_interface {
+    device_index	      = 0
+    network_interface_id      = aws_network_interface.ansible_ni[0].id
   }
 
-  tags = merge(var.common_config.tags, {
+  # Create the boot disk
+  
+  root_block_device {
+    volume_size               = var.boot_volume_size
+    volume_type 	      = var.boot_volume_type
+    delete_on_termination     = true
+  }
+
+  dynamic "capacity_reservation_specification" {
+    for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
+    content {
+      capacity_reservation_target {
+        capacity_reservation_id = capacity_reservation_specification.value.id
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Ansible, 'public_subnet_id' must be provided."
+    }
+    precondition {
+      condition     = local.ansible_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.instance_type} for the Ansible is not available in AZ ${var.common_config.availability_zone}."
+    }
+  }
+  
+  tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-${count.index + 1}"
-    Project = var.common_config.project_name
   })
 }
 
 # Use a null_resource to conditionally run provisioners. This resource
 # does nothing by itself, but allows us to use `count` to control whether
 # the provisioners inside it are executed.
+
 resource "null_resource" "key_provisioner" {
   # Only create this resource (and run its provisioners) if a key path is provided.
   count = var.admin_private_key_path != "" ? var.instance_count : 0
 
   # This trigger ensures the provisioner runs after the instance is created.
+
   triggers = {
-    instance_id = aws_instance.this[count.index].id
+    instance_id = aws_instance.ansible[count.index].id
   }
 
   # First provisioner copies the key file.
+
   provisioner "file" {
     source      = var.admin_private_key_path
     destination = "/home/${var.target_user}/.ssh/ansible_admin_key"
@@ -124,11 +194,12 @@ resource "null_resource" "key_provisioner" {
       user        = var.target_user
       # The key used for the initial connection is the main one for the instance.
       private_key = file(var.admin_private_key_path)
-      host        = aws_instance.this[count.index].private_ip
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
     }
   }
 
   # Second provisioner sets the correct permissions on the uploaded key.
+
   provisioner "remote-exec" {
     inline = [
       "sudo chmod 600 /home/${var.target_user}/.ssh/ansible_admin_key",
@@ -139,7 +210,7 @@ resource "null_resource" "key_provisioner" {
       type        = "ssh"
       user        = var.target_user
       private_key = file(var.admin_private_key_path)
-      host        = aws_instance.this[count.index].private_ip
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
     }
   }
 }

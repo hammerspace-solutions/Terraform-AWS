@@ -13,8 +13,13 @@ deploy_components		     = ["all"]
 
 # Set this variable is you want public ip addresses for each of the instances.
 # Otherwise, only private ip addresses will be assigned.
+#
+# You must ALSO use a separate public subnet that routes to the internet. Just
+# assigning a public IP doesn't always work unless you are very good with
+# setting up a NAT gateway...
 
 assign_public_ip  	     	     = false
+# public_subnet_id		     = "subnet-somepublic"
 
 # Custom AMI owner ID's
 # This is a list of the owners of any custom AMI's. Since Hammerspace is a custom AMI,

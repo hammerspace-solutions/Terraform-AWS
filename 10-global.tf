@@ -38,6 +38,12 @@ variable "allowed_source_cidr_blocks" {
   default     = []
 }
 
+variable "public_subnet_id" {
+  description = "The ID of the public subnet to use for instances requiring a public IP. Optional, but required if assign_public_ip is true."
+  type        = string
+  default     = ""
+}
+
 variable "assign_public_ip" {
   description = "If true, assigns a public IP address to all created EC2 instances. If false, only a private IP will be assigned."
   type        = bool

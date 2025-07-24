@@ -89,8 +89,8 @@ resource "aws_security_group" "bastion" {
 
 resource "aws_network_interface" "bastion_ni" {
   count	              = 1
-  subnet_id 	      = var.common_config.subnet_id
-  security_groups     = []
+  subnet_id 	      = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
+  security_groups     = [aws_security_group.bastion.id]
   tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Bastion" })
 }
 
@@ -115,11 +115,8 @@ resource "aws_instance" "bastion" {
   
   # Use values from the common_config object
 
-#  subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
-
-#  vpc_security_group_ids = [aws_security_group.bastion.id]
 
   network_interface {
     device_index	  = 0
@@ -142,6 +139,10 @@ resource "aws_instance" "bastion" {
   }
 
   lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Bastion, 'public_subnet_id' must be provided."
+    }
     precondition {
       condition     = local.bastion_instance_type_is_available
       error_message = "ERROR: Instance type ${var.instance_type} for the Bastion is not available in AZ ${var.common_config.availability_zone}."
