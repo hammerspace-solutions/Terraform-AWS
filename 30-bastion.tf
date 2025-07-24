@@ -57,7 +57,7 @@ variable "bastion_boot_volume_type" {
 variable "bastion_user_data" {
   description = "Path to user data script for bastion client"
   type	      = string
-  default     = ""
+  default     = "./templates/bastion_config_ubuntu.sh"
 }
 
 variable "bastion_target_user" {
