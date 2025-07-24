@@ -508,7 +508,7 @@ resource "aws_instance" "dsx" {
   dynamic "ebs_block_device" {
     for_each = range(var.dsx_ebs_count)
     content {
-      device_name	  = "/dev/xvd${local.devices_letters[ebs_block_device.key]}"
+      device_name	  = "/dev/xvd${local.device_letters[ebs_block_device.key]}"
       volume_type	  = var.dsx_ebs_type
       volume_size	  = var.dsx_ebs_size
       iops		  = var.dsx_ebs_iops
