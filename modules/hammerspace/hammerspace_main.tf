@@ -25,6 +25,7 @@
 # -----------------------------------------------------------------------------
 
 # --- IAM Resources ---
+
 resource "aws_iam_group" "admin_group" {
   count = local.create_iam_admin_group ? 1 : 0
   name  = var.iam_admin_group_id != "" ? var.iam_admin_group_id : "${var.common_config.project_name}-AnvilAdminGroup"
@@ -94,6 +95,7 @@ resource "aws_iam_instance_profile" "profile" {
 }
 
 # --- Security Groups ---
+
 resource "aws_security_group" "anvil_data_sg" {
   count       = local.should_create_any_anvils && var.anvil_security_group_id == "" ? 1 : 0
   name        = "${var.common_config.project_name}-AnvilDataSG"
@@ -181,6 +183,7 @@ resource "aws_security_group" "dsx_sg" {
 }
 
 # --- Anvil Standalone Resources ---
+
 resource "aws_network_interface" "anvil_sa_ni" {
   count           = local.create_standalone_anvil ? 1 : 0
   subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
@@ -211,17 +214,6 @@ resource "aws_instance" "anvil" {
   user_data_base64      = base64encode(jsonencode(local.anvil_sa_config_map))
   placement_group       = var.common_config.placement_group_name
 
-  lifecycle {
-    precondition {
-      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
-      error_message = "If 'assign_public_ip' is true for Hammerspace Anvil, 'public_subnet_id' must be provided."
-    }
-    precondition {
-      condition     = var.sa_anvil_destruction == true
-      error_message = "The standalone Anvil is protected. To destroy it, set 'sa_anvil_destruction = true'."
-    }
-  }
-
   network_interface {
     device_index         = 0
     network_interface_id = aws_network_interface.anvil_sa_ni[0].id
@@ -232,17 +224,32 @@ resource "aws_instance" "anvil" {
     volume_size = 200
   }
 
-  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil" })
-
-  depends_on = [
-    aws_iam_instance_profile.profile
-  ]
-
   capacity_reservation_specification {
     capacity_reservation_target {
       capacity_reservation_id = var.anvil_capacity_reservation_id
     }
   }
+
+  lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Hammerspace Anvil, 'public_subnet_id' must be provided."
+    }
+    precondition {
+      condition     = var.sa_anvil_destruction == true
+      error_message = "The standalone Anvil is protected. To destroy it, set 'sa_anvil_destruction = true'."
+    }
+    precondition {
+      condition	    = local.anvil_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.anvil_type} for the Anvil is not available in AZ ${var.common_config.availability_zone}."
+    }
+  }
+
+  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil" })
+
+  depends_on = [
+    aws_iam_instance_profile.profile
+  ]
 }
 
 resource "aws_ebs_volume" "anvil_meta_vol" {
@@ -263,6 +270,7 @@ resource "aws_volume_attachment" "anvil_meta_vol_attach" {
 }
 
 # --- Anvil HA Resources ---
+
 resource "aws_network_interface" "anvil1_ha_ni" {
   count           = local.create_ha_anvils ? 1 : 0
   subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
@@ -293,6 +301,23 @@ resource "aws_instance" "anvil1" {
   user_data_base64      = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "0" })))
   placement_group       = var.common_config.placement_group_name
 
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.anvil1_ha_ni[0].id
+  }
+
+  root_block_device {
+    volume_type		  = "gp3"
+    volume_size 	  = 200
+    delete_on_termination = true
+  }
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.anvil_capacity_reservation_id
+    }
+  }
+
   lifecycle {
     precondition {
       condition     = !(var.assign_public_ip && var.public_subnet_id == null)
@@ -302,26 +327,17 @@ resource "aws_instance" "anvil1" {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."
     }
+    precondition {
+      condition	    = local.anvil_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.anvil_type} for the Anvil is not available in AZ ${var.common_config.availability_zone}."
+    }
   }
 
-  network_interface {
-    device_index         = 0
-    network_interface_id = aws_network_interface.anvil1_ha_ni[0].id
-  }
-  root_block_device {
-    volume_type = "gp3"
-    volume_size = 200
-  }
   tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1", Index = "0" })
+
   depends_on = [
     aws_iam_instance_profile.profile
   ]
-
-  capacity_reservation_specification {
-    capacity_reservation_target {
-      capacity_reservation_id = var.anvil_capacity_reservation_id
-    }
-  }
 }
 
 resource "aws_ebs_volume" "anvil1_meta_vol" {
@@ -372,6 +388,23 @@ resource "aws_instance" "anvil2" {
   user_data_base64      = base64encode(jsonencode(merge(local.anvil_ha_config_map, { "node_index" = "1" })))
   placement_group       = var.common_config.placement_group_name
 
+  network_interface {
+    device_index         = 0
+    network_interface_id = aws_network_interface.anvil2_ha_ni[0].id
+  }
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size 	  = 200
+    delete_on_termination = true
+  }
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.anvil_capacity_reservation_id
+    }
+  }
+
   lifecycle {
     precondition {
       condition     = !(var.assign_public_ip && var.public_subnet_id == null)
@@ -381,27 +414,18 @@ resource "aws_instance" "anvil2" {
       condition     = length(aws_instance.anvil) == 0
       error_message = "Changing from a 1-node standalone Anvil to a 2-node HA Anvil is a destructive action and is not allowed. Please destroy the old environment first and then create the new HA environment."
     }
+    precondition {
+      condition	    = local.anvil_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.anvil_type} for the Anvil is not available in AZ ${var.common_config.availability_zone}."
+    }
   }
 
-  network_interface {
-    device_index         = 0
-    network_interface_id = aws_network_interface.anvil2_ha_ni[0].id
-  }
-  root_block_device {
-    volume_type = "gp3"
-    volume_size = 200
-  }
   tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2", Index = "1" })
+
   depends_on = [
     aws_instance.anvil1,
     aws_iam_instance_profile.profile,
   ]
-
-  capacity_reservation_specification {
-    capacity_reservation_target {
-      capacity_reservation_id = var.anvil_capacity_reservation_id
-    }
-  }
 }
 
 resource "aws_ebs_volume" "anvil2_meta_vol" {
@@ -422,6 +446,7 @@ resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
 }
 
 # --- DSX Data Services Node Resources ---
+
 resource "aws_network_interface" "dsx_ni" {
   count               = var.dsx_count
   subnet_id           = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
@@ -465,39 +490,53 @@ resource "aws_instance" "dsx" {
     )
     aws = local.aws_config_map
   }))
+
   network_interface {
     device_index         = 0
     network_interface_id = aws_network_interface.dsx_ni[count.index].id
   }
+
   root_block_device {
-    volume_type = "gp3"
-    volume_size = 200
+    volume_type           = "gp3"
+    volume_size 	  = 200
+    delete_on_termination = true
   }
+
+  # Define the data volumes inline using a dynamic block.
+  # The 'delete_on_termination' arguments defaults to 'true' here
+
+  dynamic "ebs_block_device" {
+    for_each = range(var.dsx_ebs_count)
+    content {
+      device_name	  = "/dev/xvd${local.devices_letters[ebs_block_device.key]}"
+      volume_type	  = var.dsx_ebs_type
+      volume_size	  = var.dsx_ebs_size
+      iops		  = var.dsx_ebs_iops
+      throughput	  = var.dsx_ebs_throughput
+      delete_on_termination = true
+    }
+  }
+  
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = var.dsx_capacity_reservation_id
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
+      error_message = "If 'assign_public_ip' is true for Hammerspace DSX, 'public_subnet_id' must be provided."
+    }
+    precondition {
+      condition	    = local.dsx_instance_type_is_available
+      error_message = "ERROR: Instance type ${var.dsx_type} for the DSX is not available in AZ ${var.common_config.availability_zone}."
+    }
+  }
+
   tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}" })
+
   depends_on = [
     aws_iam_instance_profile.profile
   ]
-}
-
-resource "aws_ebs_volume" "dsx_data_vols" {
-  count = var.dsx_count * var.dsx_ebs_count
-
-  availability_zone = var.common_config.availability_zone
-  size              = var.dsx_ebs_size
-  type              = var.dsx_ebs_type
-  iops              = contains(["io1", "io2", "gp3"], var.dsx_ebs_type) ? var.dsx_ebs_iops : null
-  throughput        = var.dsx_ebs_type == "gp3" ? var.dsx_ebs_throughput : null
-  tags = merge(local.common_tags, {
-    Name             = "${var.common_config.project_name}-DSX${floor(count.index / var.dsx_ebs_count) + 1}-DataVol${(count.index % var.dsx_ebs_count) + 1}"
-    DSXInstanceIndex = floor(count.index / var.dsx_ebs_count)
-    VolumeIndex      = count.index % var.dsx_ebs_count
-  })
-}
-
-resource "aws_volume_attachment" "dsx_data_vols_attach" {
-  count = var.dsx_count * var.dsx_ebs_count
-
-  device_name = "/dev/xvd${local.device_letters[count.index % var.dsx_ebs_count]}"
-  volume_id   = aws_ebs_volume.dsx_data_vols[count.index].id
-  instance_id = aws_instance.dsx[floor(count.index / var.dsx_ebs_count)].id
 }
