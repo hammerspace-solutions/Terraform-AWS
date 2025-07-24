@@ -131,6 +131,27 @@ variable "anvil_instances" {
   default = []
 }
 
+variable "bastion_instances" {
+  description = "Bastion Client instances details"
+  type = list(object({
+    id         = string
+    public_ip  = string
+    private_ip = string
+    name       = string
+  }))
+  default = []
+}
+
+variable "client_instances" {
+  description = "Client instances details"
+  type = list(object({
+    id         = string
+    private_ip = string
+    name       = string
+  }))
+  default = []
+}
+
 variable "storage_instances" {
   description = "Storage instances details"
   type = list(object({

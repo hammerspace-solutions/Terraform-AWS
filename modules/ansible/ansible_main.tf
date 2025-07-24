@@ -54,6 +54,8 @@ locals {
     TARGET_NODES_JSON      = var.target_nodes_json,
     MGMT_IP                = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
     ANVIL_ID               = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
+    BASTION_INSTANCES	   = jsonencode(var.bastion_instances),
+    CLIENT_INSTANCES	   = jsonencode(var.client_instances),
     STORAGE_INSTANCES      = jsonencode(var.storage_instances),
     VG_NAME                = var.volume_group_name,
     SHARE_NAME             = var.share_name,
@@ -126,9 +128,9 @@ resource "aws_instance" "ansible" {
   instance_type = var.instance_type
   user_data     = local.processed_user_data
 
-  subnet_id                   = var.common_config.subnet_id
-  key_name                    = var.common_config.key_name
-
+  key_name        = var.common_config.key_name
+  placement_group = var.common_config.placement_group_name
+  
   # Connect the network interface with the instance
 
   network_interface {
