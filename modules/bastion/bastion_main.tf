@@ -118,8 +118,6 @@ resource "aws_instance" "bastion" {
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 
-#  vpc_security_group_ids = [aws_security_group.bastion.id]
-
   network_interface {
     device_index	  = 0
     network_interface_id  = aws_network_interface.bastion_ni[0].id
