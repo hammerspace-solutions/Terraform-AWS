@@ -36,7 +36,7 @@ func TestClientModule(t *testing.T) {
 	expectedEbsVolumeType := "gp3"
 
 	terraformOptions := &terraform.Options{
-		TerraformDir:    "../modules/clients/examples",
+		TerraformDir:    "../modules/clients/tests",
 		TerraformBinary: "terraform",
 		Vars: map[string]interface{}{
 			"project_name":           projectName,

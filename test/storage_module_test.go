@@ -65,7 +65,7 @@ func TestStorageModuleWithRAID(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
-			tempTestFolder := test_structure.CopyTerraformFolderToTemp(t, "../modules/storage_servers", "examples")
+			tempTestFolder := test_structure.CopyTerraformFolderToTemp(t, "../modules/storage_servers", "tests")
 			projectName := fmt.Sprintf("terratest-storage-%s-%s", tc.raidLevel, random.UniqueId())
 
 			terraformOptions := &terraform.Options{
