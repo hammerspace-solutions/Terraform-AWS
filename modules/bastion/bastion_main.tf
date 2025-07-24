@@ -90,7 +90,7 @@ resource "aws_security_group" "bastion" {
 resource "aws_network_interface" "bastion_ni" {
   count	              = 1
   subnet_id 	      = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
-  security_groups     = []
+  security_groups     = [aws_security_group.bastion.id]
   tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Bastion" })
 }
 
@@ -115,7 +115,6 @@ resource "aws_instance" "bastion" {
   
   # Use values from the common_config object
 
-#  subnet_id                   = var.common_config.subnet_id
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 

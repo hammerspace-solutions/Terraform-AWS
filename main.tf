@@ -93,7 +93,6 @@ check "vpc_and_subnet_validation" {
 # -----------------------------------------------------------------------------
 
 check "public_subnet_validation" {
-
   assert {
     condition     = var.public_subnet_id == "" || (data.aws_subnet.public_subnet_data[0].vpc_id == data.aws_vpc.validation.id)
     error_message = "Validation Error: The provided public_subnet_id (ID: ${var.public_subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."

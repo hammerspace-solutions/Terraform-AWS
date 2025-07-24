@@ -424,7 +424,7 @@ resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
 # --- DSX Data Services Node Resources ---
 resource "aws_network_interface" "dsx_ni" {
   count               = var.dsx_count
-  subnet_id           = var.common_config.subnet_id
+  subnet_id           = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups     = local.effective_dsx_sg_id != null ? [local.effective_dsx_sg_id] : []
   source_dest_check   = false
   tags                = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}-NI" })
