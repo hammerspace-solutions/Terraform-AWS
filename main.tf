@@ -357,6 +357,7 @@ locals {
   deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
 
   all_ssh_nodes = concat(
+    local.deploy_bastion ? module.bastion[0].instance_details : [],
     local.deploy_clients ? module.clients[0].instance_details : [],
     local.deploy_storage ? module.storage_servers[0].instance_details : []
   )
@@ -659,6 +660,8 @@ module "ansible" {
 
   mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
   anvil_instances         = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
+  bastion_instances	  = local.deploy_bastion ? flatten(module.bastion.instance_details) : []
+  client_instances	  = local.deploy_clients ? flatten(module.clients[*].instance_details) : []
   storage_instances       = local.deploy_storage ? flatten(module.storage_servers[*].instance_details) : []
   ecgroup_instances       = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.id] : []
   ecgroup_nodes           = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.private_ip] : []
