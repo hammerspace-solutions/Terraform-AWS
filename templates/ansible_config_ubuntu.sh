@@ -4,6 +4,8 @@
 TARGET_NODES_JSON='${TARGET_NODES_JSON}'
 MGMT_IP='${MGMT_IP}'
 ANVIL_ID='${ANVIL_ID}'
+BASTION_INSTANCES='{BASTION_INSTANCES}'
+CLIENT_INSTANCES='${CLIENT_INSTANCES}'
 STORAGE_INSTANCES='${STORAGE_INSTANCES}'
 VG_NAME='${VG_NAME}'
 SHARE_NAME='${SHARE_NAME}'
@@ -65,7 +67,7 @@ while [ ! -f "$${PRIVATE_KEY_FILE}" ]; do
 done
 echo "Ansible private key found. Proceeding with configuration."
 
-# --- Passwordless SSH Setup (for clients and storage) ---
+# --- Passwordless SSH Setup (for bastion client, clients, and storage) ---
 
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
     echo "Setting up for passwordless SSH..."
