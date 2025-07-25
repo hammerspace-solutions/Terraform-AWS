@@ -25,7 +25,7 @@
 
 output "terraform_project_version" {
   description = "The version of the Terraform-AWS project configuration."
-  value       = "2025.07.15-7ee91ea"
+  value       = "2025.07.24-a4a08b6"
 }
 
 output "bastion_details" {
