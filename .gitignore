@@ -1,14 +1,18 @@
 # Vscode config files
 .vscode
 
-# Local .terraform directories
-.terraform/
-
 # Don't put .orig files into git
 *.orig
 
 # Don't pass in local_override.tf file
 local_override.tf
+
+# Don't pass in emacs files
+*~
+\#*
+
+# Local .terraform directories
+.terraform/
 
 # .tfstate files
 *.tfstate
