@@ -363,8 +363,11 @@ locals {
   )
 
   ecgroup_ami_mapping = {
-    "eu-west-3" = "ami-0366b4547202afb15"
-    "us-west-2" = "ami-029d555d8523da58d"
+    "eu-west-3"    = "ami-0366b4547202afb15" # Paris
+    "us-west-2"    = "ami-029d555d8523da58d" # Oregon
+    "us-east-1"    = "ami-00d97e643a6091d85" # Virginia
+    "us-east-2"    = "ami-0542e5a5c7395ed56" # Ohio
+    "ca-central-1" = "ami-0f8e2a6ca6aeaaf0a" # Canada
   }
 
   select_ecgroup_ami_for_region = lookup(local.ecgroup_ami_mapping, var.region, "")
