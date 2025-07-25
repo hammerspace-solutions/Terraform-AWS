@@ -384,11 +384,20 @@ Tier-0 is the capability of utilizing the local storage within a client.
 
 Workflows like AI training, checkpointing, inferencing, and agentic AI demand high-throughput, low-latency access to large volumes of unstructured data. To meet performance demands, organizations deploy expensive external flash storage arrays and high-speed networking—delaying AI initiatives and consuming significant budget, power, and rack space.
 
-Hammerspace Tier 0 solves this by activating the local NVMe storage within an EC2 instance and turning it into a new tier of high-performance shared storage - managed and protected by Hammerspace.
+Hammerspace Tier 0 and Terraform solves this problem by activating the local NVMe storage within an EC2 instance and turning it into a new tier of high-performance shared storage - managed and protected by Hammerspace.
 
-In order for Tier-0 to work within an EC2 instance, you must first choose an instance that has local NVMe storage. Then you enable it by modifying the client variables to say whether you want raid-0, raid-5, or raid-6 for that local storage.
+In order for Tier-0 to work within an EC2 instance, you must first choose an instance that has local NVMe storage. Then you enable it by modifying the variable `clients_tier0` to determine whether you want raid-0, raid-5, or raid-6 for that local storage.
 
-Please note that
+> [!NOTE]
+> You must utilize an EC2 instance type that has local NVMe storage attached. Also, there must be multiple drives in order for the Terraform to form a raid for higher performance.
+> | Raid        | Number of NVMe disks required |
+> | ----------- | ----------------------------- |
+> | `raid-0`    | 2                             |
+> | `raid-5`    | 3                             |
+> | `raid-6`    | 4                             |
+
+> [!WARNING]
+> Since local NVMe storage is ephemeral, you should *never* stop an instance through the AWS console. Doing this will result in the loss of the Tier-0 array upon restart of the instance. You may reboot an instance at any time as this doesn't affect the status of the Tier-0 array.
 
 ## Prerequisites
 
