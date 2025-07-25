@@ -10,6 +10,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Global Variables](#global-variables)
 - [Component Variables](#component-variables)
   - [Client Variables](#client-variables)
+  - [Bastion Host Variables](#bastion-host-variables)
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
   - [ECGroup Variables](#ecgroup-variables)
@@ -25,6 +26,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
   - [Option 2: AWS Systems Manager Session Manager (Most Secure)](#option-2-aws-systems-manager-session-manager-most-secure)
 - [Production Backend](#production-backend)
+- [Tier-0](#tier-0)
 - [Prerequisites](#prerequisites)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
@@ -35,28 +37,27 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 
 ## Configuration
 
-Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier
-for the user, we have supplied an `example_terraform.tfvars` file with all of the possible values. Just rename that file to terraform.tfvars and edit it to indicate
-what you would like to configure. The global and module variables are explained in detail below.
+Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier for the user, we have supplied an `example_terraform.tfvars.rename` file with all of the possible values. Just rename that file to `terraform.tfvars` and edit it to indicate what you would like to configure. The global and module variables are explained in detail below.
 
 ### Global Variables
 
 These variables apply to the overall deployment:
 
 * `region`: AWS region for all resources (Default: "us-west-2").
-* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned. (Default: `false`).
-* `vpc_id`: (Required) VPC ID for all resources.
-* `subnet_id`: (Required) Subnet ID for resources. The Availability Zone is automatically derived from this subnet.
-* `key_name`: (Required) SSH key pair name for instance access.
-* `tags`: Common tags to apply to all resources (Default: `{}`).
-* `project_name`: (Required) Project name used for tagging and resource naming.
-* `ssh_keys_dir`: A local directory for public SSH key files (`.pub`). The startup script automatically adds these keys to the `authorized_keys` file on all servers. (Default: `"./ssh_keys"`).
-* `deploy_components`: List of components to deploy (e.g., `["clients", "storage"]` or `["all"]`) (Default: `["all"]`).
-* `placement_group_name`: (Optional) The name of the placement group to create and launch instances into.
-* `placement_group_strategy`: The strategy for the placement group: `cluster`, `spread`, or `partition` (Default: `cluster`).
-* `capacity_reservation_create_timeout`: The maximum time to wait for a capacity reservation to be fulfilled before failing (e.g., `"5m"`). (Default: `"5m"`).
-* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this for private or partner AMIs. (Default: `[]`).
-* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow ingress traffic from (e.g., your corporate VPN range). The VPC's own CIDR block is automatically included.
+* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
+* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
+* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned.
+* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
+* `vpc_id`: VPC ID for all resources.
+* `subnet_id`: Subnet ID for resources.
+* `key_name`: SSH key pair name.
+* `tags`: Common tags for all resources (Default: `{}`).
+* `project_name`: Project name for tagging and resource naming.
+* `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
+* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
+* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
+* `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
+* `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
 
 ---
 
@@ -66,41 +67,49 @@ These variables apply to the overall deployment:
 
 These variables configure the client instances and are prefixed with `clients_` in your `terraform.tfvars` file.
 
-* `clients_instance_count`: Number of client instances (Default: `1`).
-* `clients_ami`: (Required) AMI for client instances.
-* `clients_instance_type`: Instance type for clients (Default: `"m5n.8xlarge"`).
-* `clients_boot_volume_size`: Root volume size (GB) (Default: `100`).
-* `clients_boot_volume_type`: Root volume type (Default: `"gp2"`).
-* `clients_ebs_count`: Number of extra EBS volumes per client (Default: `1`).
-* `clients_ebs_size`: Size of each EBS volume (GB) (Default: `1000`).
-* `clients_ebs_type`: Type of EBS volume (Default: `"gp3"`).
-* `clients_ebs_throughput`: Throughput for gp3 EBS volumes (MB/s).
-* `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes.
+* `clients_instance_count`: Number of client instances.
+* `clients_ami`: AMI for client instances.
+* `clients_instance_type`: Instance type for clients.
+* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
+* `clients_boot_volume_size`: Root volume size (GB) for clients (Default: 100).
+* `clients_boot_volume_type`: Root volume type for clients (Default: "gp2").
+* `clients_ebs_count`: Number of extra EBS volumes per client (Default: 0).
+* `clients_ebs_size`: Size of each EBS volume (GB) for clients (Default: 1000).
+* `clients_ebs_type`: Type of EBS volume for clients (Default: "gp3").
+* `clients_ebs_throughput`: Throughput for gp3 EBS volumes for clients (MB/s).
+* `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for clients.
 * `clients_user_data`: Path to user data script for clients.
-* `clients_target_user`: Default system user for client EC2s (Default: `"ubuntu"`).
-* `clients_tier0`: Tier-0 RAID on NVMe instance-store.
-  * **Valid Values**: `""` (no RAID), `raid-0`, `raid-5`, `raid-6` (Default: `""`)
-  * When set, Terrform detects all locally attached NVMe disks on the instance. The startup script then configures a RAID array at the chosen level (raid-0 = strip, raid-5 = parity, raid-6 = double parity).
+* `clients_target_user`: Default system user for client EC2s (Default: "ubuntu").
 
+---
+### Bastion Host Variables
+These variables configure the bastion host instance, which acts as a secure jump box to access other instances. They are prefixed with `bastion_` in your `terraform.tfvars` file.
+
+* `bastion_instance_count`: Number of bastion client instances (Default: 1).
+* `bastion_ami`: AMI for the bastion client instances.
+* `bastion_instance_type`: Instance type for the bastion client.
+* `bastion_boot_volume_size`: Root volume size (GB) for the bastion client (Default: 100).
+* `bastion_boot_volume_type`: Root volume type for the bastion client (Default: "gp2").
+* `bastion_target_user`: Default system user for bastion EC2s (Default: "ubuntu").
 ---
 
 ### Storage Server Variables
 
 These variables configure the storage server instances and are prefixed with `storage_` in your `terraform.tfvars` file.
 
-* `storage_instance_count`: Number of storage instances (Default: `1`).
+* `storage_instance_count`: Number of storage instances (Default: 0).
 * `storage_ami`: (Required) AMI for storage instances.
-* `storage_instance_type`: Instance type for storage (Default: `"m5n.8xlarge"`).
-* `storage_boot_volume_size`: Root volume size (GB) (Default: `100`).
-* `storage_boot_volume_type`: Root volume type (Default: `"gp2"`).
-* `storage_ebs_count`: Number of extra EBS volumes per server for RAID (Default: `1`).
-* `storage_ebs_size`: Size of each EBS volume (GB) (Default: `1000`).
-* `storage_ebs_type`: Type of EBS volume (Default: `"gp3"`).
-* `storage_ebs_throughput`: Throughput for gp3 EBS volumes (MB/s).
-* `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes.
+* `storage_instance_type`: Instance type for storage.
+* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
+* `storage_boot_volume_size`: Root volume size (GB) for storage (Default: 100).
+* `storage_boot_volume_type`: Root volume type for storage (Default: "gp2").
+* `storage_ebs_count`: Number of extra EBS volumes per storage (Default: 0).
+* `storage_ebs_size`: Size of each EBS volume (GB) for storage (Default: 1000).
+* `storage_ebs_type`: Type of EBS volume for storage (Default: "gp3").
+* `storage_ebs_throughput`: Throughput for gp3 EBS volumes for storage (MB/s).
+* `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for storage.
 * `storage_user_data`: Path to user data script for storage.
-* `storage_target_user`: Default system user for storage EC2s (Default: `"ubuntu"`).
-* `storage_raid_level`: RAID level to configure: `raid-0`, `raid-5`, or `raid-6` (Default: `"raid-5"`).
+* `storage_target_user`: Default system user for storage EC2s (Default: "ubuntu").
 
 ---
 
@@ -108,27 +117,26 @@ These variables configure the storage server instances and are prefixed with `st
 
 These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
 
-* **`hammerspace_profile_id`**: Controls IAM Role creation.
-    * **For users with restricted IAM permissions**: An admin must pre-create an IAM Instance Profile and provide its name here. Terraform will use the existing profile.
-    * **For admin users**: Leave this variable as `""` (blank). Terraform will automatically create the necessary IAM Role and Instance Profile.
-* **`hammerspace_anvil_security_group_id`**: (Optional) The ID of a pre-existing security group to attach to the Anvil nodes. If left blank, the module will create and configure a new security group.
-* **`hammerspace_dsx_security_group_id`**: (Optional) The ID of a pre-existing security group to attach to the DSX nodes. If left blank, the module will create and configure a new security group.
-* `hammerspace_ami`: AMI ID for Hammerspace instances (Default: example for CentOS 7).
-* `hammerspace_iam_admin_group_id`: IAM admin group for SSH access.
-* `hammerspace_anvil_count`: Number of Anvil instances (0=none, 1=standalone, 2=HA) (Default: `0`).
-* `hammerspace_anvil_instance_type`: Instance type for Anvil (Default: `"m5zn.12xlarge"`).
-* `hammerspace_dsx_instance_type`: Instance type for DSX nodes (Default: `"m5.xlarge"`).
-* `hammerspace_dsx_count`: Number of DSX instances (Default: `1`).
-* `hammerspace_anvil_meta_disk_size`: Metadata disk size in GB for Anvil (Default: `1000`).
-* `hammerspace_anvil_meta_disk_type`: EBS volume type for Anvil metadata disk (Default: `"gp3"`).
-* `hammerspace_anvil_meta_disk_throughput`: Throughput for Anvil metadata disk.
-* `hammerspace_anvil_meta_disk_iops`: IOPS for Anvil metadata disk.
-* `hammerspace_dsx_ebs_size`: Size of each EBS Data volume per DSX node (Default: `200`).
-* `hammerspace_dsx_ebs_type`: Type of each EBS Data volume for DSX (Default: `"gp3"`).
+* **`hammerspace_profile_id`**: The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created.
+* **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
+* **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
+* `hammerspace_ami`: AMI ID for Hammerspace instances.
+* `hammerspace_iam_admin_group_id`: IAM admin group ID for SSH access.
+* `hammerspace_anvil_count`: Number of Anvil instances to deploy (0=none, 1=standalone, 2=HA) (Default: 0).
+* `hammerspace_sa_anvil_destruction`: A safety switch to allow the destruction of a standalone Anvil. Must be set to true for 'terraform destroy' to succeed.
+* `hammerspace_anvil_instance_type`: Instance type for Anvil metadata server (Default: "m5zn.12xlarge").
+* `hammerspace_dsx_instance_type`: Instance type for DSX nodes (Default: "m5.xlarge").
+* `hammerspace_dsx_count`: Number of DSX instances (Default: 1).
+* `hammerspace_anvil_meta_disk_size`: Metadata disk size in GB for Anvil (Default: 1000).
+* `hammerspace_anvil_meta_disk_type`: Type of EBS volume for Anvil metadata disk (Default: "gp3").
+* `hammerspace_anvil_meta_disk_throughput`: Throughput for gp3 EBS volumes for the Anvil metadata disk (MiB/s).
+* `hammerspace_anvil_meta_disk_iops`: IOPS for gp3/io1/io2 EBS volumes for the Anvil metadata disk.
+* `hammerspace_dsx_ebs_size`: Size of each EBS Data volume per DSX node in GB (Default: 200).
+* `hammerspace_dsx_ebs_type`: Type of each EBS Data volume for DSX (Default: "gp3").
 * `hammerspace_dsx_ebs_iops`: IOPS for each EBS Data volume for DSX.
-* `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX.
-* `hammerspace_dsx_ebs_count`: Number of data EBS volumes per DSX instance (Default: `1`).
-* `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage (Default: `true`).
+* `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX (MiB/s).
+* `hammerspace_dsx_ebs_count`: Number of data EBS volumes to attach to each DSX instance (Default: 1).
+* `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage volumes (Default: true).
 
 ---
 
@@ -136,17 +144,17 @@ These variables configure the Hammerspace deployment and are prefixed with `hamm
 
 These variables configure the ECGroup storage cluster and are prefixed with `ecgroup_` in your `terraform.tfvars` file.
 
-* `ecgroup_instance_type`: EC2 instance type for the cluster nodes.
-* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16).
-* `ecgroup_boot_volume_size`: Root volume size (GB) for each node.
-* `ecgroup_boot_volume_type`: Root volume type for each node.
-* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB.
-* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node.
+* `ecgroup_instance_type`: EC2 instance type for the cluster nodes (Default: "m6i.16xlarge").
+* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16) (Default: 4).
+* `ecgroup_boot_volume_size`: Root volume size (GB) for each node (Default: 100).
+* `ecgroup_boot_volume_type`: Root volume type for each node (Default: "gp2").
+* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB (Default: 4096).
+* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node (Default: "io2").
 * `ecgroup_metadata_volume_throughput`: Throughput for metadata EBS volumes.
 * `ecgroup_metadata_volume_iops`: IOPS for the metadata EBS volumes.
-* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node.
-* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB).
-* `ecgroup_storage_volume_type`: Type of EBS storage volume.
+* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node (Default: 4).
+* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB) (Default: 4096).
+* `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
 * `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
 * `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
 * `ecgroup_user_data`: Path to user data script for the nodes.
@@ -157,18 +165,17 @@ These variables configure the ECGroup storage cluster and are prefixed with `ecg
 
 These variables configure the Ansible controller instance and its playbook. Prefixes are `ansible_` where applicable.
 
-* `ansible_instance_count`: Number of Ansible instances (Default: `1`).
+* `ansible_instance_count`: Number of Ansible instances (Default: 1).
 * `ansible_ami`: (Required) AMI for Ansible instances.
-* `ansible_instance_type`: Instance type for Ansible (Default: `"m5n.8xlarge"`).
-* `ansible_boot_volume_size`: Root volume size (GB) (Default: `100`).
-* `ansible_boot_volume_type`: Root volume type (Default: `"gp2"`).
+* `ansible_instance_type`: Instance type for Ansible (Default: "m5n.8xlarge").
+* `ansible_boot_volume_size`: Root volume size (GB) (Default: 100).
+* `ansible_boot_volume_type`: Root volume type (Default: "gp2").
 * `ansible_user_data`: Path to user data script for Ansible.
-* `ansible_target_user`: Default system user for Ansible EC2 (Default: `"ubuntu"`).
-* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook. (Default: `"vg-auto"`).
+* `ansible_target_user`: Default system user for Ansible EC2 (Default: "ubuntu").
+* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
 * `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
 ---
-
 ## Infrastructure Guardrails and Validation
 
 To prevent common errors and ensure a smooth deployment, this project includes several "pre-flight" checks that run during the `terraform plan` phase. If any of these checks fail, the plan will stop with a clear error message before any resources are created.
@@ -371,6 +378,18 @@ aws dynamodb create-table \
   --region us-west-2
 ```
 
+## Tier-0
+
+Tier-0 is the capability of utilizing the local storage within a client.
+
+Workflows like AI training, checkpointing, inferencing, and agentic AI demand high-throughput, low-latency access to large volumes of unstructured data. To meet performance demands, organizations deploy expensive external flash storage arrays and high-speed networking—delaying AI initiatives and consuming significant budget, power, and rack space.
+
+Hammerspace Tier 0 solves this by activating the local NVMe storage within an EC2 instance and turning it into a new tier of high-performance shared storage - managed and protected by Hammerspace.
+
+In order for Tier-0 to work within an EC2 instance, you must first choose an instance that has local NVMe storage. Then you enable it by modifying the client variables to say whether you want raid-0, raid-5, or raid-6 for that local storage.
+
+Please note that
+
 ## Prerequisites
 
 Before running this Terraform configuration, please ensure the following one-time setup tasks are complete for the target AWS account.
@@ -429,6 +448,7 @@ After a successful `apply`, Terraform will provide the following outputs. Sensit
 * `hammerspace_mgmt_url`: The URL to access the Hammerspace management interface.
 * `ecgroup_nodes`: Details about the deployed ECGroup nodes.
 * `ansible_details`: Details for the deployed Ansible controller.
+* `bastion_details`: Details for the deployed Bastion gateway.
 
 ---
 ## Modules
@@ -438,6 +458,7 @@ This project is structured into the following modules:
 * **storage_servers**: Deploys storage server EC2 instances with configurable RAID and NFS exports.
 * **hammerspace**: Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
 * **ecgroup**: Deploys a storage cluster that combines all of its storage into an erasure-coded array.
+* **bastion**: Deploys Bastion EC2 instance. This instance is the gateway to other instances that have been deployed. It is only instantiated when a public IP is requested. All of the other instances utilize private IP's, but the Bastion utilizes a public IP and acts as the gateway to the other instances in your environment.
 * **ansible**: Deploys an Ansible controller instance which performs "Day 2" configuration tasks after the primary infrastructure is provisioned. Its key functions are:
     * **Hammerspace Integration**: It runs a playbook that connects to the Anvil's API to add the newly created storage servers as data nodes, create a volume group, and create a share.
     * **ECGroup Configuration**: It runs a playbook to configure the ECGroup cluster, create the array, and set up the necessary services.
