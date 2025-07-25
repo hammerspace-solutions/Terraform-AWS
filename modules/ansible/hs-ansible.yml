@@ -325,7 +325,7 @@
                     "utilizationEvacuationThreshold": 0.9
                 }
               }
-              {% if additional_ip_addresses.additionalAddresses %}
+              {% if (additional_ip_addresses is defined and additional_ip_addresses.additionalAddresses is defined and additional_ip_addresses.additionalAddresses) %}
               ,"additionalAddresses": {{ additional_ip_addresses.additionalAddresses | to_json }}
               {% endif %}
             }{% if not loop.last %},{% endif %}
