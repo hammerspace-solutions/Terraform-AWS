@@ -35,12 +35,12 @@ output "management_url" {
 
 output "anvil_instances" {
   description = "Details of deployed Anvil instances."
-  sensitive   = true
+  sensitive   = false
   value = local.create_standalone_anvil && length(aws_instance.anvil) > 0 ? [
     {
       type                       = "standalone"
       id                         = one(aws_instance.anvil[*].id)
-      arn                        = one(aws_instance.anvil[*].arn)
+      arn			 = one(aws_instance.anvil[*].arn)
       private_ip                 = one(aws_instance.anvil[*].private_ip)
       public_ip                  = var.assign_public_ip ? one(aws_eip.anvil_sa[*].public_ip) : null
       key_name                   = one(aws_instance.anvil[*].key_name)
@@ -53,7 +53,7 @@ output "anvil_instances" {
     { # Anvil1
       type                       = "ha_node1"
       id                         = one(aws_instance.anvil1[*].id)
-      arn                        = one(aws_instance.anvil1[*].arn)
+      arn			 = one(aws_instance.anvil[*].arn)
       private_ip                 = one(aws_instance.anvil1[*].private_ip)
       public_ip                  = var.assign_public_ip ? one(aws_eip.anvil1_ha[*].public_ip) : null
       key_name                   = one(aws_instance.anvil1[*].key_name)
@@ -65,7 +65,7 @@ output "anvil_instances" {
     { # Anvil2
       type                       = "ha_node2"
       id                         = one(aws_instance.anvil2[*].id)
-      arn                        = one(aws_instance.anvil2[*].arn)
+      arn			 = one(aws_instance.anvil[*].arn)
       private_ip                 = one(aws_instance.anvil2[*].private_ip)
       public_ip                  = var.assign_public_ip ? one(aws_eip.anvil2_ha[*].public_ip) : null
       key_name                   = one(aws_instance.anvil2[*].key_name)
@@ -79,13 +79,14 @@ output "anvil_instances" {
 
 output "dsx_instances" {
   description = "Details of deployed DSX instances."
-  sensitive   = true
+  sensitive   = false
   value = [
     for i, inst in aws_instance.dsx : {
       index           = i + 1
       id              = inst.id
-      arn             = inst.arn
+      arn	      = inst.arn
       private_ip      = inst.private_ip
+      public_ip       = var.assign_public_ip ? inst.public_ip : null
       key_name        = inst.key_name
       iam_profile     = inst.iam_instance_profile
       placement_group = inst.placement_group

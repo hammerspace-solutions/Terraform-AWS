@@ -57,9 +57,11 @@ locals {
   # These are checked in the main logic for the Hammerspace module
 
   anvil_instance_type_is_available = length(data.aws_ec2_instance_type_offering.anvil.instance_type) > 0
-
   dsx_instance_type_is_available = length(data.aws_ec2_instance_type_offering.dsx.instance_type) > 0
-  
+
+  anvil_resource_prefix = "${var.common_config.project_name}-Anvil"
+  dsx_resource_prefix = "${var.common_config.project_name}-DSX"
+
   # --- Anvil Creation Logic based on anvil_count ---
 
   should_create_any_anvils = var.anvil_count > 0
@@ -110,8 +112,18 @@ locals {
   )
 
   management_ip_for_url = coalesce(
+    # First priority: The floating IP for an HA pair
+
     local.anvil2_ha_ni_secondary_ip,
-    local.create_standalone_anvil && length(aws_instance.anvil) > 0 ? aws_instance.anvil[0].private_ip : null,
+
+    # Second priority: The IP for a standalone anvil. This checks
+    # if a public IP should be used.
+
+    local.create_standalone_anvil && length(aws_instance.anvil) > 0 ?
+    (var.assign_public_ip ? one(aws_eip.anvil_sa[*].public_ip) : aws_instance.anvil[0].private_ip) : null,
+
+    # Fallback if no Anvil details are available at all.
+    
     "N/A - Anvil instance details not available."
   )
 

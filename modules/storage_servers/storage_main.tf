@@ -40,6 +40,12 @@ data "aws_subnet" "selected" {
   id = var.common_config.subnet_id
 }
 
+# Get detail on the number of disks in the instance type
+
+data "aws_ec2_instance_type" "nvme_disks" {
+  instance_type = var.instance_type
+}
+
 locals {
   device_letters = [
     "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
@@ -54,13 +60,27 @@ locals {
     []
   )
 
+  # Grab the first (and only) storage-info block, or empty map if none
+
+  instance_info = data.aws_ec2_instance_type.nvme_disks
+  
+  # Count the local NVMe disks on the instance
+
+  nvme_count = try(
+    sum([
+      for disk in local.instance_info.instance_disks : disk.count
+      if disk.type == "ssd"
+    ]),
+    0
+  )
+  
   storage_instance_type_is_available = length(data.aws_ec2_instance_type_offering.storage.instance_type) > 0
 
   processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
     SSH_KEYS    = join("\n", local.ssh_public_keys),
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
-    EBS_COUNT   = var.ebs_count,
+    EBS_COUNT   = var.ebs_count + local.nvme_count,
     RAID_LEVEL  = var.raid_level
   }) : null
 
@@ -92,7 +112,7 @@ resource "aws_security_group" "storage" {
   })
 }
 
-resource "aws_instance" "this" {
+resource "aws_instance" "storage_server" {
   count           = var.instance_count
   ami             = var.ami
   instance_type   = var.instance_type
@@ -136,12 +156,13 @@ resource "aws_instance" "this" {
 
   lifecycle {
     precondition {
-      condition = var.ebs_count >= {
+      condition = (var.ebs_count + local.nvme_count) >= {
         "raid-0" = 2,
         "raid-5" = 3,
         "raid-6" = 4
       }[var.raid_level]
-      error_message = "The selected RAID level (${var.raid_level}) requires at least ${lookup({ "raid-0" = 2, "raid-5" = 3, "raid-6" = 4 }, var.raid_level, 0)} EBS volumes, but only ${var.ebs_count} were specified."
+
+      error_message = "The selected RAID level (${var.raid_level}) requires at least ${lookup({ "raid-0" = 2, "raid-5" = 3, "raid-6" = 4 }, var.raid_level, 0)} total volumes, but only ${var.ebs_count} EBS and ${local.nvme_count} local NVMe volumes were specified."
     }
     precondition {
       condition     = local.storage_instance_type_is_available

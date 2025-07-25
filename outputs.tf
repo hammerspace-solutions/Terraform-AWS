@@ -28,7 +28,7 @@ output "terraform_project_version" {
   value       = "2025.07.15-7ee91ea"
 }
 
-output "bastion_instances" {
+output "bastion_details" {
   description = "Bastion client instance details (non-sensitive)."
   value       = module.bastion[*].instance_details
 }
@@ -46,12 +46,12 @@ output "storage_instances" {
 output "hammerspace_anvil" {
   description = "Hammerspace Anvil details"
   value       = module.hammerspace[*].anvil_instances
-  sensitive   = true
+  sensitive   = false
 }
 
 output "hammerspace_dsx" {
   description = "Hammerspace DSX details"
-  sensitive   = true # <-- ADDED
+  sensitive   = false
   value       = module.hammerspace[*].dsx_instances
 }
 

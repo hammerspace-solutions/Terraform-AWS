@@ -26,7 +26,7 @@
 output "instance_details" {
   description = "A list of non-sensitive details for storage instances."
   value = [
-    for i in aws_instance.this : {
+    for i in aws_instance.storage_server : {
       id         = i.id
       private_ip = i.private_ip
       name       = i.tags.Name

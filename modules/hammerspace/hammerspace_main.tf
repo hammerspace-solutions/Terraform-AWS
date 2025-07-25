@@ -39,7 +39,8 @@ resource "aws_iam_role" "instance_role" {
     Version   = "2012-10-17",
     Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
-  tags = local.common_tags
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-IAM-Role" })
 }
 
 resource "aws_iam_role_policy" "ssh_policy" {
@@ -91,17 +92,19 @@ resource "aws_iam_instance_profile" "profile" {
   count = local.create_profile ? 1 : 0
   name  = "${var.common_config.project_name}-InstanceProfile"
   role  = aws_iam_role.instance_role[0].name
-  tags  = local.common_tags
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-IAM-Profile" })
 }
 
 # --- Security Groups ---
 
 resource "aws_security_group" "anvil_data_sg" {
   count       = local.should_create_any_anvils && var.anvil_security_group_id == "" ? 1 : 0
-  name        = "${var.common_config.project_name}-AnvilDataSG"
+  name        = "${local.anvil_resource_prefix}-sg"
   description = "Security group for Anvil metadata servers"
   vpc_id      = var.common_config.vpc_id
-  tags        = local.common_tags
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil-sg" })
 
   egress {
     from_port   = 0
@@ -141,10 +144,11 @@ resource "aws_security_group" "anvil_data_sg" {
 
 resource "aws_security_group" "dsx_sg" {
   count       = var.dsx_count > 0 && var.dsx_security_group_id == "" ? 1 : 0
-  name        = "${var.common_config.project_name}-DsxSG"
+  name        = "${local.dsx_resource_prefix}-sg"
   description = "Security group for DSX data services nodes"
   vpc_id      = var.common_config.vpc_id
-  tags        = local.common_tags
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-DSX-sg" })
 
   egress {
     from_port   = 0
@@ -188,14 +192,16 @@ resource "aws_network_interface" "anvil_sa_ni" {
   count           = local.create_standalone_anvil ? 1 : 0
   subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
-  tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-NI" })
+  tags            = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil_sa" {
   count  = local.create_standalone_anvil && var.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-EIP" })
+  tags   = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil-EIP" })
 }
 
 resource "aws_eip_association" "anvil_sa" {
@@ -245,7 +251,8 @@ resource "aws_instance" "anvil" {
     }
   }
 
-  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil" })
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil" })
 
   depends_on = [
     aws_iam_instance_profile.profile
@@ -259,7 +266,8 @@ resource "aws_ebs_volume" "anvil_meta_vol" {
   type              = var.anvil_meta_disk_type
   iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
   throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil-MetaVol" })
+  tags              = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil_meta_vol_attach" {
@@ -275,14 +283,16 @@ resource "aws_network_interface" "anvil1_ha_ni" {
   count           = local.create_ha_anvils ? 1 : 0
   subnet_id       = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
-  tags            = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-NI" })
+  tags            = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil1-NI" })
   depends_on      = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil1_ha" {
   count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-EIP" })
+  tags   = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil1-EIP" })
 }
 
 resource "aws_eip_association" "anvil1_ha" {
@@ -333,7 +343,8 @@ resource "aws_instance" "anvil1" {
     }
   }
 
-  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1", Index = "0" })
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil1", Index = "0" })
 
   depends_on = [
     aws_iam_instance_profile.profile
@@ -347,7 +358,8 @@ resource "aws_ebs_volume" "anvil1_meta_vol" {
   type              = var.anvil_meta_disk_type
   iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
   throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil1-MetaVol" })
+  tags              = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil1-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil1_meta_vol_attach" {
@@ -362,14 +374,16 @@ resource "aws_network_interface" "anvil2_ha_ni" {
   subnet_id         = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups   = local.effective_anvil_sg_id != null ? [local.effective_anvil_sg_id] : []
   private_ips_count = 1
-  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-NI" })
+  tags              = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil2-NI" })
   depends_on        = [aws_security_group.anvil_data_sg]
 }
 
 resource "aws_eip" "anvil2_ha" {
   count  = local.create_ha_anvils && var.assign_public_ip ? 1 : 0
   domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-EIP" })
+  tags   = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil2-EIP" })
 }
 
 resource "aws_eip_association" "anvil2_ha" {
@@ -420,7 +434,8 @@ resource "aws_instance" "anvil2" {
     }
   }
 
-  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2", Index = "1" })
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil2", Index = "1" })
 
   depends_on = [
     aws_instance.anvil1,
@@ -435,7 +450,8 @@ resource "aws_ebs_volume" "anvil2_meta_vol" {
   type              = var.anvil_meta_disk_type
   iops              = contains(["io1", "io2", "gp3"], var.anvil_meta_disk_type) ? var.anvil_meta_disk_iops : null
   throughput        = var.anvil_meta_disk_type == "gp3" ? var.anvil_meta_disk_throughput : null
-  tags              = merge(local.common_tags, { Name = "${var.common_config.project_name}-Anvil2-MetaVol" })
+  tags              = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-Anvil2-MetaVol" })
 }
 
 resource "aws_volume_attachment" "anvil2_meta_vol_attach" {
@@ -452,7 +468,8 @@ resource "aws_network_interface" "dsx_ni" {
   subnet_id           = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
   security_groups     = local.effective_dsx_sg_id != null ? [local.effective_dsx_sg_id] : []
   source_dest_check   = false
-  tags                = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}-NI" })
+  tags                = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-DSX${count.index + 1}-NI" })
   depends_on          = [aws_security_group.dsx_sg]
 }
 
@@ -534,7 +551,8 @@ resource "aws_instance" "dsx" {
     }
   }
 
-  tags = merge(local.common_tags, { Name = "${var.common_config.project_name}-DSX${count.index + 1}" })
+  tags = merge(local.common_tags,
+    { Name = "${var.common_config.project_name}-DSX${count.index + 1}" })
 
   depends_on = [
     aws_iam_instance_profile.profile

@@ -19,9 +19,11 @@ TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
 
 # --- Script ---
+
 set -euo pipefail
 
 # --- Package Installation ---
+
 sudo apt-get -y update
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository --yes --update ppa:ansible/ansible
@@ -30,7 +32,18 @@ sudo apt-get install -y ansible jq net-tools
 echo "Upgrade the OS to make sure we have the latest"
 sudo apt-get -y upgrade
 
+# Get rid of fingerprint checking on ssh
+# We need this in case somebody wants to run automated scripts. Otherwise,
+# they will have to modify their scripts to answer the stupid question of
+# "are you sure"?
+
+sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+
 # --- SSH Key Management for additional keys ---
+
 if [ -n "$${SSH_KEYS}" ]; then
 
     echo "Starting SSH Key Management Deployment"

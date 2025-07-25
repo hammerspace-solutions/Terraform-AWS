@@ -57,9 +57,11 @@ if [ "$${EBS_COUNT}" -lt "$${MIN_DEVICES}" ]; then
 fi
 
 # Define the target number of disks we are waiting for (EBS_COUNT + 1)
+
 TARGET_DISK_COUNT=$(( $${EBS_COUNT} + 1 ))
 
 # Loop while the number of found disks is less than our target
+
 while [ $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) -lt "$${TARGET_DISK_COUNT}" ]; do
     sleep 10
     # The updated echo message is clearer about the goal

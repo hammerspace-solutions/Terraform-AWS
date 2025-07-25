@@ -19,6 +19,16 @@ TARGET_USER="%[1]s"
 TARGET_HOME="%[2]s"
 SSH_KEYS="%[3]s"
 
+# Get rid of fingerprint checking on ssh
+# We need this in case somebody wants to run automated scripts. Otherwise,
+# they will have to modify their scripts to answer the stupid question of
+# "are you sure"?
+
+sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+
 # SSH Key Management
 
 if [ -n "${SSH_KEYS}" ]; then
