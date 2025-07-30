@@ -82,6 +82,14 @@ echo "Ansible private key found. Proceeding with configuration."
 
 # --- Passwordless SSH Setup (for bastion client, clients, and storage) ---
 
+# We are having problems where some of the clients, storage, and whatnot are
+# slow in coming available. Make sure we delay here so that they have time
+# to become available. THIS IS NOT a permanent fix. That is forthcoming.
+
+echo "SLEEP while waiting for clients, storage to become available"
+sleep 180
+echo "End SLEEP"
+
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
     echo "Setting up for passwordless SSH..."
     sudo -u ubuntu ansible-galaxy collection install community.crypto
