@@ -25,7 +25,7 @@
 
 output "terraform_project_version" {
   description = "The version of the Terraform-AWS project configuration."
-  value       = "2025.07.28-44b42c2"
+  value       = "2025.07.29-f1ad656"
 }
 
 output "bastion_details" {
@@ -46,7 +46,7 @@ output "storage_instances" {
 output "hammerspace_anvil" {
   description = "Hammerspace Anvil details"
   value       = module.hammerspace[*].anvil_instances
-  sensitive   = false
+  sensitive   = true
 }
 
 output "hammerspace_dsx" {
@@ -70,6 +70,11 @@ output "hammerspace_dsx_private_ips" {
   value       = module.hammerspace[*].dsx_private_ips
 }
 
+output "hammerspace_ha_lb" {
+  description = "The DNS name of the HA Anvil load balancer. This is only used for public IP"
+  value	      = one(module.hammerspace[*].anvil_ha_load_balancer_dns_name)
+}
+
 output "ecgroup_nodes" {
   description = "ECGroup node details"
   sensitive   = false
@@ -90,5 +95,6 @@ output "ecgroup_storage_array" {
 
 output "ansible_details" {
   description = "Ansible configuration details"
+  sensitive   = true
   value = module.ansible[*].instance_details
 }

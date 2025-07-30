@@ -585,7 +585,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.0"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.1"
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip
