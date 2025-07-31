@@ -81,7 +81,8 @@ locals {
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
     EBS_COUNT   = var.ebs_count + local.nvme_count,
-    RAID_LEVEL  = var.raid_level
+    RAID_LEVEL  = var.raid_level,
+    ALLOW_ROOT	= var.common_config.allow_root
   }) : null
 
   resource_prefix = "${var.common_config.project_name}-storage"
