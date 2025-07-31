@@ -93,6 +93,12 @@ variable "ssh_keys_dir" {
   default     = "./ssh_keys"
 }
 
+variable "allow_root" {
+  description = "Allow root access to SSH"
+  type	      = bool
+  default     = false
+}
+
 variable "deploy_components" {
   description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\", \"ansible\"."
   type        = list(string)

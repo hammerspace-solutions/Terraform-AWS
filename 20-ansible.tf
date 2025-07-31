@@ -58,7 +58,7 @@ variable "ansible_boot_volume_type" {
 variable "ansible_user_data" {
   description = "Path to user data script for Ansible"
   type        = string
-  default     = "./templates/ansible_config_ubuntu.sh"
+  default     = "./templates/ansible_config_ubuntu.sh.tmpl"
 }
 
 variable "ansible_target_user" {

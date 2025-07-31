@@ -15,10 +15,16 @@ sudo apt-get -y upgrade
 # DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
 # ----------------------------------------------------------------------------
 
-TARGET_USER="%[1]s"
-TARGET_HOME="%[2]s"
-SSH_KEYS="%[3]s"
-TIER0="%[4]s"
+TARGET_USER='${TARGET_USER}'
+TARGET_HOME='${TARGET_HOME}'
+SSH_KEYS='${SSH_KEYS}'
+ALLOW_ROOT='${ALLOW_ROOT}'
+TIER0='${TIER0}'
+
+# Local variable for installing keys in root
+
+ROOT_USER="root"
+ROOT_HOME="/$${ROOT_USER}"
 
 # Get rid of fingerprint checking on ssh
 # We need this in case somebody wants to run automated scripts. Otherwise,
@@ -29,11 +35,6 @@ sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
-
-# Build NFS mountpoint
-
-sudo mkdir -p /mnt/nfs-test
-sudo chmod 777 /mnt/nfs-test
 
 # SSH Key Management
 
@@ -53,6 +54,33 @@ if [ -n "${SSH_KEYS}" ]; then
     chmod 600 "${TARGET_HOME}"/.ssh/authorized_keys
     chown -R "${TARGET_USER}":"${TARGET_USER}" "${TARGET_HOME}"/.ssh
 fi
+
+# --- SSH Key Management for additional keys (This is ONLY for root) ---
+
+if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+    echo "Starting SSH Key Management Deployment for ${ROOT_USER}"
+
+    if [ ! -d "${ROOT_HOME}/.ssh" ]; then
+      mkdir -p "${ROOT_HOME}/.ssh"
+      chmod 700 "${ROOT_HOME}/.ssh"
+      touch "${ROOT_HOME}/.ssh/authorized_keys"
+    fi
+    
+    echo "$${SSH_KEYS}" | while read -r key; do
+        if [ -n "$${key}" ] && ! grep -qF "$${key}" "${ROOT_HOME}/.ssh/authorized_keys"; then
+            echo "$${key}" >> "${ROOT_HOME}/.ssh/authorized_keys"
+        fi
+    done
+
+    chmod 600 "${ROOT_HOME}/.ssh/authorized_keys"
+    chown -R ${ROOT_USER}:${ROOT_USER} "${ROOT_HOME}/.ssh"
+    echo "Ending SSH Key Management Deployment for ${ROOT_USER}""
+fi
+
+# Build NFS mountpoint
+
+sudo mkdir -p /mnt/nfs-test
+sudo chmod 777 /mnt/nfs-test
 
 # If Tier0 is enabled, then work on the nvme drives
 

@@ -345,6 +345,7 @@ locals {
     tags                 = var.tags
     project_name         = var.project_name
     ssh_keys_dir         = var.ssh_keys_dir
+    allow_root		 = var.allow_root
     placement_group_name = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
     allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
   }
