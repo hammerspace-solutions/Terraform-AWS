@@ -50,6 +50,11 @@ locals {
     "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
   ]
 
+  # root user and home... Needed for template script
+
+  root_user = "root"
+  root_home = "/${local.root_user}"
+  
   # Grab the first (and only) storage‐info block, or empty map if none
   
   instance_info = data.aws_ec2_instance_type.nvme_disks
@@ -79,12 +84,21 @@ locals {
   processed_user_data = templatefile(var.user_data, {
     TARGET_USER	      = var.target_user,
     TARGET_HOME	      = "/home/${var.target_user}",
-    SSH_PUBLIC_KEYS   = join("\n", local.ssh_public_keys),
+    SSH_KEYS   	      = join("\n", local.ssh_public_keys),
     TIER0	      = var.tier0,
-    ALLOW_ROOT	      = var.common_config.allow_root
-  ))
+    ALLOW_ROOT	      = var.common_config.allow_root,
+    ROOT_USER	      = local.root_user,
+    ROOT_HOME	      = local.root_home
+  })
 
   resource_prefix = "${var.common_config.project_name}-client"
+}
+
+# Debug to see what the script is...
+
+resource "local_file" "debug_script" {
+  content  = local.processed_user_data
+  filename = "${path.module}/debug_rendered_script.sh"
 }
 
 # Security group for client instances

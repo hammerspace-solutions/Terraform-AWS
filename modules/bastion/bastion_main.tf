@@ -51,13 +51,20 @@ locals {
 
   bastion_instance_type_is_available = length(data.aws_ec2_instance_type_offering.bastion.instance_type) > 0
 
+  # root user and home... Needed for template script
+
+  root_user = "root"
+  root_home = "/${local.root_user}"
+  
   # Process the bash shell template
   
   processed_user_data = templatefile(var.user_data, {
     TARGET_USER	      = var.target_user,
-    HOME_DIR	      = "/home/${var.target_user}",
-    SSH_PUBLIC_KEYS   = join("\n", local.ssh_public_keys),
-    ALLOW_ROOT	      = var.common_config.allow_root
+    TARGET_HOME	      = "/home/${var.target_user}",
+    SSH_KEYS   	      = join("\n", local.ssh_public_keys),
+    ALLOW_ROOT	      = var.common_config.allow_root,
+    ROOT_USER	      = local.root_user,
+    ROOT_HOME	      = local.root_home
   })
   
   resource_prefix = "${var.common_config.project_name}-bastion"

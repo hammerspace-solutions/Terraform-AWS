@@ -108,6 +108,13 @@ variable "admin_private_key_path" {
   default     = ""
 }
 
+variable "admin_public_key_path" {
+  description = "The local path to the public key for the Ansible controller"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # Other variables
 variable "mgmt_ip" {
   description = "Hammerspace management IP address"

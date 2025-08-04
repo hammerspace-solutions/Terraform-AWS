@@ -660,7 +660,9 @@ module "ansible" {
 
   # Pass the path to the key, not the content of the key.
 
-  admin_private_key_path  = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
+  admin_private_key_path  = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
+
+  admin_public_key_path  = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
 
   mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
   anvil_instances         = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
