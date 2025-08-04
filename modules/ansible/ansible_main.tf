@@ -157,6 +157,12 @@ resource "aws_instance" "ansible" {
     network_interface_id      = aws_network_interface.ansible_ni[0].id
   }
 
+  # Put tags on the volumes
+
+  volume_tags = merge(local.common_tags, {
+    Name   = "${local.resource_prefix}-vol"
+  })
+
   # Create the boot disk
   
   root_block_device {

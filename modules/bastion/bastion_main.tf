@@ -139,6 +139,14 @@ resource "aws_instance" "bastion" {
     device_index	  = 0
     network_interface_id  = aws_network_interface.bastion_ni[0].id
   }
+
+  # Put tags on the volumes
+
+  volume_tags = merge(local.common_tags, {
+    Name   = "${local.resource_prefix}-vol"
+  })
+
+  # Create the boot disk
   
   root_block_device {
     volume_size           = var.boot_volume_size

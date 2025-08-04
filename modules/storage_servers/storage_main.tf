@@ -133,6 +133,14 @@ resource "aws_instance" "storage_server" {
 
   vpc_security_group_ids = [aws_security_group.storage.id]
 
+  # Put tags on the volumes
+
+  volume_tags = merge(local.common_tags, {
+    Name   = "${local.resource_prefix}-vol"
+  })
+
+  # Create the boot disk
+  
   root_block_device {
     volume_size           = var.boot_volume_size
     volume_type           = var.boot_volume_type

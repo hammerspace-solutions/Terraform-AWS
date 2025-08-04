@@ -94,13 +94,6 @@ locals {
   resource_prefix = "${var.common_config.project_name}-client"
 }
 
-# Debug to see what the script is...
-
-resource "local_file" "debug_script" {
-  content  = local.processed_user_data
-  filename = "${path.module}/debug_rendered_script.sh"
-}
-
 # Security group for client instances
 
 resource "aws_security_group" "client" {
@@ -143,6 +136,14 @@ resource "aws_instance" "clients" {
 
   vpc_security_group_ids = [aws_security_group.client.id]
 
+  # Put tags on the volumes
+
+  volume_tags = merge(local.common_tags, {
+    Name   = "${local.resource_prefix}-vol"
+  })
+
+  # Create the boot disk
+  
   root_block_device {
     volume_size           = var.boot_volume_size
     volume_type           = var.boot_volume_type
