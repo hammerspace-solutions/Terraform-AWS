@@ -54,6 +54,7 @@ These variables apply to the overall deployment:
 * `tags`: Common tags for all resources (Default: `{}`).
 * `project_name`: Project name for tagging and resource naming.
 * `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
+* `allow_root`: Allow root access to SSH (Default: `false`).
 * `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
 * `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
 * `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
