@@ -345,6 +345,7 @@ locals {
     tags                 = var.tags
     project_name         = var.project_name
     ssh_keys_dir         = var.ssh_keys_dir
+    allow_root		 = var.allow_root
     placement_group_name = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
     allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
   }
@@ -585,7 +586,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.1"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=kade-root-permissions"
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip
@@ -619,7 +620,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.0"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=kade-root-permissions"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -659,7 +660,9 @@ module "ansible" {
 
   # Pass the path to the key, not the content of the key.
 
-  admin_private_key_path  = fileexists("./modules/ansible/ansible_admin_key") ? "./modules/ansible/ansible_admin_key" : ""
+  admin_private_key_path  = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
+
+  admin_public_key_path  = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
 
   mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
   anvil_instances         = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []

@@ -111,5 +111,5 @@ variable "ecgroup_storage_volume_iops" {
 variable "ecgroup_user_data" {
   description = "Path to user data script for ECGroup"
   type = string
-  default = "./templates/ecgroup_node.sh"
+  default = "./templates/ecgroup_node.sh.tmpl"
 }

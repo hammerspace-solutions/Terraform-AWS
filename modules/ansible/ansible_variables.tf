@@ -34,6 +34,7 @@ variable "common_config" {
     tags                 = map(string)
     project_name         = string
     ssh_keys_dir         = string
+    allow_root		 = bool
     placement_group_name = string
     allowed_source_cidr_blocks = list(string)
   })
@@ -102,6 +103,13 @@ variable "target_nodes_json" {
 
 variable "admin_private_key_path" {
   description = "The local path to the private key for the Ansible controller"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "admin_public_key_path" {
+  description = "The local path to the public key for the Ansible controller"
   type        = string
   sensitive   = true
   default     = ""

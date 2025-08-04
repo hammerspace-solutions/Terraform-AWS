@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # Variable placeholders - replaced by Terraform templatefile function
+
 TARGET_NODES_JSON='${TARGET_NODES_JSON}'
 MGMT_IP='${MGMT_IP}'
 ANVIL_ID='${ANVIL_ID}'
-BASTION_INSTANCES='{BASTION_INSTANCES}'
+BASTION_INSTANCES='${BASTION_INSTANCES}'
 CLIENT_INSTANCES='${CLIENT_INSTANCES}'
 STORAGE_INSTANCES='${STORAGE_INSTANCES}'
 VG_NAME='${VG_NAME}'
@@ -17,6 +18,15 @@ ECGROUP_STORAGE_ARRAY='${ECGROUP_STORAGE_ARRAY}'
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
+ALLOW_ROOT='${ALLOW_ROOT}'
+
+# Some private variables for dealing with ssh-less logins using root
+
+ROOT_USER='${ROOT_USER}'
+ROOT_HOME='${ROOT_HOME}'
+PRIVATE_KEY_FILE='${PRIVATE_KEY_FILE}'
+PRIVATE_KEY_PATH='${PRIVATE_KEY_PATH}'
+ROOT_PRIVATE_KEY_PATH='${ROOT_PRIVATE_KEY_PATH}'
 
 # --- Script ---
 
@@ -41,16 +51,28 @@ sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+
+# Restart the sshd
+
+systemctl restart ssh
 
 # --- SSH Key Management for additional keys ---
 
 if [ -n "$${SSH_KEYS}" ]; then
-
     echo "Starting SSH Key Management Deployment"
-    mkdir -p "$${TARGET_HOME}/.ssh"
-    chmod 700 "$${TARGET_HOME}/.ssh"
-    touch "$${TARGET_HOME}/.ssh/authorized_keys"
+
+    if [ ! -d "$${TARGET_HOME}/.ssh" ]; then
+      mkdir -p "$${TARGET_HOME}/.ssh"
+      chmod 700 "$${TARGET_HOME}/.ssh"
+      touch "$${TARGET_HOME}/.ssh/authorized_keys"
+    fi
     
+    # Process keys one by one to avoid multi-line issues
+
     echo "$${SSH_KEYS}" | while read -r key; do
         if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
             echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
@@ -62,14 +84,37 @@ if [ -n "$${SSH_KEYS}" ]; then
     echo "Ending SSH Key Management Deployment"
 fi
 
+# --- SSH Key Management for additional keys (This is ONLY for root) ---
+
+if [ -n "$${SSH_KEYS}" ]; then
+    echo "Starting SSH Key Management Deployment for root"
+
+    if [ ! -d "$${ROOT_HOME}/.ssh" ]; then
+      mkdir -p "$${ROOT_HOME}/.ssh"
+      chmod 700 "$${ROOT_HOME}/.ssh"
+      touch "$${ROOT_HOME}/.ssh/authorized_keys"
+    fi
+    
+    # Process keys line by line
+    
+    echo "$${SSH_KEYS}" | while read -r key; do
+        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${ROOT_HOME}/.ssh/authorized_keys"; then
+            echo "$${key}" >> "$${ROOT_HOME}/.ssh/authorized_keys"
+        fi
+    done
+
+    chmod 600 "$${ROOT_HOME}/.ssh/authorized_keys"
+    chown -R "$${ROOT_USER}":"$${ROOT_USER}" "$${ROOT_HOME}/.ssh"
+    echo "Ending SSH Key Management Deployment for $${ROOT_USER}"
+fi
+
 # Wait for the Terraform provisioner to copy the admin private key.
 # This loop prevents the script from running Ansible commands before the
 # key is available, resolving the race condition.
 
-PRIVATE_KEY_FILE="/home/ubuntu/.ssh/ansible_admin_key"
-echo "Waiting for Ansible private key to be provisioned at $${PRIVATE_KEY_FILE}..."
+echo "Waiting for Ansible private key to be provisioned at $${PRIVATE_KEY_PATH}..."
 SECONDS_WAITED=0
-while [ ! -f "$${PRIVATE_KEY_FILE}" ]; do
+while [ ! -f "$${PRIVATE_KEY_PATH}" ]; do
     if [ "$${SECONDS_WAITED}" -gt 1200 ]; then
         echo "ERROR: Timed out after 20 minutes waiting for private key." >&2
         exit 1
@@ -79,6 +124,12 @@ while [ ! -f "$${PRIVATE_KEY_FILE}" ]; do
     echo "Still waiting for key..."
 done
 echo "Ansible private key found. Proceeding with configuration."
+
+# Copy the private key to the root .ssh
+
+cp "$${PRIVATE_KEY_PATH}" "$${ROOT_PRIVATE_KEY_PATH}"
+chown root:root "${ROOT_PRIVATE_KEY_PATH}"
+chmod 600 "${ROOT_PRIVATE_KEY_PATH}"
 
 # --- Passwordless SSH Setup (for bastion client, clients, and storage) ---
 
@@ -92,57 +143,188 @@ echo "End SLEEP"
 
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
     echo "Setting up for passwordless SSH..."
-    sudo -u ubuntu ansible-galaxy collection install community.crypto
+    sudo -u ${TARGET_USER} ansible-galaxy collection install community.crypto
 
-    INVENTORY_FILE="/home/ubuntu/inventory.ini"
+    INVENTORY_FILE="$${TARGET_HOME}/inventory.ini"
     echo "[all_nodes]" > "$INVENTORY_FILE"
+    echo "localhost ansible_connection=local" >> "$INVENTORY_FILE"
     echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
-    chown ubuntu:ubuntu "$INVENTORY_FILE"
+    chown ${TARGET_USER}:${TARGET_USER} "$INVENTORY_FILE"
 
-    PLAYBOOK_FILE="/home/ubuntu/distribute_keys.yml"
+    PLAYBOOK_FILE="$${TARGET_HOME}/distribute_keys.yml"
     cat > "$PLAYBOOK_FILE" << EOF
 ---
-- name: Gather Host Keys
-  hosts: all_nodes
-  gather_facts: false
+- name: Distribute shared SSH key pair and configure known_hosts
+  hosts: all
+  become: true
   vars:
-    ansible_user: ubuntu
-    ansible_ssh_private_key_file: /home/ubuntu/.ssh/ansible_admin_key
+    ssh_user: "ubuntu"
+    ssh_dir: "/home/{{ ssh_user }}/.ssh"
+    private_key_source: "{{ ssh_dir }}/id_rsa"
+    public_key_source: "{{ ssh_dir }}/id_rsa.pub"
+    known_hosts_file: "{{ ssh_dir }}/known_hosts"
+
   tasks:
     - name: Ensure .ssh directory exists
-      become: true
-      file: { path: "/home/ubuntu/.ssh", state: directory, owner: ubuntu, group: ubuntu, mode: '0700' }
-    - name: Ensure SSH key pair exists for each host
-      become: true
-      community.crypto.openssh_keypair: { path: /home/ubuntu/.ssh/id_rsa, owner: ubuntu, group: ubuntu, mode: '0600' }
-    - name: Fetch the public key content from each host
-      slurp: { src: /home/ubuntu/.ssh/id_rsa.pub }
-      register: host_public_key
+      file:
+        path: "{{ ssh_dir }}"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0700'
 
-- name: Distribute All Keys
-  hosts: all_nodes
+    - name: Copy shared private key
+      copy:
+        src: "{{ private_key_source }}"
+        dest: "{{ ssh_dir }}/id_rsa"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0600'
+
+    - name: Copy shared public key
+      copy:
+        src: "{{ public_key_source }}"
+        dest: "{{ ssh_dir }}/id_rsa.pub"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0644'
+
+    - name: Add public key to authorized_keys
+      authorized_key:
+        user: "{{ ssh_user }}"
+        key: "{{ lookup('file', public_key_source) }}"
+        state: present
+
+- name: Gather all host IPs and populate known_hosts
+  hosts: all
+  become: true
   gather_facts: false
   vars:
-    ansible_user: ubuntu
-    ansible_ssh_private_key_file: /home/ubuntu/.ssh/ansible_admin_key
+    ssh_user: "ubuntu"
+    ssh_dir: "/home/{{ ssh_user }}/.ssh"
+    known_hosts_file: "{{ ssh_dir }}/known_hosts"
+
   tasks:
-    - name: Add all public keys to every host
-      authorized_key:
-        user: ubuntu
-        state: present
-        key: "{{ hostvars[item].host_public_key.content | b64decode }}"
-      loop: "{{ ansible_play_hosts_all }}"
+    - name: Collect all private IPs from inventory
+      add_host:
+        name: "{{ hostvars[item]['ansible_host'] | default(item) }}"
+      loop: "{{ groups['all'] }}"
+
+    - name: Copy known_hosts to all other hosts
+      synchronize:
+        src: "{{ ssh_dir }}/known_hosts"
+        dest: "{{ ssh_dir }}/known_hosts"
+        mode: push
+        recursive: no
+      delegate_to: "{{ groups['all'][0] }}"
+      become: false
+      remote_user: ubuntu
 EOF
-    chown ubuntu:ubuntu "$PLAYBOOK_FILE"
+
+    chown ${TARGET_USER}:${TARGET_USER} "$PLAYBOOK_FILE"
 
     echo "Scanning hosts to populate known_hosts..."
-    sudo -u ubuntu bash -c "ssh-keyscan -H -f /home/ubuntu/inventory.ini >> /home/ubuntu/.ssh/known_hosts" || true
+    sudo -u ${TARGET_USER} bash -c "ssh-keyscan -H -f ${TARGET_HOME}/inventory.ini >> ${TARGET_HOME}/.ssh/known_hosts" || true
 
     echo "Running Ansible playbook to distribute SSH keys..."
-    sudo -u ubuntu bash -c "ansible-playbook -i /home/ubuntu/inventory.ini /home/ubuntu/distribute_keys.yml"
+    sudo -u ${TARGET_USER} bash -c "ansible-playbook -i ${TARGET_HOME}/inventory.ini ${TARGET_HOME}/distribute_keys.yml"
     echo "Finished distributing SSH keys."
 else
     echo "No clients or storage servers deployed, skipping passwordless SSH setup."
+fi
+
+if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ] &&
+   [ "$${ALLOW_ROOT}" = "true" ]; then
+    echo "Setting up for passwordless SSH for root..."
+
+#    sudo -u ${ROOT_USER} ansible-galaxy collection install community.crypto
+
+    INVENTORY_FILE="$${ROOT_HOME}/inventory.ini"
+    echo "[all_nodes]" > "$INVENTORY_FILE"
+    echo "localhost ansible_connection=local" >> "$INVENTORY_FILE"
+    echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
+    chown ${ROOT_USER}:${ROOT_USER} "$INVENTORY_FILE"
+
+    PLAYBOOK_FILE="$${ROOT_HOME}/distribute_keys.yml"
+    cat > "$PLAYBOOK_FILE" << EOF
+---
+- name: Distribute shared SSH key pair and configure known_hosts
+  hosts: all
+  become: true
+  vars:
+    ssh_user: "root"
+    ssh_dir: "/{{ ssh_user }}/.ssh"
+    private_key_source: "{{ ssh_dir }}/id_rsa"
+    public_key_source: "{{ ssh_dir }}/id_rsa.pub"
+    known_hosts_file: "{{ ssh_dir }}/known_hosts"
+
+  tasks:
+    - name: Ensure .ssh directory exists
+      file:
+        path: "{{ ssh_dir }}"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0700'
+
+    - name: Copy shared private key
+      copy:
+        src: "{{ private_key_source }}"
+        dest: "{{ ssh_dir }}/id_rsa"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0600'
+
+    - name: Copy shared public key
+      copy:
+        src: "{{ public_key_source }}"
+        dest: "{{ ssh_dir }}/id_rsa.pub"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0644'
+
+    - name: Add public key to authorized_keys
+      authorized_key:
+        user: "{{ ssh_user }}"
+        key: "{{ lookup('file', public_key_source) }}"
+        state: present
+
+- name: Gather all host IPs and populate known_hosts
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    ssh_user: "root"
+    ssh_dir: "/{{ ssh_user }}/.ssh"
+    known_hosts_file: "{{ ssh_dir }}/known_hosts"
+
+  tasks:
+    - name: Collect all private IPs from inventory
+      add_host:
+        name: "{{ hostvars[item]['ansible_host'] | default(item) }}"
+      loop: "{{ groups['all'] }}"
+
+    - name: Copy known_hosts to all other hosts
+      synchronize:
+        src: "{{ ssh_dir }}/known_hosts"
+        dest: "{{ ssh_dir }}/known_hosts"
+        mode: push
+        recursive: no
+      delegate_to: "{{ groups['all'][0] }}"
+      become: false
+      remote_user: root
+EOF
+
+    chown ${ROOT_USER}:${ROOT_USER} "$PLAYBOOK_FILE"
+
+    echo "Scanning hosts to populate known_hosts for root..."
+    sudo -u ${ROOT_USER} bash -c "ssh-keyscan -H -f ${ROOT_HOME}/inventory.ini >> ${ROOT_HOME}/.ssh/known_hosts" || true
+
+    echo "Running Ansible playbook to distribute SSH keys to root..."
+    sudo -u ${ROOT_USER} bash -c "ansible-playbook -i ${ROOT_HOME}/inventory.ini ${ROOT_HOME}/distribute_keys.yml"
+    echo "Finished distributing SSH keys for root."
+else
+    echo "No clients or storage servers deployed or allow_root is not true"
 fi
 
 # --- ECGroup Configuration ---
@@ -157,7 +339,7 @@ if [ -n "$${ECGROUP_INSTANCES}" ]; then
   vars:
     ecgroup_name: ecg
     ansible_user: admin
-    ansible_ssh_private_key_file: /home/ubuntu/.ssh/ansible_admin_key
+    ansible_ssh_private_key_file: ${PRIVATE_KEY_PATH}
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   become: true
   tasks:
@@ -232,12 +414,14 @@ EOF
     ECGROUP_NODES_ARRAY=($${ECGROUP_NODES})
     
     # Start the YAML file
+
     cat > /tmp/additional_ip_addresses.yml << 'EOF'
 additional_ip_addresses:
   additionalAddresses: [
 EOF
 
     # Add IP addresses starting from index 1 (skip first)
+
     for i in "$${!ECGROUP_NODES_ARRAY[@]}"; do
       if [ $${i} -gt 0 ]; then
         if [ $${i} -eq $(($${#ECGROUP_NODES_ARRAY[@]} - 1)) ]; then
@@ -249,6 +433,7 @@ EOF
     done
 
     # Close the YAML structure
+
     echo "  ]" >> /tmp/additional_ip_addresses.yml
 
     echo "Created additional_ip_addresses.yml:"

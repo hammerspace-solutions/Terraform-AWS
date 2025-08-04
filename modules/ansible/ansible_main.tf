@@ -46,25 +46,44 @@ locals {
   )
 
   ansible_instance_type_is_available = length(data.aws_ec2_instance_type_offering.ansible.instance_type) > 0
+
+  # Create some variables needed by template file
+
+  target_home		   = "/home/${var.target_user}"
+  root_user 		   = "root"
+  root_home 		   = "/${local.root_user}"
+  private_key_file 	   = "id_rsa"
+  private_key_path	   = "${local.target_home}/.ssh/${local.private_key_file}"
+  root_private_key_path	   = "${local.root_home}/.ssh/${local.private_key_file}"
+
+  # Process the template file and substitute arguments
   
-  processed_user_data = var.user_data != "" ? templatefile(var.user_data, {
-    TARGET_USER            = var.target_user,
-    TARGET_HOME            = "/home/${var.target_user}",
-    SSH_KEYS               = join("\n", local.ssh_public_keys),
-    TARGET_NODES_JSON      = var.target_nodes_json,
-    MGMT_IP                = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
-    ANVIL_ID               = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
-    BASTION_INSTANCES	   = jsonencode(var.bastion_instances),
-    CLIENT_INSTANCES	   = jsonencode(var.client_instances),
-    STORAGE_INSTANCES      = jsonencode(var.storage_instances),
-    VG_NAME                = var.volume_group_name,
-    SHARE_NAME             = var.share_name,
-    ECGROUP_INSTANCES      = join(" ", var.ecgroup_instances),
-    ECGROUP_HOSTS          = length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
-    ECGROUP_NODES          = join(" ", var.ecgroup_nodes),
-    ECGROUP_METADATA_ARRAY = var.ecgroup_metadata_array,
-    ECGROUP_STORAGE_ARRAY  = var.ecgroup_storage_array
-  }) : null
+  processed_user_data = var.user_data != "" ? base64gzip(
+    templatefile(var.user_data, {
+      TARGET_USER            = var.target_user,
+      TARGET_HOME            = local.target_home,
+      ROOT_USER		     = local.root_user,
+      ROOT_HOME		     = local.root_home,
+      PRIVATE_KEY_FILE	     = local.private_key_file,
+      PRIVATE_KEY_PATH	     = local.private_key_path,
+      ROOT_PRIVATE_KEY_PATH  = local.root_private_key_path,
+      SSH_KEYS               = join("\n", local.ssh_public_keys),
+      ALLOW_ROOT	     = var.common_config.allow_root
+      TARGET_NODES_JSON      = var.target_nodes_json,
+      MGMT_IP                = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
+      ANVIL_ID               = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
+      BASTION_INSTANCES	     = jsonencode(var.bastion_instances),
+      CLIENT_INSTANCES	     = jsonencode(var.client_instances),
+      STORAGE_INSTANCES      = jsonencode(var.storage_instances),
+      VG_NAME                = var.volume_group_name,
+      SHARE_NAME             = var.share_name,
+      ECGROUP_INSTANCES      = join(" ", var.ecgroup_instances),
+      ECGROUP_HOSTS          = length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
+      ECGROUP_NODES          = join(" ", var.ecgroup_nodes),
+      ECGROUP_METADATA_ARRAY = var.ecgroup_metadata_array,
+      ECGROUP_STORAGE_ARRAY  = var.ecgroup_storage_array
+    })
+  ) : null
 
   resource_prefix = "${var.common_config.project_name}-ansible"
 
@@ -189,7 +208,7 @@ resource "null_resource" "key_provisioner" {
 
   provisioner "file" {
     source      = var.admin_private_key_path
-    destination = "/home/${var.target_user}/.ssh/ansible_admin_key"
+    destination = "/home/${var.target_user}/.ssh/id_rsa"
 
     connection {
       type        = "ssh"
@@ -204,13 +223,106 @@ resource "null_resource" "key_provisioner" {
 
   provisioner "remote-exec" {
     inline = [
-      "sudo chmod 600 /home/${var.target_user}/.ssh/ansible_admin_key",
-      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/ansible_admin_key"
+      "sudo chmod 600 /home/${var.target_user}/.ssh/id_rsa",
+      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/id_rsa"
     ]
 
     connection {
       type        = "ssh"
       user        = var.target_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Third provisioner copies the public key file.
+
+  provisioner "file" {
+    source      = var.admin_public_key_path
+    destination = "/home/${var.target_user}/.ssh/id_rsa.pub"
+
+    connection {
+      type        = "ssh"
+      user        = var.target_user
+      # The key used for the initial connection is the main one for the instance.
+      private_key =  file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Fourth provisioner sets the correct permissions on the uploaded key.
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod 600 /home/${var.target_user}/.ssh/id_rsa.pub",
+      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/id_rsa.pub"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = var.target_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Fifth provisioner copies the key file to root.
+
+  provisioner "file" {
+    source      = var.admin_private_key_path
+    destination = "${local.root_home}/.ssh/id_rsa"
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      # The key used for the initial connection is the main one for the instance.
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Sixth provisioner sets the correct permissions on the uploaded key on root.
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod 600 ${local.root_home}/.ssh/id_rsa",
+      "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Seventh provisioner copies the public key file to root.
+
+  provisioner "file" {
+    source      = var.admin_public_key_path
+    destination = "${local.root_home}/.ssh/id_rsa.pub"
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      # The key used for the initial connection is the main one for the instance.
+      private_key =  file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Eighth provisioner sets the correct permissions on the uploaded key in root.
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod 600 ${local.root_home}/.ssh/id_rsa.pub",
+      "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa.pub"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
       private_key = file(var.admin_private_key_path)
       host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
     }

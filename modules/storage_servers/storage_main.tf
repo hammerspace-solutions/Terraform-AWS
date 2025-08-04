@@ -60,6 +60,12 @@ locals {
     []
   )
 
+  # The template needs root_user and root_home in case we have to
+  # update the root password-less
+
+  root_user = "root"
+  root_home = "/${local.root_user}"
+  
   # Grab the first (and only) storage-info block, or empty map if none
 
   instance_info = data.aws_ec2_instance_type.nvme_disks
@@ -81,7 +87,10 @@ locals {
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
     EBS_COUNT   = var.ebs_count + local.nvme_count,
-    RAID_LEVEL  = var.raid_level
+    RAID_LEVEL  = var.raid_level,
+    ALLOW_ROOT	= var.common_config.allow_root,
+    ROOT_USER	= local.root_user,
+    ROOT_HOME	= local.root_home
   }) : null
 
   resource_prefix = "${var.common_config.project_name}-storage"

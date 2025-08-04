@@ -87,7 +87,7 @@ variable "storage_ebs_iops" {
 variable "storage_user_data" {
   description = "Path to user data script for storage"
   type        = string
-  default     = "./templates/storage_server_ubuntu.sh"
+  default     = "./templates/storage_server_ubuntu.sh.tmpl"
 }
 
 variable "storage_target_user" {
