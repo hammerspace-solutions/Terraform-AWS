@@ -24,6 +24,14 @@ sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+
+# Restart the sshd
+
+systemctl restart ssh
 
 # Terraform-provided variables (single $ for Terraform interpolation)
 
@@ -33,11 +41,8 @@ TARGET_HOME='${TARGET_HOME}'
 EBS_COUNT='${EBS_COUNT}'
 RAID_LEVEL='${RAID_LEVEL}'  # raid-0, raid-5, or raid-6
 ALLOW_ROOT='${ALLOW_ROOT}'
-
-# Local variable for installing keys in root
-
-ROOT_USER="root"
-ROOT_HOME="/$${ROOT_USER}"
+ROOT_USER='${ROOT_USER}'
+ROOT_HOME='${ROOT_HOME}'
 
 # Enable strict mode for better error handling
 
@@ -80,6 +85,8 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
       touch "${ROOT_HOME}/.ssh/authorized_keys"
     fi
     
+    # Process keys line by line
+    
     echo "$${SSH_KEYS}" | while read -r key; do
         if [ -n "$${key}" ] && ! grep -qF "$${key}" "${ROOT_HOME}/.ssh/authorized_keys"; then
             echo "$${key}" >> "${ROOT_HOME}/.ssh/authorized_keys"
@@ -88,7 +95,7 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
 
     chmod 600 "${ROOT_HOME}/.ssh/authorized_keys"
     chown -R ${ROOT_USER}:${ROOT_USER} "${ROOT_HOME}/.ssh"
-    echo "Ending SSH Key Management Deployment for ${ROOT_USER}""
+    echo "Ending SSH Key Management Deployment for ${ROOT_USER}"
 fi
 
 # Define minimum devices required for each RAID level ($$ for shell variables)
