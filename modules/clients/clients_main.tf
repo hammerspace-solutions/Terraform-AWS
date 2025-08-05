@@ -92,6 +92,10 @@ locals {
   })
 
   resource_prefix = "${var.common_config.project_name}-client"
+
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
+  })
 }
 
 # Security group for client instances
@@ -115,9 +119,8 @@ resource "aws_security_group" "client" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.common_config.tags, {
+  tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-sg"
-    Project = var.common_config.project_name
   })
 }
 
@@ -195,9 +198,8 @@ resource "aws_instance" "clients" {
     }
   }
   
-  tags = merge(var.common_config.tags, {
+  tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-${count.index + 1}"
-    Project = var.common_config.project_name
   })
 }
 

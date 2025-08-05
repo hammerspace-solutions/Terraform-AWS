@@ -94,6 +94,10 @@ locals {
   }) : null
 
   resource_prefix = "${var.common_config.project_name}-storage"
+
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
+  })
 }
 
 resource "aws_security_group" "storage" {
@@ -115,9 +119,8 @@ resource "aws_security_group" "storage" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.common_config.tags, {
+  tags = merge(local.common_tags, {
     Name    = "${local.resource_prefix}-sg"
-    Project = var.common_config.project_name
   })
 }
 
