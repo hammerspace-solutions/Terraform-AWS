@@ -33,3 +33,20 @@ output "instance_details" {
     }
   ]
 }
+
+# The following is ONLY used for Ansible. It will be marked sensitive so that it
+# is not output
+
+output "client_ansible_info" {
+  description = "A list of sensitive details for client instances"
+  sensitive   = true
+  value = [
+    for i in aws_instance.clients : {
+      id         = i.id
+      private_ip = i.private_ip
+      name	 = i.tags.Name
+      type	 = "client"
+    }
+  ]
+}
+

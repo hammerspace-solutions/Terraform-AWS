@@ -358,9 +358,11 @@ locals {
   deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
 
   all_ssh_nodes = concat(
-    local.deploy_bastion ? module.bastion[0].instance_details : [],
-    local.deploy_clients ? module.clients[0].instance_details : [],
-    local.deploy_storage ? module.storage_servers[0].instance_details : []
+    local.deploy_bastion ? module.bastion[0].bastion_ansible_info : [],
+    local.deploy_clients ? module.clients[0].client_ansible_info : [],
+    local.deploy_storage ? module.storage_servers[0].storage_ansible_info : [],
+    local.deploy_hammerspace ? module.hammerspace[0].anvil_ansible_info : [],
+    local.deploy_hammerspace ? module.hammerspace[0].dsx_ansible_info : []
   )
 
   ecgroup_ami_mapping = {
@@ -586,7 +588,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.2"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.3"
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip

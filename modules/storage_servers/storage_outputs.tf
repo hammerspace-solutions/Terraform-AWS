@@ -38,3 +38,19 @@ output "security_group_id" {
   description = "The ID of the security group created for the storage instances."
   value       = one(aws_security_group.storage[*].id)
 }
+
+# The following is ONLY used for Ansible. It will be marked sensitive so that it
+# is not output
+
+output "storage_ansible_info" {
+  description = "A list of sensitive details for storage instances"
+  sensitive   = true
+  value = [
+    for i in aws_instance.storage_server : {
+      id         = i.id
+      private_ip = i.private_ip
+      name	 = i.tags.Name
+      type	 = "storage"
+    }
+  ]
+}

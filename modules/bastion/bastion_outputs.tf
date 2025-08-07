@@ -34,3 +34,19 @@ output "instance_details" {
     }
   ]
 }
+
+# The following is ONLY used for Ansible. It will be marked sensitive so that it
+# is not output
+
+output "bastion_ansible_info" {
+  description = "A list of sensitive details for bastion instances"
+  sensitive   = true
+  value = [
+    for i in aws_instance.bastion : {
+      id         = i.id
+      private_ip = i.private_ip
+      name	 = i.tags.Name
+      type	 = "bastion"
+    }
+  ]
+}

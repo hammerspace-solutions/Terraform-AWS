@@ -146,10 +146,13 @@ resource "aws_instance" "ansible" {
   ami           = var.ami
   instance_type = var.instance_type
   user_data     = local.processed_user_data
-
   key_name        = var.common_config.key_name
   placement_group = var.common_config.placement_group_name
   
+  # Mark the user_data as sensitive so it doesn't display during creation / destruction
+
+  user_data_replace_on_change = true
+
   # Connect the network interface with the instance
 
   network_interface {

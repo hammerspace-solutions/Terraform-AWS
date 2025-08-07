@@ -39,6 +39,10 @@ sudo apt-get install -y software-properties-common
 sudo add-apt-repository --yes --update ppa:ansible/ansible
 sudo apt-get install -y ansible jq net-tools
 
+# --- Install Emacs (because I like it) ---
+
+sudo DEBIAN_FRONTEND=noninteractive apt install -y emacs
+
 echo "Upgrade the OS to make sure we have the latest"
 sudo apt-get -y upgrade
 
@@ -141,21 +145,78 @@ echo "SLEEP while waiting for clients, storage to become available"
 sleep 180
 echo "End SLEEP"
 
+# This is going to be done in three parts:
+#
+# Part 1: Create the inventory.ini file
+
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
-    echo "Setting up for passwordless SSH..."
+    echo "Setting up for passwordless SSH... Creating inventory.ini file"
     sudo -u ${TARGET_USER} ansible-galaxy collection install community.crypto
 
-    INVENTORY_FILE="$${TARGET_HOME}/inventory.ini"
-    echo "[all_nodes]" > "$INVENTORY_FILE"
-    echo "localhost ansible_connection=local" >> "$INVENTORY_FILE"
-    echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
-    chown ${TARGET_USER}:${TARGET_USER} "$INVENTORY_FILE"
+    INVENTORY_NAME="inventory.ini"
+    INVENTORY_FILE="$${TARGET_HOME}/$INVENTORY_NAME"
+    echo "[all:children]" > $INVENTORY_FILE
+
+    # Extract unique types and append to [all]
+    echo "$${TARGET_NODES_JSON}" | jq -r '.[].type' | sort -u >> $INVENTORY_FILE
+
+    # Output each type group with private IPs
+    for type in bastion client storage anvil dsx; do
+	HOSTS="$(echo "$${TARGET_NODES_JSON}" | jq -r --arg t $type '.[] | select(.type == $t) | .private_ip')"
+	if [ -n "$${HOSTS}" ]; then
+	    echo "" >> $INVENTORY_FILE
+	    echo "[$type]" >> $INVENTORY_FILE
+	    echo "$${HOSTS}" >> $INVENTORY_FILE
+	fi
+    done
+
+    echo "" >> $INVENTORY_FILE
+    echo "[ssh:children]" >> $INVENTORY_FILE
+    for type in bastion client storage; do
+	if echo "$${TARGET_NODES_JSON}" | jq -e --arg t $type '.[] | select(.type == $t)' > /dev/null; then
+	    echo $type >> $INVENTORY_FILE
+	fi
+    done
+
+    echo "" >> $INVENTORY_FILE
+    echo "[hammerspace:children]" >> $INVENTORY_FILE
+    for type in anvil dsx; do
+	if echo "$${TARGET_NODES_JSON}" | jq -e --arg t $type '.[] | select(.type == $t)' > /dev/null; then
+	    echo $type >> $INVENTORY_FILE
+	fi
+    done
+
+    chown ${TARGET_USER}:${TARGET_USER} $INVENTORY_FILE
+
+    # Copy this file to the root directory. This MIGHT be needed if we
+    # distribute keys for root as well.
+
+    cp $INVENTORY_FILE "$${ROOT_HOME}"
+    chown ${ROOT_USER}:${ROOT_USER} "$${ROOT_HOME}/$INVENTORY_NAME"
+
+    # Copy this file to the bastion host (if it started)
+
+    if [ -n "$${BASTION_INSTANCES}" ] && [ "$${BASTION_INSTANCES}" != "[]" ]; then
+
+      # Get the bastion IP
+
+      bastion_host=$(ansible-inventory -i $INVENTORY_FILE --list | jq -r --arg grp bastion '.[$grp].hosts[]')
+      echo "The bastion host is $bastion_host"
+      scp $INVENTORY_FILE $bastion_host:"$${TARGET_HOME}"
+    fi
+else
+    echo "No clients or storage servers deployed, skipping creating inventory.ini file"
+fi
+
+# Part 2: Create and execute the ansible playbook and update the known_hosts
+
+if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
 
     PLAYBOOK_FILE="$${TARGET_HOME}/distribute_keys.yml"
     cat > "$PLAYBOOK_FILE" << EOF
 ---
 - name: Distribute shared SSH key pair and configure known_hosts
-  hosts: all
+  hosts: ssh
   become: true
   vars:
     ssh_user: "ubuntu"
@@ -194,69 +255,49 @@ if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ]; then
         user: "{{ ssh_user }}"
         key: "{{ lookup('file', public_key_source) }}"
         state: present
-
-- name: Gather all host IPs and populate known_hosts
-  hosts: all
-  become: true
-  gather_facts: false
-  vars:
-    ssh_user: "ubuntu"
-    ssh_dir: "/home/{{ ssh_user }}/.ssh"
-    known_hosts_file: "{{ ssh_dir }}/known_hosts"
-
-  tasks:
-    - name: Collect all private IPs from inventory
-      add_host:
-        name: "{{ hostvars[item]['ansible_host'] | default(item) }}"
-      loop: "{{ groups['all'] }}"
-
-    - name: Copy known_hosts to all other hosts
-      synchronize:
-        src: "{{ ssh_dir }}/known_hosts"
-        dest: "{{ ssh_dir }}/known_hosts"
-        mode: push
-        recursive: no
-      delegate_to: "{{ groups['all'][0] }}"
-      become: false
-      remote_user: ubuntu
 EOF
-
+  
     chown ${TARGET_USER}:${TARGET_USER} "$PLAYBOOK_FILE"
 
-    echo "Scanning hosts to populate known_hosts..."
-    sudo -u ${TARGET_USER} bash -c "ssh-keyscan -H -f ${TARGET_HOME}/inventory.ini >> ${TARGET_HOME}/.ssh/known_hosts" || true
+    # Get all the IPs for names under the group [ssh]
+    TARGET_GROUP="ssh"
+    ALL_SSH_IPS=$(
+        ansible-inventory -i "$INVENTORY_FILE" --list |
+  	  jq -r --arg grp "$TARGET_GROUP" '
+	    .[$grp].children[] as $child |
+	    .[$child].hosts[]?'
+    )
+
+    # Do a ssh-keyscan and send it to every host to update known_hosts
+    if [ -n "$ALL_SSH_IPS" ]; then
+      echo "Scanning hosts to populate known_hosts..."
+      echo "$ALL_SSH_IPS" | awk 'NF' | sort -u | xargs -r ssh-keyscan -H >> "$${TARGET_HOME}/.ssh/known_hosts"
+    fi
 
     echo "Running Ansible playbook to distribute SSH keys..."
-    sudo -u ${TARGET_USER} bash -c "ansible-playbook -i ${TARGET_HOME}/inventory.ini ${TARGET_HOME}/distribute_keys.yml"
+    sudo -u ${TARGET_USER} bash -c "ansible-playbook -i $INVENTORY_FILE ${TARGET_HOME}/distribute_keys.yml"
     echo "Finished distributing SSH keys."
-else
+  else
     echo "No clients or storage servers deployed, skipping passwordless SSH setup."
 fi
+
+# Part-3: Distribute keys for root users (only if they want them)
 
 if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ] &&
    [ "$${ALLOW_ROOT}" = "true" ]; then
     echo "Setting up for passwordless SSH for root..."
 
-#    sudo -u ${ROOT_USER} ansible-galaxy collection install community.crypto
-
-    INVENTORY_FILE="$${ROOT_HOME}/inventory.ini"
-    echo "[all_nodes]" > "$INVENTORY_FILE"
-    echo "localhost ansible_connection=local" >> "$INVENTORY_FILE"
-    echo "$TARGET_NODES_JSON" | jq -r '.[] | .private_ip' >> "$INVENTORY_FILE"
-    chown ${ROOT_USER}:${ROOT_USER} "$INVENTORY_FILE"
-
     PLAYBOOK_FILE="$${ROOT_HOME}/distribute_keys.yml"
     cat > "$PLAYBOOK_FILE" << EOF
 ---
 - name: Distribute shared SSH key pair and configure known_hosts
-  hosts: all
+  hosts: ssh
   become: true
   vars:
     ssh_user: "root"
     ssh_dir: "/{{ ssh_user }}/.ssh"
     private_key_source: "{{ ssh_dir }}/id_rsa"
     public_key_source: "{{ ssh_dir }}/id_rsa.pub"
-    known_hosts_file: "{{ ssh_dir }}/known_hosts"
 
   tasks:
     - name: Ensure .ssh directory exists
@@ -288,37 +329,24 @@ if [ -n "$${TARGET_NODES_JSON}" ] && [ "$${TARGET_NODES_JSON}" != "[]" ] &&
         user: "{{ ssh_user }}"
         key: "{{ lookup('file', public_key_source) }}"
         state: present
-
-- name: Gather all host IPs and populate known_hosts
-  hosts: all
-  become: true
-  gather_facts: false
-  vars:
-    ssh_user: "root"
-    ssh_dir: "/{{ ssh_user }}/.ssh"
-    known_hosts_file: "{{ ssh_dir }}/known_hosts"
-
-  tasks:
-    - name: Collect all private IPs from inventory
-      add_host:
-        name: "{{ hostvars[item]['ansible_host'] | default(item) }}"
-      loop: "{{ groups['all'] }}"
-
-    - name: Copy known_hosts to all other hosts
-      synchronize:
-        src: "{{ ssh_dir }}/known_hosts"
-        dest: "{{ ssh_dir }}/known_hosts"
-        mode: push
-        recursive: no
-      delegate_to: "{{ groups['all'][0] }}"
-      become: false
-      remote_user: root
 EOF
 
     chown ${ROOT_USER}:${ROOT_USER} "$PLAYBOOK_FILE"
 
-    echo "Scanning hosts to populate known_hosts for root..."
-    sudo -u ${ROOT_USER} bash -c "ssh-keyscan -H -f ${ROOT_HOME}/inventory.ini >> ${ROOT_HOME}/.ssh/known_hosts" || true
+    # Get all the IPs for names under the group [ssh]
+    TARGET_GROUP="ssh"
+    ALL_SSH_IPS=$(
+        ansible-inventory -i "$INVENTORY_FILE" --list |
+  	  jq -r --arg grp "$TARGET_GROUP" '
+	    .[$grp].children[] as $child |
+	    .[$child].hosts[]?'
+    )
+
+    # Do a ssh-keyscan and send it to every host to update known_hosts
+    if [ -n "$ALL_SSH_IPS" ]; then
+      echo "Scanning hosts to populate known_hosts to root..."
+      echo "$ALL_SSH_IPS" | awk 'NF' | sort -u | xargs -r ssh-keyscan -H >> "$${ROOT_HOME}/.ssh/known_hosts"
+    fi
 
     echo "Running Ansible playbook to distribute SSH keys to root..."
     sudo -u ${ROOT_USER} bash -c "ansible-playbook -i ${ROOT_HOME}/inventory.ini ${ROOT_HOME}/distribute_keys.yml"
