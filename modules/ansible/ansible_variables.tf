@@ -85,12 +85,6 @@ variable "boot_volume_type" {
   type        = string
 }
 
-variable "user_data" {
-  description = "Path to user data script for Ansible"
-  type        = string
-  sensitive   = true
-}
-
 variable "target_user" {
   description = "Default system user for Ansible EC2"
   type        = string

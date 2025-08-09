@@ -67,8 +67,8 @@ tags = {
 
 # Ansible specific variables (ansible_ prefix)
 #
-# The only thing that might be confusing are the variables:
-# "ansible_user_data" and "ansible_target_user". In AWS, the login
+# The only thing that might be confusing is the variable:
+# "ansible_target_user". In AWS, the login
 # to a EC2 instance is usually of the form:
 # "ssh -i PEM_FILE OS_NAME@IP_ADDRESS
 #
@@ -76,11 +76,6 @@ tags = {
 # have logged in once, you can create as many users as you want. But,
 # the first default user is the OS_NAME (or in this case "ubuntu")
 #
-# The ansible_user_data is a location where a bash shell script is stored.
-# You can modify that script as it is passed to the EC2 instance during
-# instantiation. It can be used for further configuration. Remember that
-# the script MUST conform to the OS that you are instantiating. Today,
-# we only have a script for ubuntu.
 
 ansible_instance_count		     = 1
 ansible_ami			     = "ami-04cfeb9ad57f3053a"
