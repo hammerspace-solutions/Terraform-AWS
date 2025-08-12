@@ -353,9 +353,9 @@ locals {
   deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
   deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
-  deploy_ansible     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
   deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
+  deploy_ansible     = var.bastion_instance_count > 0
 
   all_ssh_nodes = concat(
     local.deploy_bastion ? module.bastion[0].bastion_ansible_info : [],
@@ -517,7 +517,7 @@ resource "aws_placement_group" "this" {
 # Deploy the Ansible module if requested
 
 module "ansible" {
-  count   = 1
+  count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
 
   common_config           = local.common_config
