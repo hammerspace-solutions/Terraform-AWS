@@ -89,12 +89,6 @@ variable "clients_ebs_iops" {
   default     = null
 }
 
-variable "clients_user_data" {
-  description = "Path to user data script for clients"
-  type        = string
-  default     = "./templates/client_config_ubuntu.sh.tmpl"
-}
-
 variable "clients_target_user" {
   description = "Default system user for client EC2s"
   type        = string

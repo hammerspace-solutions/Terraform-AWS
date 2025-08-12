@@ -559,8 +559,6 @@ module "clients" {
   ebs_throughput   = var.clients_ebs_throughput
   ebs_iops         = var.clients_ebs_iops
   tier0		   = var.clients_tier0
-  user_data        = var.clients_user_data
-  target_user      = var.clients_target_user
 
   depends_on = [
     module.ansible,
@@ -584,7 +582,6 @@ module "bastion" {
   instance_type    	  = var.bastion_instance_type
   boot_volume_size 	  = var.bastion_boot_volume_size
   boot_volume_type 	  = var.bastion_boot_volume_type
-  user_data		  = var.bastion_user_data
   target_user      	  = var.bastion_target_user
 
   depends_on = [
@@ -611,7 +608,6 @@ module "storage_servers" {
   ebs_type         	  = var.storage_ebs_type
   ebs_throughput   	  = var.storage_ebs_throughput
   ebs_iops         	  = var.storage_ebs_iops
-  user_data        	  = var.storage_user_data
   target_user      	  = var.storage_target_user
 
   depends_on = [
