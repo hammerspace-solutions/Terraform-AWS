@@ -65,18 +65,24 @@ locals {
   root_user 		   = "root"
   root_home 		   = "/${local.root_user}"
 
+  # Process a minimal bootstrap script for user_data
+
+  bootstrap_user_data = templatefile("${path.module}/scripts/bootstrap_ssh.sh.tmpl", {
+    TARGET_USER              = var.target_user,
+    TARGET_HOME		     = "/home/${var.target_user}",
+    ROOT_USER		     = local.root_user,
+    ROOT_HOME		     = local.root_home,
+    SSH_KEYS		     = join("\n", local.ssh_public_keys)
+    }
+  )
+  
   # Process the template file and substitute arguments
   
-  processed_user_data = base64gzip(
-    templatefile("${path.module}/scripts/ansible_user_data.sh.tpl", {
-      daemon_script	     = local.daemon_script_content
+  processed_ansible_script_content = templatefile(
+    "${path.module}/scripts/ansible_config.sh.tmpl", {
+      daemon_script	     = local.daemon_script_content,
       functions_script	     = local.functions_script_content
-      TARGET_USER            = var.target_user,
-      TARGET_HOME            = local.target_home,
-      ROOT_USER		     = local.root_user,
-      ROOT_HOME		     = local.root_home,
-      SSH_KEYS               = join("\n", local.ssh_public_keys)
-    })
+    }
   )
 
   resource_prefix = "${var.common_config.project_name}-ansible"
@@ -139,14 +145,12 @@ resource "aws_instance" "ansible" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
-  user_data     = local.processed_user_data
   key_name        = var.common_config.key_name
   placement_group = var.common_config.placement_group_name
+
+  # Use the minimal bootstrap script here
+  user_data     = local.bootstrap_user_data
   
-  # Mark the user_data as sensitive so it doesn't display during creation / destruction
-
-  user_data_replace_on_change = true
-
   # Connect the network interface with the instance
 
   network_interface {
@@ -321,6 +325,36 @@ resource "null_resource" "key_provisioner" {
     inline = [
       "sudo chmod 600 ${local.root_home}/.ssh/id_rsa.pub",
       "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa.pub"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Provisioner to upload the main configuration script
+
+  provisioner "file" {
+    content       = local.processed_ansible_script_content
+    destination	  = "/tmp/run_ansible_setup.sh"
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Provisioner to execute the main configuration script
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod +x /tmp/run_ansible_setup.sh",
+      "sudo bash -c /tmp/run_ansible_setup.sh"
     ]
 
     connection {

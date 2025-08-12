@@ -60,14 +60,3 @@ variable "ansible_target_user" {
   type        = string
   default     = "ubuntu"
 }
-
-variable "volume_group_name" {
-  description = "Volume group name for Ansible to feed Anvil"
-  type        = string
-  default     = "vg-auto"
-}
-
-variable "share_name" {
-  description = "Share name for Ansible to feed Anvil"
-  type        = string
-}

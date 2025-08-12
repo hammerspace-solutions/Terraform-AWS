@@ -77,13 +77,10 @@ tags = {
 # the first default user is the OS_NAME (or in this case "ubuntu")
 #
 
-ansible_instance_count		     = 1
 ansible_ami			     = "ami-04cfeb9ad57f3053a"
 ansible_instance_type		     = "m5n.2xlarge"
 ansible_boot_volume_size	     = 40
 ansible_boot_volume_type	     = "gp2"
-volume_group_name		     = "vg_auto"
-share_name			     = "test01"
 
 # Bastion specific variables (bastion_ prefix)
 #

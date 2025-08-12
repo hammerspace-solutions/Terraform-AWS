@@ -1,60 +1,18 @@
 #!/bin/bash
-# This script creates the daemon and function library, then starts the service.
 
-# --- Script ---
-
-set -euo pipefail
-
-# --- Create the function library script ---
-sudo mkdir -p /usr/local/lib
-cat <<'EOF' | sudo tee /usr/local/lib/ansible_functions.sh > /dev/null
-${functions_script}
-EOF
-
-# --- Create the daemon script ---
-sudo mkdir -p /usr/local/bin
-cat <<'EOF' | sudo tee /usr/local/bin/ansible_controller_daemon.sh > /dev/null
-${daemon_script}
-EOF
-
-# --- Create the initial job script (as designed before) ---
-# This part uses the other variables passed in from Terraform
-sudo mkdir -p /tmp/ansible_config
-cat <<EOF | sudo tee /tmp/ansible_config/00-initial-system-setup.sh > /dev/null
-#!/bin/bash
-
-# Variable placeholders - replaced by Terraform templatefile function
+# Passed from Terraform and are used to set the SSH keys into the
+# authorized keys file
 
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
 
-# Some private variables for dealing with ssh-less logins using root
+# We might need to do the same SSH keys into the root user as well
 
 ROOT_USER='${ROOT_USER}'
 ROOT_HOME='${ROOT_HOME}'
 
-# --- Script ---
-
-set -euo pipefail
-
-# --- Package Installation ---
-
-sudo apt-get -y update
-sudo apt-get install -y software-properties-common
-sudo add-apt-repository --yes --update ppa:ansible/ansible
-sudo apt-get install -y ansible jq net-tools
-
-# --- Install Emacs (because I like it) ---
-
-sudo DEBIAN_FRONTEND=noninteractive apt install -y emacs
-
-echo "Upgrade the OS to make sure we have the latest"
-sudo apt-get -y upgrade
-
-# Restart the sshd
-
-systemctl restart ssh
+echo "Starting bootstrap process..."
 
 # --- SSH Key Management for additional keys ---
 
@@ -104,12 +62,4 @@ if [ -n "$${SSH_KEYS}" ]; then
     echo "Ending SSH Key Management Deployment for $${ROOT_USER}"
 fi
 
-echo "Ansible controller setup complete."
-EOF
-
-# --- Set permissions and launch the daemon ---
-sudo chmod +x /usr/local/bin/ansible_controller_daemon.sh
-sudo chmod +x /tmp/ansible_config/00-initial-system-setup.sh
-
-# Redirect stdout/stderr and launch the daemon in the background
-sudo /usr/local/bin/ansible_controller_daemon.sh > /var/log/ansible_controller_daemon.log 2>&1 &
+echo "Ending bootstrap process...."
