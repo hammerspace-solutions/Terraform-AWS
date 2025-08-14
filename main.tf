@@ -355,7 +355,7 @@ locals {
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
   deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
-  deploy_ansible     = var.bastion_instance_count > 0
+  deploy_ansible     = var.ansible_instance_count > 0
 
   all_ssh_nodes = concat(
     local.deploy_bastion ? module.bastion[0].bastion_ansible_info : [],
@@ -559,6 +559,7 @@ module "clients" {
   ebs_throughput   = var.clients_ebs_throughput
   ebs_iops         = var.clients_ebs_iops
   tier0		   = var.clients_tier0
+  target_user	   = var.clients_target_user
 
   depends_on = [
     module.ansible,
@@ -676,7 +677,6 @@ module "ecgroup" {
   storage_ebs_size        = var.ecgroup_storage_volume_size
   storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
   storage_ebs_iops        = var.ecgroup_storage_volume_iops
-  user_data               = var.ecgroup_user_data
 
   depends_on = [
     module.ansible,

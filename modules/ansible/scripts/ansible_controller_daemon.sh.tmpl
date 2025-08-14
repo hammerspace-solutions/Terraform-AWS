@@ -49,6 +49,10 @@ while true; do
 
             # Execute the job script
             if bash "$script_path"; then
+		# Remove the old failure if this is a re-run
+	        if [ -f "$STATUS_DIR/$script_name.failure" ]; then
+		    rm "$STATUS_DIR/$script_name.failure" &> /dev/null
+		fi
                 # On success, record it and move the script
                 echo "SUCCESS" > "$STATUS_DIR/$script_name.success"
                 echo "Job $script_name completed successfully."

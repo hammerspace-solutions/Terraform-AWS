@@ -53,11 +53,11 @@ locals {
   # This reads the entire content of the "ansible_controller_daemon.sh" file
   # into a single string and stores it in the 'daemon_script_content' variable.
 
-  daemon_script_content = file("${path.module}/scripts/ansible_controller_daemon.sh")
+  daemon_script_content = file("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
 
   # This does the same for the "ansible_functions.sh" file.
 
-  functions_script_content = file("${path.module}/scripts/ansible_functions.sh")
+  functions_script_content = file("${path.module}/scripts/ansible_functions.sh.tmpl")
 
   # Create some variables needed by template file
 
