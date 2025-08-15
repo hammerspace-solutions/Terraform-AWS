@@ -86,6 +86,7 @@ locals {
     TARGET_HOME	      = "/home/${var.target_user}",
     SSH_KEYS   	      = join("\n", local.ssh_public_keys),
     TIER0	      = var.tier0,
+    TIER0_TYPE	      = var.tier0_type, 
     ALLOW_ROOT	      = var.common_config.allow_root,
     ROOT_USER	      = local.root_user,
     ROOT_HOME	      = local.root_home

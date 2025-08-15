@@ -559,10 +559,12 @@ module "clients" {
   ebs_throughput   = var.clients_ebs_throughput
   ebs_iops         = var.clients_ebs_iops
   tier0		   = var.clients_tier0
+  tier0_type	   = var.clients_tier0_type
   target_user	   = var.clients_target_user
 
   depends_on = [
     module.ansible,
+    module.bastion,
     module.hammerspace
   ]
 }
@@ -613,6 +615,7 @@ module "storage_servers" {
 
   depends_on = [
     module.ansible,
+    module.bastion,
     module.hammerspace
   ]
 }
@@ -649,7 +652,8 @@ module "hammerspace" {
   dsx_add_vols            = var.hammerspace_dsx_add_vols
 
   depends_on = [
-    module.ansible
+    module.ansible,
+    module.bastion
   ]
 }
 
@@ -680,6 +684,7 @@ module "ecgroup" {
 
   depends_on = [
     module.ansible,
+    module.bastion,
     module.hammerspace
   ]
 }
