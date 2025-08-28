@@ -54,12 +54,6 @@ variable "bastion_boot_volume_type" {
   default     = "gp2"
 }
 
-variable "bastion_user_data" {
-  description = "Path to user data script for bastion client"
-  type	      = string
-  default     = "./templates/bastion_config_ubuntu.sh.tmpl"
-}
-
 variable "bastion_target_user" {
   description = "Default system user for bastion EC2s"
   type        = string

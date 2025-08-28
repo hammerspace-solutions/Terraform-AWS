@@ -353,9 +353,9 @@ locals {
   deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
   deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
-  deploy_ansible     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ansible")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
   deploy_bastion     = (var.bastion_instance_count > 0) && var.assign_public_ip
+  deploy_ansible     = var.ansible_instance_count > 0
 
   all_ssh_nodes = concat(
     local.deploy_bastion ? module.bastion[0].bastion_ansible_info : [],
@@ -514,6 +514,31 @@ resource "aws_placement_group" "this" {
   tags     = var.tags
 }
 
+# Deploy the Ansible module if requested
+
+module "ansible" {
+  count   = local.deploy_ansible ? 1 : 0
+  source  = "./modules/ansible"
+
+  common_config           = local.common_config
+  assign_public_ip	  = var.assign_public_ip
+  public_subnet_id	  = var.public_subnet_id
+  capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
+  
+  # Pass the path to the key, not the content of the key.
+
+  admin_private_key_path  = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
+
+  admin_public_key_path  = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
+
+  instance_count   	  = var.ansible_instance_count
+  ami              	  = var.ansible_ami
+  instance_type    	  = var.ansible_instance_type
+  boot_volume_size 	  = var.ansible_boot_volume_size
+  boot_volume_type 	  = var.ansible_boot_volume_type
+  target_user      	  = var.ansible_target_user
+}
+
 # Deploy the clients module if requested
 
 module "clients" {
@@ -534,10 +559,14 @@ module "clients" {
   ebs_throughput   = var.clients_ebs_throughput
   ebs_iops         = var.clients_ebs_iops
   tier0		   = var.clients_tier0
-  user_data        = var.clients_user_data
-  target_user      = var.clients_target_user
+  tier0_type	   = var.clients_tier0_type
+  target_user	   = var.clients_target_user
 
-  depends_on = [module.hammerspace]
+  depends_on = [
+    module.ansible,
+    module.bastion,
+    module.hammerspace
+  ]
 }
 
 # Deploy the bastion client if requested
@@ -556,10 +585,12 @@ module "bastion" {
   instance_type    	  = var.bastion_instance_type
   boot_volume_size 	  = var.bastion_boot_volume_size
   boot_volume_type 	  = var.bastion_boot_volume_type
-  user_data		  = var.bastion_user_data
   target_user      	  = var.bastion_target_user
 
-  depends_on 		  = [module.hammerspace]
+  depends_on = [
+    module.ansible,
+    module.hammerspace
+  ]
 }
 
 module "storage_servers" {
@@ -580,10 +611,13 @@ module "storage_servers" {
   ebs_type         	  = var.storage_ebs_type
   ebs_throughput   	  = var.storage_ebs_throughput
   ebs_iops         	  = var.storage_ebs_iops
-  user_data        	  = var.storage_user_data
   target_user      	  = var.storage_target_user
 
-  depends_on 		  = [module.hammerspace]
+  depends_on = [
+    module.ansible,
+    module.bastion,
+    module.hammerspace
+  ]
 }
 
 module "hammerspace" {
@@ -616,13 +650,18 @@ module "hammerspace" {
   dsx_ebs_throughput      = var.hammerspace_dsx_ebs_throughput
   dsx_ebs_count           = var.hammerspace_dsx_ebs_count
   dsx_add_vols            = var.hammerspace_dsx_add_vols
+
+  depends_on = [
+    module.ansible,
+    module.bastion
+  ]
 }
 
 # Deploy the ECGroup module if requested
 
 module "ecgroup" {
   count = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.1"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=kade-ansible-changes"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -642,55 +681,11 @@ module "ecgroup" {
   storage_ebs_size        = var.ecgroup_storage_volume_size
   storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
   storage_ebs_iops        = var.ecgroup_storage_volume_iops
-  user_data               = var.ecgroup_user_data
-
-  depends_on 		  = [module.hammerspace]
-}
-
-# Deploy the Ansible module if requested
-
-module "ansible" {
-  count   = local.deploy_ansible ? 1 : 0
-  source  = "./modules/ansible"
-
-  common_config           = local.common_config
-  assign_public_ip	  = var.assign_public_ip
-  public_subnet_id	  = var.public_subnet_id
-  capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
-  
-  target_nodes_json       = jsonencode(local.all_ssh_nodes)
-
-  # Pass the path to the key, not the content of the key.
-
-  admin_private_key_path  = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
-
-  admin_public_key_path  = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
-
-  mgmt_ip                 = local.deploy_hammerspace ? flatten(module.hammerspace[*].management_ip) : []
-  anvil_instances         = local.deploy_hammerspace ? flatten(module.hammerspace[*].anvil_instances) : []
-  bastion_instances	  = local.deploy_bastion ? flatten(module.bastion[*].instance_details) : []
-  client_instances	  = local.deploy_clients ? flatten(module.clients[*].instance_details) : []
-  storage_instances       = local.deploy_storage ? flatten(module.storage_servers[*].instance_details) : []
-  ecgroup_instances       = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.id] : []
-  ecgroup_nodes           = local.deploy_ecgroup ? [for n in flatten(module.ecgroup[*].nodes) : n.private_ip] : []
-  ecgroup_metadata_array  = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
-  ecgroup_storage_array   = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
-
-  instance_count   	  = var.ansible_instance_count
-  ami              	  = var.ansible_ami
-  instance_type    	  = var.ansible_instance_type
-  boot_volume_size 	  = var.ansible_boot_volume_size
-  boot_volume_type 	  = var.ansible_boot_volume_type
-  user_data        	  = var.ansible_user_data
-  target_user      	  = var.ansible_target_user
-  volume_group_name 	  = var.volume_group_name
-  share_name       	  = var.share_name
 
   depends_on = [
+    module.ansible,
     module.bastion,
-    module.clients,
-    module.storage_servers,
-    module.hammerspace,
-    module.ecgroup
+    module.hammerspace
   ]
 }
+

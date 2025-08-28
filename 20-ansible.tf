@@ -55,25 +55,8 @@ variable "ansible_boot_volume_type" {
   default     = "gp2"
 }
 
-variable "ansible_user_data" {
-  description = "Path to user data script for Ansible"
-  type        = string
-  default     = "./templates/ansible_config_ubuntu.sh.tmpl"
-}
-
 variable "ansible_target_user" {
   description = "Default system user for Ansible EC2"
   type        = string
   default     = "ubuntu"
-}
-
-variable "volume_group_name" {
-  description = "Volume group name for Ansible to feed Anvil"
-  type        = string
-  default     = "vg-auto"
-}
-
-variable "share_name" {
-  description = "Share name for Ansible to feed Anvil"
-  type        = string
 }

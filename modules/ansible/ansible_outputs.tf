@@ -34,8 +34,3 @@ output "instance_details" {
     }
   ]
 }
-
-output "user_data" {
-  value		 = aws_instance.ansible[*].user_data
-  sensitive	 = true
-}

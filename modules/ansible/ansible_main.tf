@@ -45,45 +45,45 @@ locals {
     []
   )
 
+  # Verify if the instance type is available in AWS. We will check this later with a
+  # precondition
+  
   ansible_instance_type_is_available = length(data.aws_ec2_instance_type_offering.ansible.instance_type) > 0
+
+  # This reads the entire content of the "ansible_controller_daemon.sh" file
+  # into a single string and stores it in the 'daemon_script_content' variable.
+
+  daemon_script_content = file("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
+
+  # This does the same for the "ansible_functions.sh" file.
+
+  functions_script_content = file("${path.module}/scripts/ansible_functions.sh.tmpl")
 
   # Create some variables needed by template file
 
   target_home		   = "/home/${var.target_user}"
   root_user 		   = "root"
   root_home 		   = "/${local.root_user}"
-  private_key_file 	   = "id_rsa"
-  private_key_path	   = "${local.target_home}/.ssh/${local.private_key_file}"
-  root_private_key_path	   = "${local.root_home}/.ssh/${local.private_key_file}"
 
+  # Process a minimal bootstrap script for user_data
+
+  bootstrap_user_data = templatefile("${path.module}/scripts/bootstrap_ssh.sh.tmpl", {
+    TARGET_USER              = var.target_user,
+    TARGET_HOME		     = "/home/${var.target_user}",
+    ROOT_USER		     = local.root_user,
+    ROOT_HOME		     = local.root_home,
+    SSH_KEYS		     = join("\n", local.ssh_public_keys)
+    }
+  )
+  
   # Process the template file and substitute arguments
   
-  processed_user_data = var.user_data != "" ? base64gzip(
-    templatefile(var.user_data, {
-      TARGET_USER            = var.target_user,
-      TARGET_HOME            = local.target_home,
-      ROOT_USER		     = local.root_user,
-      ROOT_HOME		     = local.root_home,
-      PRIVATE_KEY_FILE	     = local.private_key_file,
-      PRIVATE_KEY_PATH	     = local.private_key_path,
-      ROOT_PRIVATE_KEY_PATH  = local.root_private_key_path,
-      SSH_KEYS               = join("\n", local.ssh_public_keys),
-      ALLOW_ROOT	     = var.common_config.allow_root
-      TARGET_NODES_JSON      = var.target_nodes_json,
-      MGMT_IP                = length(var.mgmt_ip) > 0 ? var.mgmt_ip[0] : "",
-      ANVIL_ID               = length(var.anvil_instances) > 0 ? var.anvil_instances[0].id : "",
-      BASTION_INSTANCES	     = jsonencode(var.bastion_instances),
-      CLIENT_INSTANCES	     = jsonencode(var.client_instances),
-      STORAGE_INSTANCES      = jsonencode(var.storage_instances),
-      VG_NAME                = var.volume_group_name,
-      SHARE_NAME             = var.share_name,
-      ECGROUP_INSTANCES      = join(" ", var.ecgroup_instances),
-      ECGROUP_HOSTS          = length(var.ecgroup_nodes) > 0 ? var.ecgroup_nodes[0] : "",
-      ECGROUP_NODES          = join(" ", var.ecgroup_nodes),
-      ECGROUP_METADATA_ARRAY = var.ecgroup_metadata_array,
-      ECGROUP_STORAGE_ARRAY  = var.ecgroup_storage_array
-    })
-  ) : null
+  processed_ansible_script_content = templatefile(
+    "${path.module}/scripts/ansible_config.sh.tmpl", {
+      daemon_script	     = local.daemon_script_content,
+      functions_script	     = local.functions_script_content
+    }
+  )
 
   resource_prefix = "${var.common_config.project_name}-ansible"
 
@@ -145,14 +145,12 @@ resource "aws_instance" "ansible" {
   count         = var.instance_count
   ami           = var.ami
   instance_type = var.instance_type
-  user_data     = local.processed_user_data
   key_name        = var.common_config.key_name
   placement_group = var.common_config.placement_group_name
+
+  # Use the minimal bootstrap script here
+  user_data     = local.bootstrap_user_data
   
-  # Mark the user_data as sensitive so it doesn't display during creation / destruction
-
-  user_data_replace_on_change = true
-
   # Connect the network interface with the instance
 
   network_interface {
@@ -327,6 +325,36 @@ resource "null_resource" "key_provisioner" {
     inline = [
       "sudo chmod 600 ${local.root_home}/.ssh/id_rsa.pub",
       "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa.pub"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Provisioner to upload the main configuration script
+
+  provisioner "file" {
+    content       = local.processed_ansible_script_content
+    destination	  = "/tmp/run_ansible_setup.sh"
+
+    connection {
+      type        = "ssh"
+      user        = local.root_user
+      private_key = file(var.admin_private_key_path)
+      host        = var.assign_public_ip ? aws_instance.ansible[count.index].public_ip : aws_instance.ansible[count.index].private_ip
+    }
+  }
+
+  # Provisioner to execute the main configuration script
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod +x /tmp/run_ansible_setup.sh",
+      "sudo bash -c /tmp/run_ansible_setup.sh"
     ]
 
     connection {

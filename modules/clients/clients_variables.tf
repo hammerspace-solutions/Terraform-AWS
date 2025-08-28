@@ -65,13 +65,19 @@ variable "instance_type" {
 }
 
 variable "tier0" {
+  description = "Tier0 enabled or not?"
+  type	      = bool
+  default     = false
+}
+
+variable "tier0_type" {
   description = "RAID level to configure on client EBS volumes (raid-0, raid-5, or raid-6). Set to blank to skip RAID."
   type        = string
   default     = ""
 
   validation {
-    condition     = contains(["", "raid-0", "raid-5", "raid-6"], var.tier0)
-    error_message = "RAID level must be one of: blank, raid-0, raid-5, or raid-6."
+    condition     = contains(["raid-0", "raid-5", "raid-6"], var.tier0)
+    error_message = "RAID level must be one of: raid-0, raid-5, or raid-6."
   }
 }
 
@@ -110,11 +116,6 @@ variable "ebs_iops" {
   description = "IOPS for gp3/io1/io2 EBS volumes for clients"
   type        = number
   default     = null
-}
-
-variable "user_data" {
-  description = "Path to user data script for clients"
-  type        = string
 }
 
 variable "target_user" {

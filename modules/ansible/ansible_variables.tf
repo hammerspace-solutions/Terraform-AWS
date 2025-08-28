@@ -85,12 +85,6 @@ variable "boot_volume_type" {
   type        = string
 }
 
-variable "user_data" {
-  description = "Path to user data script for Ansible"
-  type        = string
-  sensitive   = true
-}
-
 variable "target_user" {
   description = "Default system user for Ansible EC2"
   type        = string
@@ -114,93 +108,4 @@ variable "admin_public_key_path" {
   type        = string
   sensitive   = true
   default     = ""
-}
-
-# Other variables
-variable "mgmt_ip" {
-  description = "Hammerspace management IP address"
-  type        = list(string)
-  default     = []
-}
-
-variable "anvil_instances" {
-  description = "Anvil instances details"
-  type = list(object({
-    type                       = string
-    id                         = string
-    arn                        = string
-    private_ip                 = string
-    public_ip                  = string
-    key_name                   = string
-    iam_profile                = string
-    placement_group            = string
-    all_private_ips_on_eni_set = set(string)
-    floating_ip_candidate      = string
-  }))
-  default = []
-}
-
-variable "bastion_instances" {
-  description = "Bastion Client instances details"
-  type = list(object({
-    id         = string
-    public_ip  = string
-    private_ip = string
-    name       = string
-  }))
-  default = []
-}
-
-variable "client_instances" {
-  description = "Client instances details"
-  type = list(object({
-    id         = string
-    private_ip = string
-    name       = string
-  }))
-  default = []
-}
-
-variable "storage_instances" {
-  description = "Storage instances details"
-  type = list(object({
-    id         = string
-    private_ip = string
-    name       = string
-  }))
-  default = []
-}
-
-variable "volume_group_name" {
-  description = "Volume group name for Anvil"
-  type        = string
-  default     = "vg-auto"
-}
-
-variable "share_name" {
-  description = "Share name for Anvil"
-  type        = string
-  default     = ""
-}
-
-# ECGroup specific variable
-
-variable "ecgroup_instances" {
-  description = "ECGroup instances"
-  type        = list(string)
-}
-
-variable "ecgroup_nodes" {
-  description = "ECGroup nodes"
-  type        = list(string)
-}
-
-variable "ecgroup_metadata_array" {
-  description = "ECGroup metadata array."
-  type        = string
-}
-
-variable "ecgroup_storage_array" {
-  description = "ECGroup storage array."
-  type        = string
 }

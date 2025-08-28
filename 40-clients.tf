@@ -32,9 +32,15 @@ variable "clients_instance_count" {
 }
 
 variable "clients_tier0" {
-  description = "Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'."
+  description = "Tier0 RAID config for clients."
+  type        = bool
+  default     = false
+}
+
+variable "clients_tier0_type" {
+  description = "Tier0 RAID config for clients. (raid-0, raid-5, or raid-6)"
   type        = string
-  default     = ""
+  default     = "raid-0"
 }
 
 variable "clients_ami" {
@@ -87,12 +93,6 @@ variable "clients_ebs_iops" {
   description = "IOPS for gp3/io1/io2 EBS volumes for clients"
   type        = number
   default     = null
-}
-
-variable "clients_user_data" {
-  description = "Path to user data script for clients"
-  type        = string
-  default     = "./templates/client_config_ubuntu.sh.tmpl"
 }
 
 variable "clients_target_user" {

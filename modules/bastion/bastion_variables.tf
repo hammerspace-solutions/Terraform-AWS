@@ -85,11 +85,6 @@ variable "boot_volume_type" {
   type        = string
 }
 
-variable "user_data" {
-  description = "Path to user data script for the bastion client"
-  type	      = string
-}
-
 variable "target_user" {
   description = "Default system user for the bastion client EC2s"
   type        = string

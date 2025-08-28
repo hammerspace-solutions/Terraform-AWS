@@ -111,11 +111,6 @@ variable "ebs_iops" {
   default     = null
 }
 
-variable "user_data" {
-  description = "Path to user data script for storage"
-  type        = string
-}
-
 variable "target_user" {
   description = "Default system user for storage EC2s"
   type        = string

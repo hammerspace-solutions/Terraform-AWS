@@ -81,11 +81,12 @@ locals {
 
   # Process the bash shell template
   
-  processed_user_data = templatefile(var.user_data, {
+  processed_user_data = templatefile("${path.module}/scripts/user_data_${var.target_user}.sh.tmpl", {
     TARGET_USER	      = var.target_user,
     TARGET_HOME	      = "/home/${var.target_user}",
     SSH_KEYS   	      = join("\n", local.ssh_public_keys),
     TIER0	      = var.tier0,
+    TIER0_TYPE	      = var.tier0_type, 
     ALLOW_ROOT	      = var.common_config.allow_root,
     ROOT_USER	      = local.root_user,
     ROOT_HOME	      = local.root_home

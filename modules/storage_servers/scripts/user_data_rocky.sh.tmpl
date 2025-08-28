@@ -26,6 +26,14 @@ sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+
+# Restart the sshd
+
+systemctl restart ssh
 
 # Terraform-provided variables (single $ for Terraform interpolation)
 
@@ -34,11 +42,63 @@ TARGET_USER="${TARGET_USER}"
 TARGET_HOME="${TARGET_HOME}"
 EBS_COUNT="${EBS_COUNT}"
 RAID_LEVEL="${RAID_LEVEL}"  # raid-0, raid-5, or raid-6
+ALLOW_ROOT='${ALLOW_ROOT}'
+ROOT_USER='${ROOT_USER}'
+ROOT_HOME='${ROOT_HOME}'
 
 # Enable strict mode for better error handling
 
 set -euo pipefail
 shopt -s failglob
+
+# SSH Key Management
+
+if [ -n "$${SSH_KEYS}" ]; then
+    echo "Start Add SSH Keys to authorized_keys"
+
+    if [ ! -d "$${TARGET_HOME}/.ssh" ]; then
+      mkdir -p "$${TARGET_HOME}/.ssh"
+      chmod 700 "$${TARGET_HOME}/.ssh"
+      touch "$${TARGET_HOME}/.ssh/authorized_keys"
+    fi
+
+    # Process keys line by line
+
+    echo "$${SSH_KEYS}" | while read -r key; do
+        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
+            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
+        fi
+    done
+
+    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
+    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+
+    echo "End Add SSH Keys"
+fi
+
+# --- SSH Key Management for additional keys (This is ONLY for root) ---
+
+if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+    echo "Starting SSH Key Management Deployment for ${ROOT_USER}"
+
+    if [ ! -d "${ROOT_HOME}/.ssh" ]; then
+      mkdir -p "${ROOT_HOME}/.ssh"
+      chmod 700 "${ROOT_HOME}/.ssh"
+      touch "${ROOT_HOME}/.ssh/authorized_keys"
+    fi
+    
+    # Process keys line by line
+    
+    echo "$${SSH_KEYS}" | while read -r key; do
+        if [ -n "$${key}" ] && ! grep -qF "$${key}" "${ROOT_HOME}/.ssh/authorized_keys"; then
+            echo "$${key}" >> "${ROOT_HOME}/.ssh/authorized_keys"
+        fi
+    done
+
+    chmod 600 "${ROOT_HOME}/.ssh/authorized_keys"
+    chown -R ${ROOT_USER}:${ROOT_USER} "${ROOT_HOME}/.ssh"
+    echo "Ending SSH Key Management Deployment for ${ROOT_USER}"
+fi
 
 # Define minimum devices required for each RAID level ($$ for shell variables)
 
@@ -60,9 +120,11 @@ if [ "$${EBS_COUNT}" -lt "$${MIN_DEVICES}" ]; then
 fi
 
 # Define the target number of disks we are waiting for (EBS_COUNT + 1)
+
 TARGET_DISK_COUNT=$(( $${EBS_COUNT} + 1 ))
 
 # Loop while the number of found disks is less than our target
+
 while [ $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l) -lt "$${TARGET_DISK_COUNT}" ]; do
     sleep 10
     # The updated echo message is clearer about the goal
@@ -172,28 +234,6 @@ sudo firewall-cmd --reload
 
 # Enable and start NFS service (replaces 'nfs-kernel-server' on Ubuntu)
 sudo systemctl enable --now nfs-server
-
-# SSH Key Management
-
-echo "Start Add SSH Keys to authorized_keys"
-
-if [ -n "$${SSH_KEYS}" ]; then
-    mkdir -p "$${TARGET_HOME}/.ssh"
-    chmod 700 "$${TARGET_HOME}/.ssh"
-    touch "$${TARGET_HOME}/.ssh/authorized_keys"
-
-    # Process keys line by line
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
-        fi
-    done
-
-    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
-    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
-fi
-
-echo "End Add SSH Keys"
 
 # Verify RAID
 
