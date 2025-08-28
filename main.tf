@@ -661,7 +661,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=kade-ansible-changes"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.2"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
