@@ -19,8 +19,6 @@
 # SOFTWARE.
 # -----------------------------------------------------------------------------
 # modules/ansible/ansible_variables.tf
-#
-# This file defines all the input variables for the Ansible module.
 # -----------------------------------------------------------------------------
 
 variable "common_config" {
@@ -34,27 +32,27 @@ variable "common_config" {
     tags                 = map(string)
     project_name         = string
     ssh_keys_dir         = string
-    allow_root		 = bool
+    allow_root          = bool
     placement_group_name = string
     allowed_source_cidr_blocks = list(string)
   })
 }
 
 variable "public_subnet_id" {
-  description = "The ID of the public subnet where the ansible instance will be launched. Required if assign_public_ip is true."
-  type	      = string
+  description = "The ID of the public subnet where the ansible instance will be launched."
+  type        = string
   default     = null
 }
 
 variable "assign_public_ip" {
-  description = "Assign a public IP to this host"
-  type	      = bool
-  default     = false
+  description = "If true, ansible instance will get a public IP and a EIP"
+  type        = bool
+  default     = true
 }
 
 variable "capacity_reservation_id" {
   description = "The ID of the On-Demand Capacity Reservation to target."
-  type	      = string
+  type        = string
   default     = null
 }
 
@@ -71,29 +69,8 @@ variable "ami" {
 }
 
 variable "instance_type" {
-  description = "Instance type for Ansible"
+  description = "Instance type for Ansible instances"
   type        = string
-}
-
-variable "boot_volume_size" {
-  description = "Root volume size (GB) for Ansible"
-  type        = number
-}
-
-variable "boot_volume_type" {
-  description = "Root volume type for Ansible"
-  type        = string
-}
-
-variable "target_user" {
-  description = "Default system user for Ansible EC2"
-  type        = string
-}
-
-variable "target_nodes_json" {
-  description = "A JSON-encoded string of all client and storage nodes for Ansible to configure."
-  type        = string
-  default     = "[]"
 }
 
 variable "admin_private_key_path" {
@@ -107,5 +84,12 @@ variable "admin_public_key_path" {
   description = "The local path to the public key for the Ansible controller"
   type        = string
   sensitive   = true
+  default     = ""
+}
+
+# NEW: integrate with iam_core by allowing a caller-provided instance profile.
+variable "profile_id" {
+  description = "Existing IAM Instance Profile name to attach to the Ansible instance(s). Leave empty to attach none."
+  type        = string
   default     = ""
 }

@@ -69,9 +69,8 @@ locals {
 
   bootstrap_user_data = templatefile("${path.module}/scripts/bootstrap_ssh.sh.tmpl", {
     TARGET_USER              = var.target_user,
-    TARGET_HOME		     = "/home/${var.target_user}",
-    ROOT_USER		     = local.root_user,
-    ROOT_HOME		     = local.root_home,
+    ALLOW_ROOT		     = var.common_config.allow_root,
+    REGION		     = var.common_config.region,
     SSH_KEYS		     = join("\n", local.ssh_public_keys)
     }
   )
@@ -147,7 +146,8 @@ resource "aws_instance" "ansible" {
   instance_type = var.instance_type
   key_name        = var.common_config.key_name
   placement_group = var.common_config.placement_group_name
-
+  iam_instance_profile = var.profile_id != "" ? var.profile_id : null
+  
   # Use the minimal bootstrap script here
   user_data     = local.bootstrap_user_data
   

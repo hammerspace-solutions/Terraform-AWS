@@ -19,10 +19,9 @@
 # SOFTWARE.
 # -----------------------------------------------------------------------------
 # modules/ansible/ansible_outputs.tf
-#
-# This file defines the outputs for the Ansible module.
 # -----------------------------------------------------------------------------
 
+# (Unchanged)
 output "instance_details" {
   description = "A list of non-sensitive details for Ansible instances (ID, Name, IPs)."
   value = [
