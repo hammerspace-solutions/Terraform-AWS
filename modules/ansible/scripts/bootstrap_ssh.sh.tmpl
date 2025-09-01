@@ -1,65 +1,141 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Rendered by Terraform user_data (templatefile). Safe to run multiple times.
+# Purpose: Prepare an EC2 for Ansible via SSM (no inbound SSH required),
+# while keeping SSH usable and installing keys for both target_user AND root.
 
-# Passed from Terraform and are used to set the SSH keys into the
-# authorized keys file
+set -euxo pipefail
 
-TARGET_USER='${TARGET_USER}'
-TARGET_HOME='${TARGET_HOME}'
-SSH_KEYS='${SSH_KEYS}'
+# -------- Variables from Terraform (templatefile) --------
 
-# We might need to do the same SSH keys into the root user as well
+TARGET_USER="${TARGET_USER}"              # e.g., "ubuntu"
+ALLOW_ROOT="$${ALLOW_ROOT}"                # "true" or "false"
+SSH_KEYS_MULTILINE="$${SSH_KEYS}"
+REGION="$${REGION}"                        # optional, just for logging
 
-ROOT_USER='${ROOT_USER}'
-ROOT_HOME='${ROOT_HOME}'
+log() { echo "[$(date -Is)] $*"; }
 
-echo "Starting bootstrap process..."
+# -------- Basic packages (Python & curl for Ansible + SSM) --------
 
-# --- SSH Key Management for additional keys ---
-
-if [ -n "$${SSH_KEYS}" ]; then
-    echo "Starting SSH Key Management Deployment"
-
-    if [ ! -d "$${TARGET_HOME}/.ssh" ]; then
-      mkdir -p "$${TARGET_HOME}/.ssh"
-      chmod 700 "$${TARGET_HOME}/.ssh"
-      touch "$${TARGET_HOME}/.ssh/authorized_keys"
-    fi
-    
-    # Process keys one by one to avoid multi-line issues
-
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
-        fi
-    done
-
-    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
-    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
-    echo "Ending SSH Key Management Deployment"
+if command -v apt-get >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y || true
+  apt-get install -y python3 curl || true
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y python3 curl || true
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y python3 curl || true
 fi
 
-# --- SSH Key Management for additional keys (This is ONLY for root) ---
-
-if [ -n "$${SSH_KEYS}" ]; then
-    echo "Starting SSH Key Management Deployment for root"
-
-    if [ ! -d "$${ROOT_HOME}/.ssh" ]; then
-      mkdir -p "$${ROOT_HOME}/.ssh"
-      chmod 700 "$${ROOT_HOME}/.ssh"
-      touch "$${ROOT_HOME}/.ssh/authorized_keys"
-    fi
-    
-    # Process keys line by line
-    
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${ROOT_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${ROOT_HOME}/.ssh/authorized_keys"
-        fi
-    done
-
-    chmod 600 "$${ROOT_HOME}/.ssh/authorized_keys"
-    chown -R "$${ROOT_USER}":"$${ROOT_USER}" "$${ROOT_HOME}/.ssh"
-    echo "Ending SSH Key Management Deployment for $${ROOT_USER}"
+# -------- Ensure target user exists and is sudoer --------
+if ! id -u "$${TARGET_USER}" >/dev/null 2>&1; then
+  log "Creating user "$${TARGET_USER}"
+  useradd -m -s /bin/bash "$${TARGET_USER}"
+  if command -v usermod >/dev/null 2>&1; then
+    usermod -aG wheel "$${TARGET_USER}" 2>/dev/null || usermod -aG sudo "$${TARGET_USER}" 2>/dev/null || true
+  fi
 fi
 
-echo "Ending bootstrap process...."
+# -------- Helper: install same keys for any user (target + root) --------
+
+install_keys_for() {
+  local user="$1"
+  # skip if user missing
+  id -u "$${user}" >/dev/null 2>&1 || return 0
+  local home
+  home="$(getent passwd "$${user}" | awk -F: '{print $6}')"
+  [ -z "$home" ] && home="/${user}"
+  mkdir -p "$home/.ssh"
+  # write keys only if we actually have any
+  if [ -n "$${SSH_KEYS}" ]; then
+    printf '%s\n' "$${SSH_KEYS}" > "$home/.ssh/authorized_keys"
+  fi
+  chmod 0700 "$home/.ssh"
+  chmod 0600 "$home/.ssh/authorized_keys" 2>/dev/null || true
+  chown -R "$${user}":"$${user}" "$home/.ssh"
+  log "Installed authorized_keys for $${user} in $home/.ssh/authorized_keys"
+}
+
+# -------- Install keys for both target user AND root --------
+
+if [ -n "$${SSH_KEYS}" ]; then
+  install_keys_for "$${TARGET_USER}"
+  install_keys_for "root"
+fi
+
+# -------- SSH daemon hardening + root login policy --------
+
+if [ -f /etc/ssh/sshd_config ]; then
+  # ensure pubkey auth and sane defaults
+  if grep -q '^[#[:space:]]*PubkeyAuthentication' /etc/ssh/sshd_config; then
+    sed -i 's/^[#[:space:]]*PubkeyAuthentication .*/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
+  else
+    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+  fi
+  sed -i 's/^[#[:space:]]*PasswordAuthentication .*/PasswordAuthentication no/g' /etc/ssh/sshd_config || true
+  sed -i 's/^[#[:space:]]*UseDNS .*/UseDNS no/g' /etc/ssh/sshd_config || true
+
+  # toggle root SSH login by policy
+  if [ "$${ALLOW_ROOT,,}" = "true" ]; then
+    if grep -q '^PermitRootLogin' /etc/ssh/sshd_config; then
+      sed -i 's/^PermitRootLogin .*/PermitRootLogin yes/g' /etc/ssh/sshd_config
+    else
+      echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+    fi
+  else
+    if grep -q '^PermitRootLogin' /etc/ssh/sshd_config; then
+      sed -i 's/^PermitRootLogin .*/PermitRootLogin no/g' /etc/ssh/sshd_config
+    else
+      echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+    fi
+  fi
+
+  # Restart sshd if present (non-fatal fallback to 'ssh')
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart sshd || systemctl restart ssh || true
+  elif command -v service >/dev/null 2>&1; then
+    service sshd restart || service ssh restart || true
+  fi
+fi
+
+# -------- Install & enable SSM Agent (Ubuntu/Debian/RHEL/Rocky/AL) --------
+
+enable_ssm_unit() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now amazon-ssm-agent || true
+    systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+  else
+    service amazon-ssm-agent start || true
+  fi
+}
+
+if command -v snap >/dev/null 2>&1; then
+  # Ubuntu often ships via Snap
+  if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
+    log "Installing SSM Agent via snap"
+    snap install amazon-ssm-agent --classic || true
+  fi
+  enable_ssm_unit
+elif command -v apt-get >/dev/null 2>&1; then
+  log "Installing SSM Agent via apt if available"
+  apt-get update -y || true
+  apt-get install -y amazon-ssm-agent || true
+  enable_ssm_unit
+elif command -v dnf >/dev/null 2>&1; then
+  log "Installing SSM Agent via dnf"
+  dnf install -y amazon-ssm-agent || true
+  enable_ssm_unit
+elif command -v yum >/dev/null 2>&1; then
+  log "Installing SSM Agent via yum"
+  yum install -y amazon-ssm-agent || true
+  enable_ssm_unit
+else
+  log "Package manager not detected; skipping SSM agent install"
+fi
+
+# Verify (non-fatal)
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl status amazon-ssm-agent || systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+fi
+
+log "Bootstrap complete for region=${REGION}, user=${TARGET_USER}, allow_root=${ALLOW_ROOT}"

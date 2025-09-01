@@ -514,12 +514,21 @@ resource "aws_placement_group" "this" {
   tags     = var.tags
 }
 
+# Deploy the Ansible Roles
+
+module "iam_core_ansible" {
+  source		  = "./modules/iam-core"
+  project_name		  = var.project_name
+  role_name		  = "${var.project_name}-ansible"
+}
+
 # Deploy the Ansible module if requested
 
 module "ansible" {
   count   = local.deploy_ansible ? 1 : 0
   source  = "./modules/ansible"
 
+  profile_id		  = module.iam_core_ansible.instance_profile_name
   common_config           = local.common_config
   assign_public_ip	  = var.assign_public_ip
   public_subnet_id	  = var.public_subnet_id
@@ -588,8 +597,7 @@ module "bastion" {
   target_user      	  = var.bastion_target_user
 
   depends_on = [
-    module.ansible,
-    module.hammerspace
+    module.ansible
   ]
 }
 
@@ -622,7 +630,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.3"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=iam-core-updates"
 
   common_config           = local.common_config
   assign_public_ip     	  = var.assign_public_ip
@@ -632,7 +640,11 @@ module "hammerspace" {
 
   ami                     = var.hammerspace_ami
   iam_admin_group_id      = var.hammerspace_iam_admin_group_id
-  profile_id              = var.hammerspace_profile_id
+  profile_id = (length(trimspace(var.hammerspace_profile_id)) > 0
+    ? var.hammerspace_profile_id
+    : module.iam_core_hammerspace.instance_profile_name
+  )
+
   anvil_security_group_id = var.hammerspace_anvil_security_group_id
   dsx_security_group_id   = var.hammerspace_dsx_security_group_id
   anvil_count             = var.hammerspace_anvil_count
