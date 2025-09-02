@@ -187,15 +187,16 @@ resource "aws_instance" "clients" {
     
     precondition {
       condition = (
-        var.tier0 == "" ||  # if no tier0 requested, skip the check
-	local.nvme_count >= lookup({
+        # If tier0 is true, then run the check...
+        var.tier0 ?
+	(local.nvme_count >= lookup({
           "raid-0" = 2,
           "raid-5" = 3,
 	  "raid-6" = 4,
-        }, var.tier0)
+        }, var.tier0_type, null)) :
+	true
       )
-
-      error_message = "Insufficient total devices for tier0: if set, 'raid-0' needs ≥2, 'raid-5' needs ≥3, 'raid-6' needs ≥4."
+      error_message = "Insufficient NVMe drives for the selected RAID type."
     }
   }
   

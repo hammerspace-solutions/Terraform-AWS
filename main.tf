@@ -588,8 +588,7 @@ module "bastion" {
   target_user      	  = var.bastion_target_user
 
   depends_on = [
-    module.ansible,
-    module.hammerspace
+    module.ansible
   ]
 }
 
