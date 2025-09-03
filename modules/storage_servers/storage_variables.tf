@@ -37,6 +37,8 @@ variable "common_config" {
     allow_root		 = bool
     placement_group_name = string
     allowed_source_cidr_blocks = list(string)
+    iam_profile_name     = string
+    iam_profile_group	 = string
   })
 }
 
