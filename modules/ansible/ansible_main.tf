@@ -118,14 +118,7 @@ resource "aws_security_group" "ansible" {
   })
 }
 
-# Build a network interface JUST in case we need a public IP
-
-resource "aws_network_interface" "ansible_ni" {
-  count	              = 1
-  subnet_id 	      = var.assign_public_ip && var.public_subnet_id != null ? var.public_subnet_id : var.common_config.subnet_id
-  security_groups     = [aws_security_group.ansible.id]
-  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible" })
-}
+# One EIP per instance, but only when we want a public IP
 
 resource "aws_eip" "ansible" {
   count	 	      = var.assign_public_ip ? 1 : 0
@@ -133,10 +126,12 @@ resource "aws_eip" "ansible" {
   tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible-EIP" })
 }
 
+# Associate EIP to the Instance (not to an ENI)
+
 resource "aws_eip_association" "ansible" {
   count	 	           = var.assign_public_ip ? 1 : 0
-  network_interface_id     = aws_network_interface.ansible_ni[0].id
-  allocation_id		   = aws_eip.ansible[0].id
+  allocation_id		   = aws_eip.ansible[count.index].id
+  instance_id		   = aws_instance.ansible[count.index].id
 }
 
 # Launch EC2 Ansible instances
@@ -149,14 +144,17 @@ resource "aws_instance" "ansible" {
   placement_group = var.common_config.placement_group_name
 
   # Use the minimal bootstrap script here
+
   user_data     = local.bootstrap_user_data
   
-  # Connect the network interface with the instance
+  # Primary interface via native args
 
-  network_interface {
-    device_index	      = 0
-    network_interface_id      = aws_network_interface.ansible_ni[0].id
-  }
+  subnet_id     = var.assign_public_ip ? var.public_subnet_id : var.common_config.subnet_id
+  vpc_security_group_ids = [aws_security_group.ansible.id]
+
+  # Never auto-assing a public IP; we will attach an EIP when requested
+
+  associate_public_ip_address = false
 
   # Put tags on the volumes
 
