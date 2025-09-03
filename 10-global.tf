@@ -95,7 +95,7 @@ variable "ssh_keys_dir" {
 
 variable "allow_root" {
   description = "Allow root access to SSH"
-  type	      = bool
+  type        = bool
   default     = false
 }
 
@@ -132,3 +132,16 @@ variable "placement_group_strategy" {
     error_message = "Allowed values for placement_group_strategy are: cluster, spread, or partition."
   }
 }
+
+variable "iam_admin_group_name" {
+  description = "IAM admin group name for SSH access (can be existing group name or blank to create new)"
+  type        = string
+  default     = null
+}
+
+variable "iam_profile_name" {
+  description = "The name of an existing IAM Instance Profile to attach to instances. If left blank, a new one will be created with the necessary policies."
+  type        = string
+  default     = null
+}
+
