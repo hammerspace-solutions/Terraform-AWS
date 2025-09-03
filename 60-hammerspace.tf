@@ -32,18 +32,6 @@ variable "hammerspace_ami" {
   default     = ""
 }
 
-variable "hammerspace_iam_admin_group_id" {
-  description = "IAM admin group ID for SSH access (can be existing group name or blank to create new)"
-  type        = string
-  default     = ""
-}
-
-variable "hammerspace_profile_id" {
-  description = "The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created with the necessary policies."
-  type        = string
-  default     = ""
-}
-
 variable "hammerspace_anvil_security_group_id" {
   description = "Optional: An existing security group ID to use for the Anvil nodes."
   type        = string
