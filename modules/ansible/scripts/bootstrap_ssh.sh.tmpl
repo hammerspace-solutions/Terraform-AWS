@@ -1,65 +1,216 @@
 #!/bin/bash
+# Universal Ansible bootstrap (Ubuntu/Debian + Rocky/Alma/RHEL)
+# - Installs Ansible + boto libs + collections for AWS/SSM
+# - Installs/Enables AWS SSM Agent (repo → snap → regional S3 fallback)
+# - Manages SSH keys for TARGET_USER and root (/root)
 
-# Passed from Terraform and are used to set the SSH keys into the
-# authorized keys file
+# -----------------------------
+# OS detection helpers
+# -----------------------------
+if [ -r /etc/os-release ]; then
+  . /etc/os-release
+fi
+
+OS_ID="$${ID:-unknown}"
+OS_LIKE="$${ID_LIKE:-}"
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+try() { "$@" || true; }
+
+echo "Starting bootstrap process..."
+
+# -----------------------------
+# Base packages (curl + jq for SSM helper; python/pip for Ansible deps)
+# -----------------------------
+
+if have_cmd apt-get; then
+  export DEBIAN_FRONTEND=noninteractive
+  sudo apt-get -y update
+  sudo apt-get -y upgrade
+  sudo apt-get install -y python3 python3-pip git curl jq unzip net-tools
+  # Ansible from distro repos
+  try sudo apt-get install -y ansible
+elif have_cmd dnf; then
+  try sudo dnf -y install epel-release
+  sudo dnf -y upgrade
+  sudo dnf install -y python3 python3-pip git curl jq unzip net-tools
+  # Prefer ansible-core; fall back to ansible
+  try sudo dnf -y install ansible-core || try sudo dnf -y install ansible
+elif have_cmd yum; then
+  try sudo yum -y install epel-release
+  sudo yum -y update
+  sudo yum -y install python3 python3-pip git curl jq unzip net-tools
+  try sudo yum -y install ansible-core || try sudo yum -y install ansible
+fi
+
+# Ensure pip + AWS Python libs for Ansible AWS modules/SSM connection plugin
+
+try python3 -m pip install --upgrade pip
+try python3 -m pip install --upgrade boto3 botocore
+
+# Ensure Ansible exists even if OS package failed (minimal control plane)
+
+if ! have_cmd ansible && ! have_cmd ansible-playbook; then
+  try python3 -m pip install --upgrade ansible-core || python3 -m pip install --upgrade ansible
+fi
+
+# Ansible collections commonly used with SSM + AWS
+
+if have_cmd ansible-galaxy; then
+  try ansible-galaxy collection install amazon.aws community.aws
+fi
+
+# ----------------------------------------------------------------------------
+# TERRAFORM VARS (ROOT_* removed; root is always /root)
+# ----------------------------------------------------------------------------
 
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
 
-# We might need to do the same SSH keys into the root user as well
-
-ROOT_USER='${ROOT_USER}'
-ROOT_HOME='${ROOT_HOME}'
-
-echo "Starting bootstrap process..."
-
-# --- SSH Key Management for additional keys ---
-
+# -----------------------------
+# SSH Key Management for target user
+# -----------------------------
 if [ -n "$${SSH_KEYS}" ]; then
-    echo "Starting SSH Key Management Deployment"
+  echo "Starting SSH Key Management Deployment for $${TARGET_USER}"
 
-    if [ ! -d "$${TARGET_HOME}/.ssh" ]; then
-      mkdir -p "$${TARGET_HOME}/.ssh"
-      chmod 700 "$${TARGET_HOME}/.ssh"
-      touch "$${TARGET_HOME}/.ssh/authorized_keys"
+  if [ ! -d "$${TARGET_HOME}/.ssh" ]; then
+    mkdir -p "$${TARGET_HOME}/.ssh"
+    chmod 700 "$${TARGET_HOME}/.ssh"
+    touch "$${TARGET_HOME}/.ssh/authorized_keys"
+  fi
+
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
+      echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
     fi
-    
-    # Process keys one by one to avoid multi-line issues
+  done
 
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
-        fi
-    done
-
-    chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
-    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
-    echo "Ending SSH Key Management Deployment"
+  chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
+  chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+  echo "Ending SSH Key Management Deployment for $${TARGET_USER}"
 fi
 
-# --- SSH Key Management for additional keys (This is ONLY for root) ---
-
+# -----------------------------
+# SSH Key Management for root (/root)
+# -----------------------------
 if [ -n "$${SSH_KEYS}" ]; then
-    echo "Starting SSH Key Management Deployment for root"
+  echo "Starting SSH Key Management Deployment for root"
 
-    if [ ! -d "$${ROOT_HOME}/.ssh" ]; then
-      mkdir -p "$${ROOT_HOME}/.ssh"
-      chmod 700 "$${ROOT_HOME}/.ssh"
-      touch "$${ROOT_HOME}/.ssh/authorized_keys"
+  if [ ! -d "/root/.ssh" ]; then
+    mkdir -p "/root/.ssh"
+    chmod 700 "/root/.ssh"
+    touch "/root/.ssh/authorized_keys"
+  fi
+
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" "/root/.ssh/authorized_keys"; then
+      echo "$${key}" >> "/root/.ssh/authorized_keys"
     fi
-    
-    # Process keys line by line
-    
-    echo "$${SSH_KEYS}" | while read -r key; do
-        if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${ROOT_HOME}/.ssh/authorized_keys"; then
-            echo "$${key}" >> "$${ROOT_HOME}/.ssh/authorized_keys"
-        fi
-    done
+  done
 
-    chmod 600 "$${ROOT_HOME}/.ssh/authorized_keys"
-    chown -R "$${ROOT_USER}":"$${ROOT_USER}" "$${ROOT_HOME}/.ssh"
-    echo "Ending SSH Key Management Deployment for $${ROOT_USER}"
+  chmod 600 "/root/.ssh/authorized_keys"
+  chown -R root:root "/root/.ssh"
+  echo "Ending SSH Key Management Deployment for root"
 fi
+
+# -----------------------------
+# SSM Agent install/enable (multi-path)
+# -----------------------------
+
+get_imds_token() {
+  curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+}
+
+imds_get() {
+  local path="$1"
+  local token
+  token=$(get_imds_token)
+  if [ -n "$token" ]; then
+    curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/$path"
+  else
+    curl -sS "http://169.254.169.254/$path"
+  fi
+}
+
+ensure_ssm_agent() {
+  # If the native unit is present, just enable/start it
+  if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
+    try sudo systemctl enable --now amazon-ssm-agent
+    return 0
+  fi
+
+  # 1) Try native repos
+  if have_cmd apt-get; then
+    if try sudo apt-get install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd dnf; then
+    if try sudo dnf install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd yum; then
+    if try sudo yum install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  # 2) Try snap (Ubuntu)
+  if have_cmd snap; then
+    if try sudo snap install amazon-ssm-agent --classic; then
+      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+      return 0
+    fi
+  fi
+
+  # 3) Fallback: regional S3 package
+  REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+  ARCH="$(uname -m)"
+  if [ "$ARCH" = "x86_64" ]; then
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
+  else
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  fi
+
+  if have_cmd apt-get; then
+    PKG="/tmp/amazon-ssm-agent.deb"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  else
+    PKG="/tmp/amazon-ssm-agent.rpm"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+}
+ensure_ssm_agent
+
+# -----------------------------
+# SSH relax + pubkey login
+# -----------------------------
+
+sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+try sudo systemctl restart ssh
+try sudo systemctl restart sshd
 
 echo "Ending bootstrap process...."

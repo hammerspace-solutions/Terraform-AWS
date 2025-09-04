@@ -33,102 +33,6 @@ elif have_cmd yum; then
   sudo yum install -y python3-pip git bc nfs-utils screen net-tools fio xfsprogs curl jq
 fi
 
-# -----------------------------
-# SSM Agent install/enable (multi-path)
-# -----------------------------
-get_imds_token() {
-  curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
-}
-imds_get() {
-  local path="$1"
-  local token
-  token=$(get_imds_token)
-  if [ -n "$token" ]; then
-    curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/$path"
-  else
-    curl -sS "http://169.254.169.254/$path"
-  fi
-}
-ensure_ssm_agent() {
-  # If already installed, just enable & start
-  if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
-    try sudo systemctl enable --now amazon-ssm-agent
-    return 0
-  fi
-
-  # 1) Try native repos
-  if have_cmd apt-get; then
-    if try sudo apt-get install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  elif have_cmd dnf; then
-    if try sudo dnf install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  elif have_cmd yum; then
-    if try sudo yum install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  fi
-
-  # 2) Try snap (Ubuntu)
-  if have_cmd snap; then
-    if try sudo snap install amazon-ssm-agent --classic; then
-      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
-      return 0
-    fi
-  fi
-
-  # 3) Download from regional S3 (fallback)
-  REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
-  ARCH="$(uname -m)"
-  # Map arch to package naming
-  if [ "$ARCH" = "x86_64" ]; then
-    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
-  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
-  else
-    # default to amd64/x86_64
-    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
-  fi
-
-  if have_cmd apt-get; then
-    PKG="/tmp/amazon-ssm-agent.deb"
-    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
-    if curl -fsSL "$URL" -o "$PKG"; then
-      try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  else
-    PKG="/tmp/amazon-ssm-agent.rpm"
-    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
-    if curl -fsSL "$URL" -o "$PKG"; then
-      if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  fi
-
-  echo "WARN: Failed to install amazon-ssm-agent via all methods."
-}
-ensure_ssm_agent
-
-# Optional: Docker + editor (Debian/Ubuntu only)
-if echo "$OS_ID $OS_LIKE" | grep -Ei 'debian|ubuntu' >/dev/null 2>&1 && have_cmd apt-get; then
-  sudo apt-get update -y
-  sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
-    | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-  sudo apt-get update -y
-  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  sudo apt-get install -y emacs
-fi
-
 # ----------------------------------------------------------------------------
 # WARNING!!
 # DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
@@ -154,6 +58,7 @@ try sudo systemctl restart ssh
 try sudo systemctl restart sshd
 
 # Keys for target user
+
 if [ -n "$${SSH_KEYS}" ]; then
   mkdir -p "$${TARGET_HOME}/.ssh"
   chmod 700 "$${TARGET_HOME}/.ssh"
@@ -168,6 +73,7 @@ if [ -n "$${SSH_KEYS}" ]; then
 fi
 
 # Optional root keys
+
 if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
   echo "Starting SSH Key Management Deployment for root"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
@@ -183,10 +89,12 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
 fi
 
 # NFS test mountpoint
+
 sudo mkdir -p /mnt/nfs-test
 sudo chmod 777 /mnt/nfs-test
 
 # Tier0 RAID/NFS if requested
+
 tier0_setup() {
   echo "Tier0 enabled: installing RAID/NVMe/NFS…"
   if have_cmd apt; then
@@ -272,8 +180,111 @@ EOF
 [ "$${TIER0}" = "true" ] && tier0_setup || echo "Tier0 not enabled"
 
 # Add target user to docker group if exists
+
 if command -v docker >/dev/null 2>&1 && id "$${TARGET_USER}" >/dev/null 2>&1 && [ "$${TARGET_USER}" != "root" ]; then
   try sudo usermod -aG docker "$${TARGET_USER}"
+fi
+
+# -----------------------------
+# SSM Agent install/enable (multi-path)
+# -----------------------------
+
+get_imds_token() {
+  curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+}
+
+imds_get() {
+  local path="$1"
+  local token
+  token=$(get_imds_token)
+  if [ -n "$token" ]; then
+    curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/$path"
+  else
+    curl -sS "http://169.254.169.254/$path"
+  fi
+}
+
+ensure_ssm_agent() {
+  # If already installed, just enable & start
+  if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
+    try sudo systemctl enable --now amazon-ssm-agent
+    return 0
+  fi
+
+  # 1) Try native repos
+  if have_cmd apt-get; then
+    if try sudo apt-get install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd dnf; then
+    if try sudo dnf install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd yum; then
+    if try sudo yum install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  # 2) Try snap (Ubuntu)
+
+  if have_cmd snap; then
+    if try sudo snap install amazon-ssm-agent --classic; then
+      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+      return 0
+    fi
+  fi
+
+  # 3) Download from regional S3 (fallback)
+
+  REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+  ARCH="$(uname -m)"
+  # Map arch to package naming
+  if [ "$ARCH" = "x86_64" ]; then
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
+  else
+    # default to amd64/x86_64
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  fi
+
+  if have_cmd apt-get; then
+    PKG="/tmp/amazon-ssm-agent.deb"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  else
+    PKG="/tmp/amazon-ssm-agent.rpm"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+}
+ensure_ssm_agent
+
+# Optional: Docker + editor (Debian/Ubuntu only)
+
+if echo "$OS_ID $OS_LIKE" | grep -Ei 'debian|ubuntu' >/dev/null 2>&1 && have_cmd apt-get; then
+  sudo apt-get update -y
+  sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+    | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+  sudo apt-get update -y
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo apt-get install -y emacs
 fi
 
 sudo reboot
