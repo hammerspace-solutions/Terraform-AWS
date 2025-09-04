@@ -321,10 +321,12 @@ locals {
     project_name               = var.project_name
     ssh_keys_dir               = var.ssh_keys_dir
     allow_root                 = var.allow_root
-    placement_group_name       = var.placement_group_name != "" ? one(aws_placement_group.this[*].name) : ""
+    placement_group_name       = (
+      var.placement_group_name != ""
+        ? one(aws_placement_group.this[*].name)
+	: ""
+    )
     allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
-    iam_profile_name           = var.iam_profile_name
-    iam_profile_group          = var.iam_admin_group_name
   }
 
   deploy_clients     = contains(var.deploy_components, "all") || contains(var.deploy_components, "clients")
@@ -349,6 +351,14 @@ locals {
   }
 
   select_ecgroup_ami_for_region = lookup(local.ecgroup_ami_mapping, var.region, "")
+
+  # IAM role... Should we create roles and permissions or use an existing one?
+
+  iam_profile_name = (
+    var.iam_profile_name != null
+      ? var.iam_profile_name
+      : module.iam_core.instance_profile_name
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -472,6 +482,19 @@ resource "aws_placement_group" "this" {
   tags     = var.tags
 }
 
+# Build the IAM roles and permissions...
+# I put all of the logic into one module that can be referenced
+# by all the others. This makes auditing much simpler...
+
+module "iam_core" {
+  source      = "./modules/iam-core"
+
+  iam_profile_name = var.iam_profile_name
+  common_config = local.common_config
+  role_path	= var.iam_role_path
+  extra_managed_policy_arns = var.iam_additional_policy_arns
+}
+
 # Deploy the Ansible module if requested
 
 module "ansible" {
@@ -495,6 +518,15 @@ module "ansible" {
   boot_volume_size = var.ansible_boot_volume_size
   boot_volume_type = var.ansible_boot_volume_type
   target_user      = var.ansible_target_user
+
+  # IAM Roles
+  
+  iam_profile_name = local.iam_profile_name
+  iam_profile_group = var.iam_admin_group_name
+
+  depends_on = [
+    module.iam_core
+  ]
 }
 
 # Deploy the clients module if requested
@@ -519,6 +551,11 @@ module "clients" {
   tier0            = var.clients_tier0
   tier0_type       = var.clients_tier0_type
   target_user      = var.clients_target_user
+
+  # IAM Roles
+  
+  iam_profile_name = local.iam_profile_name
+  iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
     module.ansible,
@@ -545,6 +582,11 @@ module "storage_servers" {
   ebs_throughput   = var.storage_ebs_throughput
   ebs_iops         = var.storage_ebs_iops
   target_user      = var.storage_target_user
+
+  # IAM Roles
+  
+  iam_profile_name = local.iam_profile_name
+  iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
     module.ansible,
@@ -581,6 +623,11 @@ module "hammerspace" {
   dsx_ebs_count              = var.hammerspace_dsx_ebs_count
   dsx_add_vols               = var.hammerspace_dsx_add_vols
 
+  # IAM Roles
+
+  iam_profile_name = local.iam_profile_name
+  iam_profile_group = var.iam_admin_group_name
+
   depends_on = [
     module.ansible
   ]
@@ -590,7 +637,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.2"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.2.1"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -610,6 +657,11 @@ module "ecgroup" {
   storage_ebs_size        = var.ecgroup_storage_volume_size
   storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
   storage_ebs_iops        = var.ecgroup_storage_volume_iops
+
+  # IAM Roles
+
+  iam_profile_name = local.iam_profile_name
+  iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
     module.ansible,

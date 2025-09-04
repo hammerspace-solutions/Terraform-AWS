@@ -93,56 +93,8 @@ locals {
 
   resource_prefix = "${var.common_config.project_name}-storage"
 
-# Pick the right profile name based on user choice vs created resource
-
-  ssm_instance_profile_name = (
-    var.common_config.iam_profile_name != null
-    ? var.common_config.iam_profile_name
-    : aws_iam_instance_profile.storage_ssm[0].name
-  )
-
   common_tags = merge(var.common_config.tags, {
     Project = var.common_config.project_name
-  })
-}
-
-# IAM role for EC2 to talk to SSM
-
-resource "aws_iam_role" "storage_ssm" {
-  count = var.common_config.iam_profile_name == null ? 1 : 0
-  name = "${local.resource_prefix}-ssm-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect  	= "Allow",
-      Principal = { Service = "ec2.${data.aws_partition.current.dns_suffix}" },
-      Action	= "sts.AssumeRole"
-    }]
-  })
-
-  tags = merge(local.common_tags, {
-    Name    = "${local.resource_prefix}-ssm-role"
-  })
-}
-
-# Attach the managed SSM core policy
-
-resource "aws_iam_role_policy_attachment" "storage_ssm_core" {
-  count      = var.common_config.iam_profile_name == null ? 1 : 0
-  role       = aws_iam_role.storage_ssm[0].name
-  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-# Instance profile to bind the role to EC2
-
-resource "aws_iam_instance_profile" "storage_ssm" {
-  count = var.common_config.iam_profile_name == null ? 1 : 0
-  name  = "${local.resource_prefix}-ssm-profile"
-  role  = aws_iam_role.storage_ssm[0].name
-
-  tags = merge(local.common_tags, {
-    Name    = "${local.resource_prefix}-ssm-profile"
   })
 }
 
@@ -183,7 +135,7 @@ resource "aws_instance" "storage_server" {
   key_name                    = var.common_config.key_name
 
   vpc_security_group_ids = [aws_security_group.storage.id]
-  iam_instance_profile = local.ssm_instance_profile_name
+  iam_instance_profile = var.iam_profile_name
   
   # Put tags on the volumes
 

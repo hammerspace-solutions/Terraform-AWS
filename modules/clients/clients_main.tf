@@ -137,6 +137,7 @@ resource "aws_instance" "clients" {
   placement_group             = var.common_config.placement_group_name
 
   vpc_security_group_ids = [aws_security_group.client.id]
+  iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes
 

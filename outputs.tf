@@ -90,6 +90,5 @@ output "ecgroup_storage_array" {
 
 output "ansible_details" {
   description = "Ansible configuration details"
-  sensitive   = true
-  value       = module.ansible[*].instance_details
+  value       = module.ansible[*].ansible_details
 }

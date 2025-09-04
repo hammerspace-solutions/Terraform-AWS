@@ -145,3 +145,16 @@ variable "iam_profile_name" {
   default     = null
 }
 
+variable "iam_role_path" {
+  description = "The IAM role path"
+  type	      = string
+  default     = "/"
+}
+
+variable "iam_additional_policy_arns" {
+  description = "A list of additional iam policies to implement"
+  type        = list(string)
+  default     = []
+}
+
+

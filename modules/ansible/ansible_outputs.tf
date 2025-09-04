@@ -23,14 +23,25 @@
 # This file defines the outputs for the Ansible module.
 # -----------------------------------------------------------------------------
 
-output "instance_details" {
-  description = "A list of non-sensitive details for Ansible instances (ID, Name, IPs)."
+output "ansible_details" {
+  description = "Per-instance details for Ansible hosts (includes EIP when assign_public_ip = true)"
   value = [
-    for i in aws_instance.ansible : {
-      id         = i.id
-      public_ip  = i.public_ip
-      private_ip = i.private_ip
-      name       = i.tags.Name
+    for i in range(var.instance_count) : {
+      name       = try(aws_instance.ansible[i].tags.Name, null)
+      id         = aws_instance.ansible[i].id
+      az         = aws_instance.ansible[i].availability_zone
+      private_ip = aws_instance.ansible[i].private_ip
+
+      # Prefer the allocated EIP; fall back to instance public_ip if you ever enable it,
+      # else report null when no public address is expected.
+      public_ip = (
+        var.assign_public_ip
+        ? coalesce(
+            try(aws_eip.ansible[i].public_ip, ""),
+            try(aws_instance.ansible[i].public_ip, "")
+          )
+        : null
+      )
     }
   ]
 }
