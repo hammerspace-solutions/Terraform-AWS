@@ -1,0 +1,290 @@
+#!/bin/bash
+
+# Universal Linux user_data template (Ubuntu/Debian + Rocky/Alma/RHEL)
+# ROOT is always /root; adds SSM Agent installation + enablement.
+
+# -----------------------------
+# OS detection helpers
+# -----------------------------
+if [ -r /etc/os-release ]; then
+  . /etc/os-release
+fi
+
+OS_ID="$${ID:-unknown}"
+OS_LIKE="$${ID_LIKE:-}"
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+try() { "$@" || true; }  # best-effort for cross-distro commands
+
+# -----------------------------
+# Base packages (add curl + jq for SSM helper)
+# -----------------------------
+if have_cmd apt-get; then
+  export DEBIAN_FRONTEND=noninteractive
+  sudo apt-get -y update
+  sudo apt-get -y upgrade
+  sudo apt-get install -y python3-pip git bc nfs-common screen net-tools fio xfsprogs curl jq
+elif have_cmd dnf; then
+  try sudo dnf -y install epel-release
+  sudo dnf -y upgrade
+  sudo dnf install -y python3-pip git bc nfs-utils screen net-tools fio xfsprogs curl jq
+elif have_cmd yum; then
+  try sudo yum -y install epel-release
+  sudo yum -y update
+  sudo yum install -y python3-pip git bc nfs-utils screen net-tools fio xfsprogs curl jq
+fi
+
+# ----------------------------------------------------------------------------
+# WARNING!!
+# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
+# ----------------------------------------------------------------------------
+
+TARGET_USER='${TARGET_USER}'
+TARGET_HOME='${TARGET_HOME}'
+SSH_KEYS='${SSH_KEYS}'
+ALLOW_ROOT='${ALLOW_ROOT}'
+TIER0='${TIER0}'
+TIER0_TYPE='${TIER0_TYPE}'
+
+# SSH client/server relax
+sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+try sudo systemctl restart ssh
+try sudo systemctl restart sshd
+
+# Keys for target user
+
+if [ -n "$${SSH_KEYS}" ]; then
+  mkdir -p "$${TARGET_HOME}/.ssh"
+  chmod 700 "$${TARGET_HOME}/.ssh"
+  touch "$${TARGET_HOME}/.ssh/authorized_keys"
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
+      echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
+    fi
+  done
+  chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
+  chown -R "$${TARGET_USER}":"$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+fi
+
+# Optional root keys
+
+if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+  echo "Starting SSH Key Management Deployment for root"
+  mkdir -p /root/.ssh && chmod 700 /root/.ssh
+  touch /root/.ssh/authorized_keys
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" /root/.ssh/authorized_keys; then
+      echo "$${key}" >> /root/.ssh/authorized_keys
+    fi
+  done
+  chmod 600 /root/.ssh/authorized_keys
+  chown -R root:root /root/.ssh
+  echo "Ending SSH Key Management Deployment for root"
+fi
+
+# NFS test mountpoint
+
+sudo mkdir -p /mnt/nfs-test
+sudo chmod 777 /mnt/nfs-test
+
+# Tier0 RAID/NFS if requested
+
+tier0_setup() {
+  echo "Tier0 enabled: installing RAID/NVMe/NFS…"
+  if have_cmd apt; then
+    sudo apt -y update
+    sudo apt -y install mdadm nvme-cli jq nfs-kernel-server sysstat xfsprogs
+  elif have_cmd apt-get; then
+    sudo apt-get -y update
+    sudo apt-get -y install mdadm nvme-cli jq nfs-kernel-server sysstat xfsprogs
+  elif have_cmd dnf; then
+    sudo dnf -y install mdadm nvme-cli jq nfs-utils sysstat xfsprogs
+  elif have_cmd yum; then
+    sudo yum -y install mdadm nvme-cli jq nfs-utils sysstat xfsprogs
+  fi
+
+  mapfile -t NVME_DEVICES < <(nvme list | awk '/Amazon EC2 NVMe Instance Storage/ {print $1}')
+  echo "Found $${#NVME_DEVICES[@]} NVMe device(s): $${NVME_DEVICES[*]}"
+  if [ "$${#NVME_DEVICES[@]}" -eq 0 ]; then
+    echo "No NVMe instance-store devices; skipping RAID."
+    return 0
+  fi
+
+  TOTAL_DEVICES="$${#NVME_DEVICES[@]}"
+  case "$${TIER0_TYPE}" in
+    raid-0) MIN_REQUIRED=2; raid_options="--level=0 --raid-devices=$${TOTAL_DEVICES}" ;;
+    raid-5) MIN_REQUIRED=3; raid_options="--level=5 --raid-devices=$${TOTAL_DEVICES}" ;;
+    raid-6) MIN_REQUIRED=4; raid_options="--level=6 --raid-devices=$${TOTAL_DEVICES}" ;;
+    *) echo "Error: Invalid TIER0 value $${TIER0_TYPE}."; return 1 ;;
+  esac
+  [ "$${TOTAL_DEVICES}" -lt "$${MIN_REQUIRED}" ] && { echo "Insufficient devices for $${TIER0_TYPE}"; return 1; }
+
+  RAID_NUM="$${TIER0_TYPE#raid-}"
+  echo "Creating RAID$${RAID_NUM}…"
+  sudo mdadm --create --verbose /dev/md0 $${raid_options} $${NVME_DEVICES[*]}
+  sudo mkfs.xfs -f /dev/md0
+  sudo mkdir -p /tier0
+  sudo mount /dev/md0 /tier0
+  sudo chown -R "$${TARGET_USER}":"$${TARGET_USER}" /tier0
+  sudo chmod 777 /tier0
+  if [ -d /etc/mdadm ]; then
+    sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
+  else
+    sudo mdadm --detail --scan | sudo tee -a /etc/mdadm.conf
+  fi
+  echo "/dev/md0 /tier0 xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
+  if command -v update-initramfs >/dev/null 2>&1; then sudo update-initramfs -u; elif command -v dracut >/dev/null 2>&1; then sudo dracut -f; fi
+
+  echo "/tier0 *(rw,sync,no_root_squash,secure,mp,no_subtree_check)" | sudo tee -a /etc/exports
+  if [ -d /etc/nfs.conf.d ]; then
+    sudo tee /etc/nfs.conf.d/local.conf > /dev/null <<'EOF'
+[nfsd]
+threads = 128
+vers3=y
+vers4.0=n
+vers4.1=n
+vers4.2=y
+rdma=y
+rdma-port=20049
+
+[mountd]
+manage-gids = 1
+EOF
+  else
+    sudo tee -a /etc/nfs.conf > /dev/null <<'EOF'
+
+[nfsd]
+threads = 128
+vers3=y
+vers4.0=n
+vers4.1=n
+vers4.2=y
+rdma=y
+rdma-port=20049
+
+[mountd]
+manage-gids = 1
+EOF
+  fi
+  try sudo systemctl enable --now nfs-kernel-server
+  try sudo systemctl restart nfs-kernel-server
+  try sudo systemctl enable --now nfs-server
+  try sudo systemctl restart nfs-server
+}
+[ "$${TIER0}" = "true" ] && tier0_setup || echo "Tier0 not enabled"
+
+# Add target user to docker group if exists
+
+if command -v docker >/dev/null 2>&1 && id "$${TARGET_USER}" >/dev/null 2>&1 && [ "$${TARGET_USER}" != "root" ]; then
+  try sudo usermod -aG docker "$${TARGET_USER}"
+fi
+
+# -----------------------------
+# SSM Agent install/enable (multi-path)
+# -----------------------------
+
+get_imds_token() {
+  curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+}
+
+imds_get() {
+  local path="$1"
+  local token
+  token=$(get_imds_token)
+  if [ -n "$token" ]; then
+    curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/$path"
+  else
+    curl -sS "http://169.254.169.254/$path"
+  fi
+}
+
+ensure_ssm_agent() {
+  # If already installed, just enable & start
+  if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
+    try sudo systemctl enable --now amazon-ssm-agent
+    return 0
+  fi
+
+  # 1) Try native repos
+  if have_cmd apt-get; then
+    if try sudo apt-get install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd dnf; then
+    if try sudo dnf install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd yum; then
+    if try sudo yum install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  # 2) Try snap (Ubuntu)
+
+  if have_cmd snap; then
+    if try sudo snap install amazon-ssm-agent --classic; then
+      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+      return 0
+    fi
+  fi
+
+  # 3) Download from regional S3 (fallback)
+
+  REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+  ARCH="$(uname -m)"
+  # Map arch to package naming
+  if [ "$ARCH" = "x86_64" ]; then
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
+  else
+    # default to amd64/x86_64
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  fi
+
+  if have_cmd apt-get; then
+    PKG="/tmp/amazon-ssm-agent.deb"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  else
+    PKG="/tmp/amazon-ssm-agent.rpm"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+
+  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+}
+ensure_ssm_agent
+
+# Optional: Docker + editor (Debian/Ubuntu only)
+
+if echo "$OS_ID $OS_LIKE" | grep -Ei 'debian|ubuntu' >/dev/null 2>&1 && have_cmd apt-get; then
+  sudo apt-get update -y
+  sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+    | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+  sudo apt-get update -y
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo apt-get install -y emacs
+fi
+
+sudo reboot

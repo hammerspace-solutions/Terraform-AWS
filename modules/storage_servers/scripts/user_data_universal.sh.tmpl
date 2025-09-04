@@ -1,0 +1,298 @@
+#!/bin/bash
+# Universal storage server user_data (Ubuntu/Debian + Rocky/Alma/RHEL)
+# Adds SSM Agent installation + enablement.
+
+# -----------------------------
+# OS detection helpers
+# -----------------------------
+if [ -r /etc/os-release ]; then
+  . /etc/os-release
+fi
+
+OS_ID="$${ID:-unknown}"
+OS_LIKE="$${ID_LIKE:-}"
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+try() { "$@" || true; }
+
+# -----------------------------
+# Base packages (add curl + jq for SSM helper)
+# -----------------------------
+if have_cmd apt-get; then
+  export DEBIAN_FRONTEND=noninteractive
+  sudo apt-get -y update
+  sudo apt-get -y upgrade
+  sudo apt-get install -y net-tools nfs-common nfs-kernel-server sysstat mdadm curl jq
+elif have_cmd dnf; then
+  try sudo dnf -y install epel-release
+  sudo dnf -y upgrade
+  sudo dnf install -y net-tools nfs-utils sysstat mdadm curl jq
+elif have_cmd yum; then
+  try sudo yum -y install epel-release
+  sudo yum -y update
+  sudo yum install -y net-tools nfs-utils sysstat mdadm curl jq
+fi
+
+# -----------------------------
+# SSM Agent install/enable (do this BEFORE strict mode)
+# -----------------------------
+get_imds_token() {
+  curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+}
+imds_get() {
+  local path="$1"
+  local token
+  token=$(get_imds_token)
+  if [ -n "$token" ]; then
+    curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/$path"
+  else
+    curl -sS "http://169.254.169.254/$path"
+  fi
+}
+ensure_ssm_agent() {
+  if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
+    try sudo systemctl enable --now amazon-ssm-agent
+    return 0
+  fi
+  if have_cmd apt-get; then
+    if try sudo apt-get install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd dnf; then
+    if try sudo dnf install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  elif have_cmd yum; then
+    if try sudo yum install -y amazon-ssm-agent; then
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+  if have_cmd snap; then
+    if try sudo snap install amazon-ssm-agent --classic; then
+      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+      return 0
+    fi
+  fi
+  REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+  ARCH="$(uname -m)"
+  if [ "$ARCH" = "x86_64" ]; then
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
+  else
+    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
+  fi
+  if have_cmd apt-get; then
+    PKG="/tmp/amazon-ssm-agent.deb"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  else
+    PKG="/tmp/amazon-ssm-agent.rpm"
+    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
+    if curl -fsSL "$URL" -o "$PKG"; then
+      if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
+      try sudo systemctl enable --now amazon-ssm-agent
+      return 0
+    fi
+  fi
+  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+}
+ensure_ssm_agent
+
+# -----------------------------
+# SSH relax + pubkey login
+# -----------------------------
+sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
+    PermitRootLogin yes
+    PubkeyAuthentication yes
+EOF
+try sudo systemctl restart ssh
+try sudo systemctl restart sshd
+
+# ----------------------------------------------------------------------------
+# WARNING!!
+# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
+# ----------------------------------------------------------------------------
+
+SSH_KEYS='${SSH_KEYS}'
+TARGET_USER='${TARGET_USER}'
+TARGET_HOME='${TARGET_HOME}'
+EBS_COUNT='${EBS_COUNT}'
+RAID_LEVEL='${RAID_LEVEL}'  # "raid-0" | "raid-5" | "raid-6"
+ALLOW_ROOT='${ALLOW_ROOT}'
+
+# Strict mode (after SSM install to allow fallbacks)
+set -euo pipefail
+shopt -s failglob || true
+
+# SSH keys for target user
+if [ -n "$${SSH_KEYS}" ]; then
+  echo "Start Add SSH Keys to authorized_keys for $${TARGET_USER}"
+  mkdir -p "$${TARGET_HOME}/.ssh"
+  chmod 700 "$${TARGET_HOME}/.ssh"
+  touch "$${TARGET_HOME}/.ssh/authorized_keys"
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" "$${TARGET_HOME}/.ssh/authorized_keys"; then
+      echo "$${key}" >> "$${TARGET_HOME}/.ssh/authorized_keys"
+    fi
+  done
+  chmod 600 "$${TARGET_HOME}/.ssh/authorized_keys"
+  chown -R "$${TARGET_USER}":"$${TARGET_USER}" "$${TARGET_HOME}/.ssh"
+  echo "End Add SSH Keys"
+fi
+
+# Optional root keys (fixed stray quote)
+if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+  echo "Starting SSH Key Management Deployment for root"
+  mkdir -p /root/.ssh && chmod 700 /root/.ssh
+  touch /root/.ssh/authorized_keys
+  echo "$${SSH_KEYS}" | while read -r key; do
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" "/root/.ssh/authorized_keys"; then
+      echo "$${key}" >> "/root/.ssh/authorized_keys"
+    fi
+  done
+  chmod 600 "/root/.ssh/authorized_keys"
+  chown -R root:root "/root/.ssh"
+  echo "Ending SSH Key Management Deployment for root"
+fi
+
+# RAID pre-checks
+case "$${RAID_LEVEL}" in
+  "raid-0") MIN_DEVICES=2 ;;
+  "raid-5") MIN_DEVICES=3 ;;
+  "raid-6") MIN_DEVICES=4 ;;
+  *) echo "ERROR: Invalid RAID level '$${RAID_LEVEL}'"; exit 1 ;;
+esac
+
+if [ "$${EBS_COUNT}" -lt "$${MIN_DEVICES}" ]; then
+  echo "ERROR: RAID-$${RAID_LEVEL#raid-} requires ≥ $${MIN_DEVICES} devices, but EBS_COUNT=$${EBS_COUNT}"
+  exit 1
+fi
+
+# Wait for all NVMe devices (boot + EBS_COUNT)
+TARGET_DISK_COUNT=$(( $${EBS_COUNT} + 1 ))
+while [ "$(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l)" -lt "$${TARGET_DISK_COUNT}" ]; do
+  sleep 10
+  echo "Waiting for NVMe devices… $(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l)/$${TARGET_DISK_COUNT} detected"
+done
+echo "All $${TARGET_DISK_COUNT} devices found."
+
+# Resolve boot device and exclude from RAID set
+get_physical_device() {
+  local mount_point="$${1}"
+  local device
+  device=$(findmnt -n -o SOURCE --target "$${mount_point}")
+  if [[ "$${device}" =~ ^/dev/mapper/|^/dev/dm- ]]; then
+    if have_cmd lsblk; then
+      local pk
+      pk=$(lsblk -no PKNAME "$${device}" 2>/dev/null | head -n1)
+      [ -n "$${pk}" ] && device="/dev/$${pk}"
+    fi
+  elif [[ "$${device}" =~ ^/dev/nvme[0-9]+n[0-9]+p[0-9]+$ ]]; then
+    device=$${device%p[0-9]*}
+  fi
+  echo "$${device}"
+}
+
+BOOT_DEVICE=$(get_physical_device "/")
+
+# POSIX-friendly device collection (no bash arrays)
+ALL_NVME_DEVICES_LIST="$(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | sort || true)"
+RAID_DEVICE_LIST=""
+RAID_DEVICE_COUNT=0
+for dev in $ALL_NVME_DEVICES_LIST; do
+  if [ "$dev" != "$BOOT_DEVICE" ]; then
+    RAID_DEVICE_LIST="$RAID_DEVICE_LIST $dev"
+    RAID_DEVICE_COUNT=$(( RAID_DEVICE_COUNT + 1 ))
+  fi
+done
+
+if [ "$RAID_DEVICE_COUNT" -ne "$${EBS_COUNT}" ]; then
+  echo "ERROR: Expected $${EBS_COUNT} non-boot devices, found $RAID_DEVICE_COUNT"
+  echo "Boot device: $${BOOT_DEVICE}"
+  echo "All NVMe: $ALL_NVME_DEVICES_LIST"
+  echo "For RAID:$RAID_DEVICE_LIST"
+  exit 1
+fi
+
+# Create RAID
+case "$${RAID_LEVEL}" in
+  "raid-0") raid_options="--level=0 --raid-devices=$${EBS_COUNT}" ;;
+  "raid-5") raid_options="--level=5 --raid-devices=$${EBS_COUNT}" ;;
+  "raid-6") raid_options="--level=6 --raid-devices=$${EBS_COUNT}" ;;
+esac
+echo "Creating $${RAID_LEVEL} over $${EBS_COUNT} devices: $RAID_DEVICE_LIST"
+# shellcheck disable=SC2086
+sudo mdadm --create --verbose /dev/md0 $${raid_options} $RAID_DEVICE_LIST
+
+# Filesystem + mount
+sudo mkfs -t xfs /dev/md0
+sudo mkdir -p /hsvol1
+echo "/dev/md0 /hsvol1 xfs defaults,nofail,discard 0 0" | sudo tee -a /etc/fstab
+sudo mount /hsvol1
+sudo chmod 777 /hsvol1
+
+# NFS export
+echo "/hsvol1 *(rw,sync,no_root_squash,no_subtree_check)" | sudo tee -a /etc/exports
+
+# NFS tuning (both styles)
+if [ -d /etc/nfs.conf.d ]; then
+  sudo tee /etc/nfs.conf.d/local.conf > /dev/null <<'EOF'
+[nfsd]
+threads = 128
+
+[mountd]
+manage-gids = 1
+EOF
+else
+  sudo tee -a /etc/nfs.conf > /dev/null <<'EOF'
+
+[nfsd]
+threads = 128
+
+[mountd]
+manage-gids = 1
+EOF
+fi
+if [ -f /etc/default/nfs-kernel-server ]; then
+  sudo tee /etc/default/nfs-kernel-server > /dev/null <<'EOF'
+RPCNFSDCOUNT=128
+RPCMOUNTDOPTS="--manage-gids"
+EOF
+fi
+if [ -f /etc/sysconfig/nfs ]; then
+  if ! grep -q '^RPCNFSDCOUNT=' /etc/sysconfig/nfs 2>/dev/null; then
+    echo 'RPCNFSDCOUNT=128' | sudo tee -a /etc/sysconfig/nfs >/dev/null
+  fi
+fi
+
+# Firewall (RHEL-like)
+if have_cmd firewall-cmd; then
+  try sudo firewall-cmd --permanent --add-service="nfs"
+  try sudo firewall-cmd --permanent --add-service="rpc-bind"
+  try sudo firewall-cmd --permanent --add-service="mountd"
+  try sudo firewall-cmd --reload
+fi
+
+# Start/enable NFS
+try sudo systemctl enable --now nfs-kernel-server
+try sudo systemctl restart nfs-kernel-server
+try sudo systemctl enable --now nfs-server
+try sudo systemctl restart nfs-server
+
+# Show RAID
+echo "RAID details:"
+sudo mdadm --detail /dev/md0 || true
+
+echo "Rebooting now..."
+sudo reboot

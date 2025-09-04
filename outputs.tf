@@ -28,11 +28,6 @@ output "terraform_project_version" {
   value       = "2025.08.04-033fe5b"
 }
 
-output "bastion_details" {
-  description = "Bastion client instance details (non-sensitive)."
-  value       = module.bastion[*].instance_details
-}
-
 output "client_instances" {
   description = "Client instance details (non-sensitive)."
   value       = module.clients[*].instance_details
@@ -72,7 +67,7 @@ output "hammerspace_dsx_private_ips" {
 
 output "hammerspace_ha_lb" {
   description = "The DNS name of the HA Anvil load balancer. This is only used for public IP"
-  value	      = one(module.hammerspace[*].anvil_ha_load_balancer_dns_name)
+  value       = one(module.hammerspace[*].anvil_ha_load_balancer_dns_name)
 }
 
 output "ecgroup_nodes" {
@@ -95,6 +90,5 @@ output "ecgroup_storage_array" {
 
 output "ansible_details" {
   description = "Ansible configuration details"
-  sensitive   = true
-  value = module.ansible[*].instance_details
+  value       = module.ansible[*].ansible_details
 }

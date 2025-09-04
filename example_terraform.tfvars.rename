@@ -21,6 +21,13 @@ deploy_components		     = ["all"]
 assign_public_ip  	     	     = false
 # public_subnet_id		     = "subnet-somepublic"
 
+# If you do not have permissions in your AWS environment to create roles
+# and permissions, then enter the name of a predefined role with appropriate
+# permissions in the iam_profile_name variable. If you have the capability
+# to create a role, then comment out that variable
+
+# iam_profile_name	             = "Hammerspace"
+
 # Custom AMI owner ID's
 # This is a list of the owners of any custom AMI's. Since Hammerspace is a custom AMI,
 # in order to provide guard-rail checking if the AMI exists in a given region, we will
@@ -77,19 +84,6 @@ ansible_instance_type		     = "m5n.2xlarge"
 ansible_boot_volume_size	     = 40
 ansible_boot_volume_type	     = "gp2"
 
-# Bastion specific variables (bastion_ prefix)
-#
-# The Bastion is a specific type of client. It's function is to
-# protect any environment from having all of its instances available
-# on public IP's. A user who wants to connect to a client or
-# storage server can ssh first to the bastion and then onto the
-# specific client or server that they wish.
-
-bastion_ami 			     = "ami-04cfeb9ad57f3053a"
-bastion_instance_type 		     = "m5n.2xlarge"
-bastion_boot_volume_size	     = 100
-bastion_boot_volume_type	     = "gp2"
-
 # Client specific variables (clients_ prefix)
 #
 # So, the clients_target_user is the OS_NAME for the login. Once you
@@ -143,13 +137,6 @@ hammerspace_ami			     = "ami-094d8e62982f34834"
 # --- Optional: Provide existing Security Group IDs 
 # hammerspace_anvil_security_group_id  = "sg-0f888587d7e83bda2"
 # hammerspace_dsx_security_group_id    = "sg-0f888587d7e83bda2"
-
-# If you do not have permissions in your AWS environment to create roles
-# and permissions, then enter the name of a predefined role with appropriate
-# permissions in the hammerspace_profile_id variable. If you have the capability
-# to create a role, then comment out that variable
-
-# hammerspace_profile_id	       = "Hammerspace"
 
 # Once you deploy a standalone Anvil, it is hard to change that to a HA pair. The
 # anvil_destruction variable that follows prevents a user from changing the anvil_count

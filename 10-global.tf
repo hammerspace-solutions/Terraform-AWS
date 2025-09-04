@@ -95,19 +95,19 @@ variable "ssh_keys_dir" {
 
 variable "allow_root" {
   description = "Allow root access to SSH"
-  type	      = bool
+  type        = bool
   default     = false
 }
 
 variable "deploy_components" {
-  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\", \"ansible\"."
+  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\"."
   type        = list(string)
   default     = ["all"]
   validation {
     condition = alltrue([
-      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup", "ansible"], c)
+      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup"], c)
     ])
-    error_message = "Each item in deploy_components must be one of: \"all\", \"ansible\", \"clients\", \"storage\", \"ecgroup\" or \"hammerspace\"."
+    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", \"ecgroup\" or \"hammerspace\"."
   }
 }
 
@@ -132,3 +132,29 @@ variable "placement_group_strategy" {
     error_message = "Allowed values for placement_group_strategy are: cluster, spread, or partition."
   }
 }
+
+variable "iam_admin_group_name" {
+  description = "IAM admin group name for SSH access (can be existing group name or blank to create new)"
+  type        = string
+  default     = null
+}
+
+variable "iam_profile_name" {
+  description = "The name of an existing IAM Instance Profile to attach to instances. If left blank, a new one will be created with the necessary policies."
+  type        = string
+  default     = null
+}
+
+variable "iam_role_path" {
+  description = "The IAM role path"
+  type	      = string
+  default     = "/"
+}
+
+variable "iam_additional_policy_arns" {
+  description = "A list of additional iam policies to implement"
+  type        = list(string)
+  default     = []
+}
+
+

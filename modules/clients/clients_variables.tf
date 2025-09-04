@@ -40,6 +40,18 @@ variable "common_config" {
   })
 }
 
+variable "iam_profile_name" {
+  description = "The IAM profile to use for roles and permissions"
+  type	      = string
+  default     = null
+}
+
+variable "iam_profile_group" {
+  description = "The IAM group name"
+  type	      = string
+  default     = null
+}
+
 variable "capacity_reservation_id" {
   description = "The ID of the On-Demand Capacity Reservation to target."
   type        = string

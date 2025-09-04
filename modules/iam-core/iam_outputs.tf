@@ -18,35 +18,37 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/bastion/bastion_outputs.tf
+# modules/iam-core/iam_outputs.tf
 #
-# This file defines the outputs for the Bastion client module.
+# This file contains the variables that will be output
 # -----------------------------------------------------------------------------
 
-output "instance_details" {
-  description = "A list of non-sensitive details for the Bastion instance (ID, Name, IPs)."
-  value = [
-    for i in aws_instance.bastion : {
-      id         = i.id
-      private_ip = i.private_ip
-      public_ip  = i.public_ip
-      name       = i.tags.Name
-    }
-  ]
+# Created role name (null when not created)
+
+output "role_name" {
+  value = try(
+    one(aws_iam_role.ec2_ssm[*].name),
+    null
+  )
 }
 
-# The following is ONLY used for Ansible. It will be marked sensitive so that it
-# is not output
+# Created role ARN (null when not created)
 
-output "bastion_ansible_info" {
-  description = "A list of sensitive details for bastion instances"
-  sensitive   = true
-  value = [
-    for i in aws_instance.bastion : {
-      id         = i.id
-      private_ip = i.private_ip
-      name	 = i.tags.Name
-      type	 = "bastion"
-    }
-  ]
+output "role_arn" {
+  value = try(
+    one(aws_iam_role.ec2_ssm[*].arn),
+    null
+  )
+}
+
+# Effective instance profile name:
+# - If a name was provided to the module, pass it through
+# - Otherwise, return the created one (or null if not present yet)
+
+output "instance_profile_name" {
+  value = (
+    var.iam_profile_name != null
+    ? var.iam_profile_name
+    : try(one(aws_iam_instance_profile.ec2_ssm[*].name), null)
+  )
 }

@@ -46,6 +46,12 @@ data "aws_ec2_instance_type" "nvme_disks" {
   instance_type = var.instance_type
 }
 
+# Partition aware so this works in commerical/Gov/China partitions
+
+data "aws_partition" "current" {}
+
+# Locals for drive creation and public key manipulation
+
 locals {
   device_letters = [
     "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
@@ -60,12 +66,6 @@ locals {
     []
   )
 
-  # The template needs root_user and root_home in case we have to
-  # update the root password-less
-
-  root_user = "root"
-  root_home = "/${local.root_user}"
-  
   # Grab the first (and only) storage-info block, or empty map if none
 
   instance_info = data.aws_ec2_instance_type.nvme_disks
@@ -82,15 +82,13 @@ locals {
   
   storage_instance_type_is_available = length(data.aws_ec2_instance_type_offering.storage.instance_type) > 0
 
-  processed_user_data = templatefile("${path.module}/scripts/user_data_${var.target_user}.sh.tmpl", {
+  processed_user_data = templatefile("${path.module}/scripts/user_data_universal.sh.tmpl", {
     SSH_KEYS    = join("\n", local.ssh_public_keys),
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
     EBS_COUNT   = var.ebs_count + local.nvme_count,
     RAID_LEVEL  = var.raid_level,
-    ALLOW_ROOT	= var.common_config.allow_root,
-    ROOT_USER	= local.root_user,
-    ROOT_HOME	= local.root_home
+    ALLOW_ROOT	= var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-storage"
@@ -99,6 +97,8 @@ locals {
     Project = var.common_config.project_name
   })
 }
+
+# Security Group
 
 resource "aws_security_group" "storage" {
   name        = "${local.resource_prefix}-sg"
@@ -135,7 +135,8 @@ resource "aws_instance" "storage_server" {
   key_name                    = var.common_config.key_name
 
   vpc_security_group_ids = [aws_security_group.storage.id]
-
+  iam_instance_profile = var.iam_profile_name
+  
   # Put tags on the volumes
 
   volume_tags = merge(local.common_tags, {

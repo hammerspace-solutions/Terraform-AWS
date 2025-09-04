@@ -18,9 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/bastion/bastion_variables.tf
+# modules/iam-core/iam_variables.tf
 #
-# This file defines all the input variables for the Bastion client module.
+# This file defines all the input variables for the IAM Core module
 # -----------------------------------------------------------------------------
 
 variable "common_config" {
@@ -40,52 +40,26 @@ variable "common_config" {
   })
 }
 
-variable "public_subnet_id" {
-  description = "The ID of the public subnet where the bastion instance will be launched. Required if assign_public_ip is true."
+# Optional: attach additional managed policies besides SSM core
+
+variable "extra_managed_policy_arns" {
+  description = "Additional AWS managed/custom policies to attach to the EC2 role"
+  type        = list(string)
+  default     = []
+}
+
+# Optional: set a custom path for the role
+
+variable "role_path" {
+  description = "IAM role path"
+  type        = string
+  default     = "/"
+}
+
+# If this is set (non-null), this module must NOT be used.
+
+variable "iam_profile_name" {
+  description = "If you have an existing profile name, then this module will not be executed"
   type        = string
   default     = null
-}
-
-variable "assign_public_ip" {
-  description = "Assign a public IP to this host"
-  type        = bool
-  default     = false
-}
-
-variable "capacity_reservation_id" {
-  description = "The ID of the On-Demand Capacity Reservation to target."
-  type        = string
-  default     = null
-}
-
-# --- Bastion-specific variables (these remain) ---
-
-variable "instance_count" {
-  description = "Number of bastion client instances"
-  type        = number
-}
-
-variable "ami" {
-  description = "AMI for the bastion client instances"
-  type        = string
-}
-
-variable "instance_type" {
-  description = "Instance type for the bastion client"
-  type        = string
-}
-
-variable "boot_volume_size" {
-  description = "Root volume size (GB) for the bastion client"
-  type        = number
-}
-
-variable "boot_volume_type" {
-  description = "Root volume type for the bastion client"
-  type        = string
-}
-
-variable "target_user" {
-  description = "Default system user for the bastion client EC2s"
-  type        = string
 }

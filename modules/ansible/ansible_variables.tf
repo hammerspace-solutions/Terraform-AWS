@@ -40,6 +40,18 @@ variable "common_config" {
   })
 }
 
+variable "iam_profile_name" {
+  description = "The IAM profile to use for roles and permissions"
+  type	      = string
+  default     = null
+}
+
+variable "iam_profile_group" {
+  description = "The IAM group name"
+  type	      = string
+  default     = null
+}
+
 variable "public_subnet_id" {
   description = "The ID of the public subnet where the ansible instance will be launched. Required if assign_public_ip is true."
   type	      = string

@@ -81,15 +81,13 @@ locals {
 
   # Process the bash shell template
   
-  processed_user_data = templatefile("${path.module}/scripts/user_data_${var.target_user}.sh.tmpl", {
+  processed_user_data = templatefile("${path.module}/scripts/user_data_universal.sh.tmpl", {
     TARGET_USER	      = var.target_user,
     TARGET_HOME	      = "/home/${var.target_user}",
     SSH_KEYS   	      = join("\n", local.ssh_public_keys),
     TIER0	      = var.tier0,
     TIER0_TYPE	      = var.tier0_type, 
-    ALLOW_ROOT	      = var.common_config.allow_root,
-    ROOT_USER	      = local.root_user,
-    ROOT_HOME	      = local.root_home
+    ALLOW_ROOT	      = var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-client"
@@ -139,6 +137,7 @@ resource "aws_instance" "clients" {
   placement_group             = var.common_config.placement_group_name
 
   vpc_security_group_ids = [aws_security_group.client.id]
+  iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes
 
