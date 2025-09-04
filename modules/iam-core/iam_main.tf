@@ -52,6 +52,7 @@ resource "aws_iam_role" "ec2_ssm" {
 # Base SSM permissions
 
 resource "aws_iam_role_policy_attachment" "ssm_core" {
+  count	     = var.iam_profile_name == null ? 1 : 0
   role       = aws_iam_role.ec2_ssm[0].name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
@@ -59,12 +60,17 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
 # Optional extras (CloudWatch Agent, S3 access, etc.)
 
 resource "aws_iam_role_policy_attachment" "extra" {
-  for_each   = toset(var.extra_managed_policy_arns)
+  for_each   = (
+    var.iam_profile_name == null
+      ? toset(var.extra_managed_policy_arns)
+      : toset([])
+  )
   role       = aws_iam_role.ec2_ssm[0].name
   policy_arn = each.value
 }
 
 resource "aws_iam_instance_profile" "ec2_ssm" {
+  count = var.iam_profile_name == null ? 1 : 0
   name = "${local.resource_prefix}-profile"
   role = aws_iam_role.ec2_ssm[0].name
   tags = merge(local.common_tags, {

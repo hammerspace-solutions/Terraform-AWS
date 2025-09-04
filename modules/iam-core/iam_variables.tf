@@ -59,12 +59,7 @@ variable "role_path" {
 # If this is set (non-null), this module must NOT be used.
 
 variable "iam_profile_name" {
-  description = "MUST be null. If you already have an instance profile, do not use this module."
+  description = "If you have an existing profile name, then this module will not be executed"
   type        = string
   default     = null
-
-  validation {
-    condition     = var.iam_profile_name == null
-    error_message = "iam-core only creates resources when iam_profile_name is null. Remove this module or pass null."
-  }
 }
