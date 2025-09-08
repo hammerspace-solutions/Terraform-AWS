@@ -26,6 +26,18 @@
 
 # Ansible specific variables
 
+variable "use_ssm_bootstrap" {
+  description = "Use SSM to push keys and install Ansible controller"
+  type        = bool
+  default     = true
+}
+
+variable "authorized_keys" {
+  description = "Authorized keys content to place into root and user accounts"
+  type        = string
+  default     = null
+}
+
 variable "ansible_instance_count" {
   description = "Number of ansible instances"
   type        = number

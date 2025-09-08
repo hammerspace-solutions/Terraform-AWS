@@ -312,19 +312,19 @@ locals {
   all_allowed_cidr_blocks = distinct(concat([data.aws_vpc.validation.cidr_block], var.allowed_source_cidr_blocks))
 
   common_config = {
-    region                     = var.region
-    availability_zone          = data.aws_subnet.private_subnet.availability_zone
-    vpc_id                     = var.vpc_id
-    subnet_id                  = var.subnet_id
-    key_name                   = var.key_name
-    tags                       = var.tags
-    project_name               = var.project_name
-    ssh_keys_dir               = var.ssh_keys_dir
-    allow_root                 = var.allow_root
-    placement_group_name       = (
+    region            = var.region
+    availability_zone = data.aws_subnet.private_subnet.availability_zone
+    vpc_id            = var.vpc_id
+    subnet_id         = var.subnet_id
+    key_name          = var.key_name
+    tags              = var.tags
+    project_name      = var.project_name
+    ssh_keys_dir      = var.ssh_keys_dir
+    allow_root        = var.allow_root
+    placement_group_name = (
       var.placement_group_name != ""
-        ? one(aws_placement_group.this[*].name)
-	: ""
+      ? one(aws_placement_group.this[*].name)
+      : ""
     )
     allowed_source_cidr_blocks = local.all_allowed_cidr_blocks
   }
@@ -356,8 +356,8 @@ locals {
 
   iam_profile_name = (
     var.iam_profile_name != null
-      ? var.iam_profile_name
-      : module.iam_core.instance_profile_name
+    ? var.iam_profile_name
+    : module.iam_core.instance_profile_name
   )
 }
 
@@ -487,11 +487,11 @@ resource "aws_placement_group" "this" {
 # by all the others. This makes auditing much simpler...
 
 module "iam_core" {
-  source      = "./modules/iam-core"
+  source = "./modules/iam-core"
 
-  iam_profile_name = var.iam_profile_name
-  common_config = local.common_config
-  role_path	= var.iam_role_path
+  iam_profile_name          = var.iam_profile_name
+  common_config             = local.common_config
+  role_path                 = var.iam_role_path
   extra_managed_policy_arns = var.iam_additional_policy_arns
 }
 
@@ -520,9 +520,14 @@ module "ansible" {
   target_user      = var.ansible_target_user
 
   # IAM Roles
-  
-  iam_profile_name = local.iam_profile_name
+
+  iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
+
+  # Pass in whether to use SSM and authorized keys
+
+  use_ssm_bootstrap = var.use_ssm_bootstrap
+  authorized_keys   = var.authorized_keys
 
   depends_on = [
     module.iam_core
@@ -553,8 +558,8 @@ module "clients" {
   target_user      = var.clients_target_user
 
   # IAM Roles
-  
-  iam_profile_name = local.iam_profile_name
+
+  iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
@@ -584,8 +589,8 @@ module "storage_servers" {
   target_user      = var.storage_target_user
 
   # IAM Roles
-  
-  iam_profile_name = local.iam_profile_name
+
+  iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
@@ -625,7 +630,7 @@ module "hammerspace" {
 
   # IAM Roles
 
-  iam_profile_name = local.iam_profile_name
+  iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
@@ -660,7 +665,7 @@ module "ecgroup" {
 
   # IAM Roles
 
-  iam_profile_name = local.iam_profile_name
+  iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [

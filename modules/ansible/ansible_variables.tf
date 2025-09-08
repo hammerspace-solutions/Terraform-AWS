@@ -121,3 +121,36 @@ variable "admin_public_key_path" {
   sensitive   = true
   default     = ""
 }
+
+# Turn on SSM bootstrap (set false to keep old SSH provisioners)
+variable "use_ssm_bootstrap" {
+  description = "Use SSM to push keys and install the Ansible controller on the Ansible host"
+  type        = bool
+  default     = true
+}
+
+# Authorized keys content to install for both root and ansible user.
+# If null, we will read ${path.module}/files/authorized_keys
+
+variable "authorized_keys" {
+  description = "Authorized keys content to place into both root and user accounts"
+  type        = string
+  default     = null
+  sensitive   = true
+  validation {
+    condition = var.authorized_keys != null || length(fileset(path.root, "ssh_keys/*.pub")) > 0
+    error_message = "Provide var.authorized_keys or place one or more *.pub files under ssh_keys/."
+  }
+}
+
+variable "ssm_bootstrap_delay" {
+  description = "Time to wait for SSM Agent to come alive"
+  type	      = string
+  default     = "180s"
+}
+
+variable "ssm_association_schedule" {
+  description = "State Manager schedule for bootstrap retries"
+  type	      = string
+  default     = "rate(30 minutes)"
+}

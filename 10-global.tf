@@ -147,7 +147,7 @@ variable "iam_profile_name" {
 
 variable "iam_role_path" {
   description = "The IAM role path"
-  type	      = string
+  type        = string
   default     = "/"
 }
 

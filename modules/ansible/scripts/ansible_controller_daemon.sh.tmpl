@@ -1,71 +1,79 @@
 #!/bin/bash
-
-# Main control script for the Ansible controller.
-# Discovers, sorts, and executes job scripts, tracking their status.
+# Ansible controller daemon: triggers on inventory.ini appearance/change and runs jobs.
 
 set -euo pipefail
 
 # --- Configuration ---
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
-CONFIG_DIR="/tmp/ansible_config"
-PROCESSED_DIR="/tmp/ansible_config/processed"
-FAILED_DIR="/tmp/ansible_config/failed"
-STATUS_DIR="/var/run/ansible_jobs_status"
+
+JOBS_DIR="/usr/local/ansible/jobs"          # permanent location of job scripts
+TRIGGER_DIR="/var/ansible/trigger"          # place inventory.ini here to trigger
+TRIGGER_FILE="$TRIGGER_DIR/inventory.ini"   # incoming inventory file
+INVENTORY_DST="/etc/ansible/inventory.ini"  # active inventory location
+
+STATUS_DIR="/var/run/ansible_jobs_status"   # holds success/failure markers and current run id
 LOCK_FILE="/var/ansible_initial_setup.done"
-CHECK_INTERVAL=30 # Seconds
+CHECK_INTERVAL=10                           # seconds
 
 # --- Source the function library ---
 if [ -f "$ANSIBLE_LIB_PATH" ]; then
-    source "$ANSIBLE_LIB_PATH"
+  # shellcheck source=/usr/local/lib/ansible_functions.sh
+  source "$ANSIBLE_LIB_PATH"
 else
-    echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
-    exit 1
+  echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
+  exit 1
 fi
 
-# --- Main Logic ---
-
-# 1. Run the one-time initial setup if it hasn't been done before.
+# --- One-time initialization ---
 if [ ! -f "$LOCK_FILE" ]; then
-    echo "--- Running Initial First-Time Setup ---"
-    run_initial_setup
-    echo "--- Initial Setup Complete ---"
-else
-    echo "Initial setup already completed. Starting job watch."
+  echo "--- Running initial setup ---"
+  run_initial_setup
+  echo "--- Initial setup complete ---"
 fi
 
-# 2. Create necessary directories
-mkdir -p "$PROCESSED_DIR" "$FAILED_DIR" "$STATUS_DIR"
+mkdir -p "$STATUS_DIR" "$JOBS_DIR" "$TRIGGER_DIR" "$(dirname "$INVENTORY_DST")"
 
-# 3. Start the main loop to watch for new job scripts.
-echo "--- Watching for new job scripts in $CONFIG_DIR ---"
+last_hash_file="$STATUS_DIR/last_inventory.sha256"
+
+echo "--- Ansible controller started. Watching $TRIGGER_FILE; jobs dir: $JOBS_DIR ---"
 while true; do
-    # Find all executable shell scripts, sort them numerically
-    job_scripts=$(find "$CONFIG_DIR" -maxdepth 1 -type f -name "*.sh" | sort -n)
+  if [ -f "$TRIGGER_FILE" ]; then
+    new_hash="$(sha256sum "$TRIGGER_FILE" | awk '{print $1}')"
+    old_hash="$(cat "$last_hash_file" 2>/dev/null || true)"
 
-    if [ -n "$job_scripts" ]; then
-        for script_path in $job_scripts; do
-            script_name=$(basename "$script_path")
-            echo "--- Discovered job: $script_name ---"
+    if [ "$new_hash" != "$old_hash" ]; then
+      echo "--- New inventory detected (hash $new_hash). Starting run ---"
+      cp -f "$TRIGGER_FILE" "$INVENTORY_DST"
+      chmod 0644 "$INVENTORY_DST"
+      echo "$new_hash" > "$last_hash_file"
 
-            # Execute the job script
-            if bash "$script_path"; then
-		# Remove the old failure if this is a re-run
-	        if [ -f "$STATUS_DIR/$script_name.failure" ]; then
-		    rm "$STATUS_DIR/$script_name.failure"
-		fi
-                # On success, record it and move the script
-                echo "SUCCESS" > "$STATUS_DIR/$script_name.success"
-                echo "Job $script_name completed successfully."
-                mv "$script_path" "$PROCESSED_DIR/"
-            else
-                # On failure, record it and move the script to the failed directory
-                echo "FAILURE" > "$STATUS_DIR/$script_name.failure"
-                echo "ERROR: Job $script_name failed. See logs for details. Moving to failed directory."
-                mv "$script_path" "$FAILED_DIR/"
-            fi
-            echo "--- Finished job: $script_name ---"
+      export RUN_ID="$new_hash"
+      export INVENTORY_FILE="$INVENTORY_DST"
+      echo "$RUN_ID" > "$STATUS_DIR/current_run_id"
+
+      mapfile -t jobs < <(find "$JOBS_DIR" -maxdepth 1 -type f -name "*.sh" -printf "%f\n" | sort -V)
+
+      if [ "${#jobs[@]}" -eq 0 ]; then
+        echo "WARN: No job scripts found in $JOBS_DIR"
+      else
+        for script_name in "${jobs[@]}"; do
+          script_path="$JOBS_DIR/$script_name"
+          echo "--- Running job: $script_name (RUN_ID=$RUN_ID) ---"
+          if bash "$script_path"; then
+            rm -f "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
+            echo "SUCCESS" > "$STATUS_DIR/${RUN_ID}.${script_name}.success"
+            echo "Job $script_name succeeded."
+          else
+            echo "FAILURE" > "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
+            echo "ERROR: Job $script_name failed. See logs."
+            break
+          fi
         done
-    fi
+      fi
 
-    sleep "$CHECK_INTERVAL"
+      echo "--- Run complete for inventory hash $RUN_ID ---"
+    fi
+  fi
+
+  sleep "$CHECK_INTERVAL"
 done

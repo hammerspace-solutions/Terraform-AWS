@@ -24,7 +24,7 @@
 # -----------------------------------------------------------------------------
 
 output "ansible_details" {
-  description = "Per-instance details for Ansible hosts (includes EIP when assign_public_ip = true)"
+  description = "Per-instance details for Ansible hosts"
   value = [
     for i in range(var.instance_count) : {
       name       = try(aws_instance.ansible[i].tags.Name, null)
@@ -34,12 +34,19 @@ output "ansible_details" {
 
       # Prefer the allocated EIP; fall back to instance public_ip if you ever enable it,
       # else report null when no public address is expected.
+      
       public_ip = (
         var.assign_public_ip
         ? coalesce(
             try(aws_eip.ansible[i].public_ip, ""),
             try(aws_instance.ansible[i].public_ip, "")
           )
+        : null
+      )
+
+      ssm_association_id = (
+        var.use_ssm_bootstrap
+        ? try(aws_ssm_association.ansible_bootstrap[i].association_id, null)
         : null
       )
     }
