@@ -38,27 +38,73 @@ data "aws_ec2_instance_type_offering" "ansible" {
 
 locals {
 
-  # Get all the public ssh keys from the files
-  
-  ssh_public_keys = try(
-    [
-      for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
-        trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
-    ],
-    []
-  )
-
   # Verify if the instance type is available in AWS. We will check this later with a
   # precondition
   
   ansible_instance_type_is_available = length(data.aws_ec2_instance_type_offering.ansible.instance_type) > 0
 
-  # This reads the entire content of the "ansible_controller_daemon.sh" file
-  # into a single string and stores it in the 'daemon_script_content' variable.
+  # Establish resource naming prefix based upon the project name
 
+  resource_prefix = "${var.common_config.project_name}-ansible"
+
+  # Append project name to tags
+  
+  common_tags = merge(var.common_config.tags, {
+    Project = var.common_config.project_name
+  })
+
+  # Pull keys from var or from file on disk
+  
+  authorized_keys_content = coalesce(
+    var.authorized_keys,
+    length(fileset(path.root, "ssh_keys/*.pub")) > 0
+      ? join("\n", [for f in fileset(path.root, "ssh_keys/*.pub") : trimspace(file("${path.root}/${f}"))])
+      : ""
+  )
+  authorized_keys_b64 = base64encode(local.authorized_keys_content)
+
+  # Embed controller scripts (read from templates in this module)
+  
+  functions_b64 = filebase64("${path.module}/scripts/ansible_functions.sh.tmpl")
+  daemon_b64 = filebase64("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
+
+  # Embed systemd unit for the ansible controller
+  
+  controller_unit = <<-UNIT
+  [Unit]
+  Description=Ansible Controller Daemon (inventory-triggered job runner)
+  Wants=network-online.target
+  After=network-online.target
+
+  [Service]
+  Type=simple
+  ExecStart=/usr/local/bin/ansible_controller_daemon.sh
+  Restart=always
+  RestartSec=5s
+  User=root
+  Group=root
+  NoNewPrivileges=yes
+
+  [Install]
+  WantedBy=multi-user.target
+  UNIT
+
+  controller_unit_b64 = base64encode(local.controller_unit)
+
+  # Get all the public ssh keys from the files
+  
+  ssh_public_keys = try(
+    [
+      for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
+     
+      trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
+    ],
+    []
+  )
+
+  # Get a minimal bootstrap template so that our services get launched
+  
   daemon_script_content = file("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
-
-  # This does the same for the "ansible_functions.sh" file.
 
   functions_script_content = file("${path.module}/scripts/ansible_functions.sh.tmpl")
 
@@ -76,66 +122,90 @@ locals {
     SSH_KEYS		     = join("\n", local.ssh_public_keys)
     }
   )
-  
-  # Process the template file and substitute arguments
-  
-  processed_ansible_script_content = templatefile(
-    "${path.module}/scripts/ansible_config.sh.tmpl", {
-      daemon_script	     = local.daemon_script_content,
-      functions_script	     = local.functions_script_content
-    }
-  )
-
-  resource_prefix = "${var.common_config.project_name}-ansible"
-
-  common_tags = merge(var.common_config.tags, {
-    Project = var.common_config.project_name
-  })
 }
 
-# Security group for ansible instances
+# Step 1: Create a security group for the Ansible instance(s)
 
 resource "aws_security_group" "ansible" {
-  name        = "${local.resource_prefix}-sg"
-  description = "Ansible instance security group"
-  vpc_id      = var.common_config.vpc_id
+  name          = "${local.resource_prefix}-sg"
+  description   = "Ansible Security Group"
+  vpc_id        = var.common_config.vpc_id
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "SSH"
+    from_port   = 22
+    to_port	= 22
+    protocol    = "tcp"
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
+  ingress {
+    description	= "ICMP (ping) - temp for testing"
+    from_port	= -1
+    to_port	= -1
+    protocol	= "icmp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  # You should not allow access to ansible services from the internet.
+  # This is for testing and should be modified to fit your needs.
+
   egress {
+    description = "ALL"
     from_port   = 0
-    to_port     = 0
+    to_port	= 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.common_tags, {
-    Name    = "${local.resource_prefix}-sg"
-  })
+  tags = merge(
+    local.common_tags,
+    {
+        Name = "${local.resource_prefix}"
+    }
+  )
 }
 
-# One EIP per instance, but only when we want a public IP
+# Step 2: Create EIP (if configured) for each instance in order
 
 resource "aws_eip" "ansible" {
-  count	 	      = var.assign_public_ip ? var.instance_count : 0
-  domain	      = "vpc"
-  tags		      = merge(local.common_tags, { Name = "${var.common_config.project_name}-Ansible-EIP" })
+  count	             = var.assign_public_ip ? var.instance_count : 0
+  domain             = "vpc"
+
+  tags = merge(
+    local.common_tags,
+    { 
+        Name = "${local.resource_prefix}-ansible-${count.index+1}"
+    }
+  )
 }
 
-# Associate EIP to the Instance (not to an ENI)
+# Step 3: Create network interfaces for each instance
+
+resource "aws_network_interface" "ansible_primary" {
+  count	        = var.instance_count
+  subnet_id     = var.assign_public_ip ? var.public_subnet_id : var.common_config.subnet_id
+  security_groups = [ aws_security_group.ansible.id ]
+
+  source_dest_check	   = false
+
+  tags = merge(
+    local.common_tags,
+    { 
+        Name = "${local.resource_prefix}-${count.index+1}"
+    }
+  )
+}
+
+# Step 4: Attach to any EIP # so that it can be used for the primary network interface
 
 resource "aws_eip_association" "ansible" {
-  count	 	           = var.assign_public_ip ? var.instance_count : 0
-  allocation_id		   = aws_eip.ansible[count.index].id
-  instance_id		   = aws_instance.ansible[count.index].id
+  count	       = var.assign_public_ip ? var.instance_count : 0
+  allocation_id	= aws_eip.ansible[count.index].id
+  network_interface_id = aws_network_interface.ansible_primary[count.index].id
 }
 
-# Launch EC2 Ansible instances
+# Step 4: Create those instances!
 
 resource "aws_instance" "ansible" {
   count         = var.instance_count
@@ -148,184 +218,131 @@ resource "aws_instance" "ansible" {
 
   user_data     = local.bootstrap_user_data
   
+  # Using the ENI as eth0
+
+  primary_network_interface {
+    network_interface_id = aws_network_interface.ansible_primary[count.index].id
+  }
+  
   # Primary interface via native args
 
-  subnet_id     = var.assign_public_ip ? var.public_subnet_id : var.common_config.subnet_id
-  vpc_security_group_ids = [aws_security_group.ansible.id]
-  iam_instance_profile = var.iam_profile_name
-  
-  # Never associate a public IP; we will attach an EIP when requested
+  iam_instance_profile	   = var.iam_profile_name
 
-  associate_public_ip_address = false
+  # Delete on shutdown
 
-  # Put tags on the volumes
-
-  volume_tags = merge(local.common_tags, {
-    Name   = "${local.resource_prefix}-vol"
-  })
-
-  # Create the boot disk
-  
   root_block_device {
-    volume_size               = var.boot_volume_size
-    volume_type 	      = var.boot_volume_type
-    delete_on_termination     = true
+    delete_on_termination = true
+    encrypted		   = true
   }
 
-  dynamic "capacity_reservation_specification" {
-    for_each = var.capacity_reservation_id != null ? { only = { id = var.capacity_reservation_id } } : {}
-    content {
-      capacity_reservation_target {
-        capacity_reservation_id = capacity_reservation_specification.value.id
+  tags = merge(
+    local.common_tags,
+    { 
+      Name = "${local.resource_prefix}-${count.index+1}",
+    }
+  )
+}
+
+# Wait for SSM agent to come online before creating the association
+
+resource "time_sleep" "wait_for_ssm_agent" {
+  count           = var.use_ssm_bootstrap ? 1 : 0
+  create_duration = var.ssm_bootstrap_delay
+  depends_on	  = [aws_instance.ansible]
+}
+
+# Step 5: Create SSM document (idempotent, safe to re-run)
+
+resource "aws_ssm_document" "ansible_bootstrap" {
+  count         = var.use_ssm_bootstrap ? 1 : 0
+  name          = "${local.resource_prefix}-ansible-bootstrap"
+  document_type = "Command"
+
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "Bootstrap the Ansible host: install controller + authorized_keys (via SSM)"
+    parameters = {
+      TargetUser   = { type = "String", description = "Linux user to receive authorized_keys (in addition to root)" }
+      AuthorizedB64 = { type = "String", description = "Base64 authorized_keys content" }
+      FunctionsB64  = { type = "String", description = "Base64 functions script" }
+      DaemonB64     = { type = "String", description = "Base64 daemon script" }
+      UnitB64       = { type = "String", description = "Base64 systemd unit" }
+    }
+    mainSteps = [{
+      name   = "BootstrapAnsibleHost"
+      action = "aws:runShellScript"
+      inputs = {
+        runCommand = [
+	  "# --- idempotency guard: skip install if files already present ---",
+          "if [ -f /usr/local/bin/ansible_controller_daemon.sh ] && systemctl list-unit-files | grep -q '^ansible-controller.service'; then",
+          "  SKIP_INSTALL=1",
+          "else",
+          "  SKIP_INSTALL=0",
+          "fi",
+
+          "# --- helper: append + dedupe authorized_keys ---",
+          "append_auth_keys() { target=\"$1\"; tmp=\"/tmp/authorized_keys.$$\"; umask 077; echo {{ AuthorizedB64 }} | base64 -d > \"$tmp\" || true; sed -i 's/\\r$//' \"$tmp\" 2>/dev/null || true; touch \"$target\" && chmod 600 \"$target\"; while IFS= read -r line; do [ -z \"$line\" ] && continue; case \"$line\" in \\#*) continue ;; esac; grep -qxF \"$line\" \"$target\" || echo \"$line\" >> \"$target\"; done < \"$tmp\"; rm -f \"$tmp\"; }",
+
+          "# --- always: root keys ---",
+          "install -d -m 0700 /root/.ssh",
+          "append_auth_keys /root/.ssh/authorized_keys",
+
+          "# --- also: target user keys unless root ---",
+          "U='{{ TargetUser }}'",
+          "if [ \"$U\" != \"root\" ]; then",
+          "  HOME_DIR=$(getent passwd \"$U\" | cut -d: -f6 || echo \"/home/$U\")",
+          "  install -d -m 0700 \"$HOME_DIR/.ssh\"",
+          "  append_auth_keys \"$HOME_DIR/.ssh/authorized_keys\"",
+          "  chown -R \"$U\":\"$U\" \"$HOME_DIR/.ssh\"",
+          "fi",
+
+          "# --- install controller files only if not present ---",
+          "if [ \"$SKIP_INSTALL\" -eq 0 ]; then",
+          "  echo {{ FunctionsB64 }} | base64 -d > /usr/local/lib/ansible_functions.sh",
+          "  chmod 0644 /usr/local/lib/ansible_functions.sh",
+
+          "  echo {{ DaemonB64 }} | base64 -d > /usr/local/bin/ansible_controller_daemon.sh",
+          "  chmod 0755 /usr/local/bin/ansible_controller_daemon.sh",
+
+          "  echo {{ UnitB64 }} | base64 -d > /etc/systemd/system/ansible-controller.service",
+	  "fi",
+
+          "# --- systemd ---",
+          "systemctl daemon-reload",
+          "systemctl enable --now ansible-controller.service"
+        ]
       }
-    }
-  }
-
-  lifecycle {
-    precondition {
-      condition     = !(var.assign_public_ip && var.public_subnet_id == null)
-      error_message = "If 'assign_public_ip' is true for Ansible, 'public_subnet_id' must be provided."
-    }
-    precondition {
-      condition     = local.ansible_instance_type_is_available
-      error_message = "ERROR: Instance type ${var.instance_type} for the Ansible is not available in AZ ${var.common_config.availability_zone}."
-    }
-  }
-  
-  tags = merge(local.common_tags, {
-    Name    = "${local.resource_prefix}-${count.index + 1}"
+    }]
   })
 }
 
-# Use a null_resource to conditionally run provisioners. This resource
-# does nothing by itself, but allows us to use `count` to control whether
-# the provisioners inside it are executed.
+# Step 6: Associate the ssm document with all instances (retry via schedule; no CLI)
 
-resource "null_resource" "key_provisioner" {
-  # Only create this resource (and run its provisioners) if a key path is provided.
-  count = var.admin_private_key_path != "" ? var.instance_count : 0
+resource "aws_ssm_association" "ansible_bootstrap" {
+  count = (var.use_ssm_bootstrap ? var.instance_count : 0)
 
-  # Make sure the EIP is associated before we try to connect publicly
-  # Safe to list even when count=0
+  name = aws_ssm_document.ansible_bootstrap[0].name
 
-  depends_on = [
-    aws_instance.ansible,
-    aws_eip_association.ansible
-  ]
-
-  # This trigger ensures the provisioner runs after the instance is created.
-
-  triggers = {
-    instance_id = aws_instance.ansible[count.index].id
-    # Prefer EIP when requested; fall back to instance pub/private to avoid empty host
-    host = (
-      var.assign_public_ip
-      ? coalesce(
-          try(aws_eip.ansible[count.index].public_ip, ""),
-          try(aws_instance.ansible[count.index].public_ip, ""),
-          aws_instance.ansible[count.index].private_ip
-        )
-      : aws_instance.ansible[count.index].private_ip
-    )
+  targets {
+    key    = "InstanceIds"
+    values = [aws_instance.ansible[count.index].id]
   }
 
-  # Single connection for everything... We use root as the user as we
-  # have to handle files for root and other users
-  
-  connection {
-    type        = "ssh"
-    user        = local.root_user
-    # The key used for the initial connection is the main one for the instance.
-    private_key = file(var.admin_private_key_path)
-    host = (
-      var.assign_public_ip
-      ? coalesce(
-          try(aws_eip.ansible[count.index].public_ip, ""),
-          try(aws_instance.ansible[count.index].public_ip, ""),
-          aws_instance.ansible[count.index].private_ip
-        )
-      : aws_instance.ansible[count.index].private_ip
-    )
+  # Retry via State Manager schedule (runs now and per schedule)
+  schedule_expression = (
+    var.ssm_association_schedule != null && var.ssm_association_schedule != ""
+    ? var.ssm_association_schedule
+    : null
+  )
+
+  parameters = {
+    TargetUser    = var.target_user
+    AuthorizedB64 = local.authorized_keys_b64
+    FunctionsB64  = local.functions_b64
+    DaemonB64     = local.daemon_b64
+    UnitB64       = local.controller_unit_b64
   }
 
-  # Provisioner copies the key file.
-
-  provisioner "file" {
-    source      = var.admin_private_key_path
-    destination = "/home/${var.target_user}/.ssh/id_rsa"
-
-  }
-
-  # Provisioner sets the correct permissions on the uploaded key.
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod 600 /home/${var.target_user}/.ssh/id_rsa",
-      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/id_rsa"
-    ]
-  }
-
-  # Third provisioner copies the public key file.
-
-  provisioner "file" {
-    source      = var.admin_public_key_path
-    destination = "/home/${var.target_user}/.ssh/id_rsa.pub"
-  }
-
-  # Provisioner sets the correct permissions on the uploaded key.
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod 600 /home/${var.target_user}/.ssh/id_rsa.pub",
-      "sudo chown ${var.target_user}:${var.target_user} /home/${var.target_user}/.ssh/id_rsa.pub"
-    ]
-  }
-
-  # Provisioner to upload the main configuration script
-
-  provisioner "file" {
-    content       = local.processed_ansible_script_content
-    destination	  = "/tmp/run_ansible_setup.sh"
-  }
-
-  # Provisioner to execute the main configuration script
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod +x /tmp/run_ansible_setup.sh",
-      "sudo bash -c /tmp/run_ansible_setup.sh"
-    ]
-  }
-
-  # Provisioner copies the key file to root.
-
-  provisioner "file" {
-    source      = var.admin_private_key_path
-    destination = "${local.root_home}/.ssh/id_rsa"
-  }
-
-  # Provisioner sets the correct permissions on the uploaded key on root.
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod 600 ${local.root_home}/.ssh/id_rsa",
-      "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa"
-    ]
-  }
-
-  # Provisioner copies the public key file to root.
-
-  provisioner "file" {
-    source      = var.admin_public_key_path
-    destination = "${local.root_home}/.ssh/id_rsa.pub"
-  }
-
-  # Provisioner sets the correct permissions on the uploaded key in root.
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod 600 ${local.root_home}/.ssh/id_rsa.pub",
-      "sudo chown ${local.root_user}:${local.root_user} ${local.root_home}/.ssh/id_rsa.pub"
-    ]
-  }
+  depends_on = [aws_instance.ansible,
+  	        time_sleep.wait_for_ssm_agent]
 }
