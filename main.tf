@@ -338,6 +338,7 @@ locals {
   all_ssh_nodes = concat(
     local.deploy_clients ? module.clients[0].client_ansible_info : [],
     local.deploy_storage ? module.storage_servers[0].storage_ansible_info : [],
+    local.deploy_ecgroup ? module.ecgroup[0].ecgroup_ansible_info : [],
     local.deploy_hammerspace ? module.hammerspace[0].anvil_ansible_info : [],
     local.deploy_hammerspace ? module.hammerspace[0].dsx_ansible_info : []
   )
@@ -519,6 +520,10 @@ module "ansible" {
   boot_volume_type = var.ansible_boot_volume_type
   target_user      = var.ansible_target_user
 
+  # Pass all nodes to be configured into the module as a JSON string
+
+  target_nodes_json = jsonencode(local.all_ssh_nodes)
+
   # IAM Roles
 
   iam_profile_name  = local.iam_profile_name
@@ -563,7 +568,6 @@ module "clients" {
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }
@@ -594,7 +598,6 @@ module "storage_servers" {
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }
@@ -633,16 +636,13 @@ module "hammerspace" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
-  depends_on = [
-    module.ansible
-  ]
 }
 
 # Deploy the ECGroup module if requested
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.3"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.4"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -669,7 +669,6 @@ module "ecgroup" {
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }

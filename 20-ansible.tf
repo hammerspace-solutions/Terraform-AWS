@@ -24,7 +24,7 @@
 # Terraform-AWS project.
 # -----------------------------------------------------------------------------
 
-# Ansible specific variables
+# --- Ansible Input Variables ---
 
 variable "use_ssm_bootstrap" {
   description = "Use SSM to push keys and install Ansible controller"
