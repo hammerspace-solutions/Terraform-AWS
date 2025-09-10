@@ -23,14 +23,7 @@
 # This file contains the SSM resources for bootstrapping the Ansible instance.
 # -----------------------------------------------------------------------------
 
-# Wait for SSM agent to come online before creating the association
-resource "time_sleep" "wait_for_ssm_agent" {
-  count           = var.use_ssm_bootstrap ? 1 : 0
-  create_duration = var.ssm_bootstrap_delay
-  depends_on      = [aws_instance.ansible]
-}
-
-# Create SSM document for bootstrapping (idempotent, safe to re-run)
+# Step 1: Create SSM document (idempotent, safe to re-run)
 resource "aws_ssm_document" "ansible_bootstrap" {
   count         = var.use_ssm_bootstrap ? 1 : 0
   name          = "${local.resource_prefix}-ansible-bootstrap"
@@ -51,6 +44,9 @@ resource "aws_ssm_document" "ansible_bootstrap" {
       action = "aws:runShellScript"
       inputs = {
         runCommand = [
+          "# --- Create necessary directory structure ---",
+          "mkdir -p /usr/local/lib /usr/local/bin /etc/ansible /var/ansible/trigger /var/run/ansible_jobs_status /usr/local/ansible/jobs",
+
           "# --- idempotency guard: skip install if files already present ---",
           "if [ -f /usr/local/bin/ansible_controller_daemon.sh ] && systemctl list-unit-files | grep -q '^ansible-controller.service'; then",
           "  SKIP_INSTALL=1",
@@ -74,9 +70,6 @@ resource "aws_ssm_document" "ansible_bootstrap" {
           "  chown -R \"$U\":\"$U\" \"$HOME_DIR/.ssh\"",
           "fi",
 
-	  "# --- Create all necessary directories BEFORE starting the service ---",
-	  "install -d -m 0755 /var/ansible/trigger /usr/local/ansible/jobs /var/run/ansible_jobs_status /etc/ansible",
-	  
           "# --- install controller files only if not present ---",
           "if [ \"$SKIP_INSTALL\" -eq 0 ]; then",
           "  echo {{ FunctionsB64 }} | base64 -d > /usr/local/lib/ansible_functions.sh",
@@ -97,7 +90,7 @@ resource "aws_ssm_document" "ansible_bootstrap" {
   })
 }
 
-# Associate the ssm document with all instances (retry via schedule; no CLI)
+# Step 2: Associate the ssm document with all instances
 resource "aws_ssm_association" "ansible_bootstrap" {
   count = (var.use_ssm_bootstrap ? var.instance_count : 0)
 
@@ -108,7 +101,6 @@ resource "aws_ssm_association" "ansible_bootstrap" {
     values = [aws_instance.ansible[count.index].id]
   }
 
-  # Retry via State Manager schedule (runs now and per schedule)
   schedule_expression = (
     var.ssm_association_schedule != null && var.ssm_association_schedule != ""
     ? var.ssm_association_schedule
@@ -123,8 +115,7 @@ resource "aws_ssm_association" "ansible_bootstrap" {
     UnitB64       = local.controller_unit_b64
   }
 
-  depends_on = [
-    aws_instance.ansible,
-    time_sleep.wait_for_ssm_agent
-  ]
+  # This is the crucial change:
+  # Ensure this association only runs after the polling in ssm_wait.tf succeeds.
+  depends_on = [null_resource.wait_for_ssm_agent_polling]
 }

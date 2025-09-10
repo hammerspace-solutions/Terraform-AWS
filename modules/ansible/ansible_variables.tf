@@ -146,7 +146,13 @@ variable "authorized_keys" {
 variable "ssm_bootstrap_delay" {
   description = "Time to wait for SSM Agent to come alive"
   type	      = string
-  default     = "180s"
+  default     = "30s"
+}
+
+variable "ssm_bootstrap_retries" {
+  description = "The number of times to retry checking for the SSM agent before failing."
+  type	      = number
+  default     = 4 # Results in a total default wait of 4 * 30s = 120s
 }
 
 variable "ssm_association_schedule" {

@@ -20,72 +20,70 @@
 # -----------------------------------------------------------------------------
 # modules/ansible/ansible_ssm_push.tf
 #
-# This file contains the SSM resources to push the generated inventory.ini
-# to the Ansible controller instance.
+# This file contains the logic to push the generated inventory.ini file to the
+# Ansible instance on every 'terraform apply' run.
 # -----------------------------------------------------------------------------
 
+resource "time_static" "inventory_push_trigger" {
+  # This resource's sole purpose is to get a new timestamp on every 'apply',
+  # which we use to force the recreation of the SSM association below,
+  # effectively triggering the inventory push.
+}
+
 resource "aws_ssm_document" "copy_inventory" {
-  # Since we are in the module, we assume if the module is used, these resources are needed.
-  # The count logic is handled by the root module's call to this module.
-  name          = "${var.common_config.project_name}-copy-inventory-to-ansible"
+  count = var.use_ssm_bootstrap ? 1 : 0
+
+  name          = "${local.resource_prefix}-copy-inventory"
   document_type = "Command"
 
   content = jsonencode({
-    schemaVersion = "2.2",
-    description   = "Copy Ansible inventory file to the trigger directory, passed as a parameter.",
+    schemaVersion = "2.2"
+    description   = "Copy the Ansible inventory file to the trigger directory on the Ansible controller."
     parameters = {
-      "InventoryContentBase64" = {
-        "type"        = "String",
-        "description" = "(Required) The base64-encoded content of the inventory.ini file."
+      InventoryContentB64 = { type = "String", description = "Base64 encoded content of the inventory.ini file" }
+      TargetUser          = { type = "String", description = "The user that should own the inventory file" }
+    }
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "copyInventory"
+      inputs = {
+        runCommand = [
+          "# Ensure the trigger directory exists, making this command robust and idempotent.",
+          "mkdir -p /var/ansible/trigger",
+          "# Decode the inventory content from Base64 and write it to the trigger file.",
+          "echo {{ InventoryContentB64 }} | base64 -d > /var/ansible/trigger/inventory.ini",
+          "# Set the correct ownership and permissions on the file.",
+          "chown {{ TargetUser }}:{{ TargetUser }} /var/ansible/trigger/inventory.ini",
+          "chmod 0644 /var/ansible/trigger/inventory.ini"
+        ]
       }
-    },
-    mainSteps = [
-      {
-        action = "aws:runShellScript",
-        name   = "copyInventory",
-        inputs = {
-          runCommand = [
-	    "install -d -m 0755 /var/ansible/trigger",
-            "echo '{{ InventoryContentBase64 }}' | base64 --decode > /var/ansible/trigger/inventory.ini",
-            "chown root:root /var/ansible/trigger/inventory.ini",
-            "chmod 644 /var/ansible/trigger/inventory.ini"
-          ]
-        }
-      }
-    ]
+    }]
   })
-
-  tags = merge(
-    local.common_tags,
-    { Name = "${var.common_config.project_name}-CopyInventory" }
-  )
-}
-
-resource "time_static" "inventory_push_trigger" {
-  # This resource's timestamp ensures it changes on every `terraform apply` run.
 }
 
 resource "aws_ssm_association" "push_inventory_every_apply" {
-  name             = aws_ssm_document.copy_inventory.name
-  association_name = "PushInventory-${var.common_config.project_name}-${replace(time_static.inventory_push_trigger.rfc3339, ":", "-")}"
+  count = var.use_ssm_bootstrap ? var.instance_count : 0
 
-  parameters = {
-    # Reference the local_file resource created in inventory.tf
-    InventoryContentBase64 = base64encode(local_file.ansible_inventory.content)
-  }
+  # By including the timestamp in the name, we force Terraform to create a new
+  # association on every 'apply', which runs the command immediately.
+  association_name = "PushInventory-${var.common_config.project_name}-${replace(time_static.inventory_push_trigger.rfc3339, ":", "-")}"
+  name             = aws_ssm_document.copy_inventory[0].name
 
   targets {
     key    = "InstanceIds"
-    # We target the first instance created by this module.
-    values = [aws_instance.ansible[0].id]
+    values = [aws_instance.ansible[count.index].id]
   }
 
-  apply_only_at_cron_interval = false
+  parameters = {
+    InventoryContentB64 = base64encode(local_file.ansible_inventory.content)
+    TargetUser          = var.target_user
+  }
 
+  # This is the crucial dependency chain that ensures the correct order of operations.
   depends_on = [
-    local_file.ansible_inventory,
-    aws_instance.ansible,
-    time_sleep.wait_for_ssm_agent,
     aws_ssm_association.ansible_bootstrap,
+    # This is the corrected dependency.
+    # It now correctly waits for the new polling resource to complete successfully.
+    null_resource.wait_for_ssm_agent_polling
   ]
 }
