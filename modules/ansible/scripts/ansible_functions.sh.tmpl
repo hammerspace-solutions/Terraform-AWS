@@ -42,8 +42,147 @@ check_job_status() {
   return 1
 }
 
-# One-time initialization hook (kept from your original design)
-run_initial_setup() {
-  mkdir -p "$STATUS_DIR"
-  touch "$LOCK_FILE"
+# --- UPDATED FUNCTION ---
+# Determines the Linux distribution and prints a JSON object containing the
+# os_id, default_user, and home_dir.
+# Requires 'jq' to be installed on the Ansible instance for easy parsing.
+#
+# Usage:
+#   os_info=$(get_os_info)
+#   user=$(echo "$os_info" | jq -r '.user')
+#   home=$(echo "$os_info" | jq -r '.home')
+get_os_info() {
+  local os_id=""
+  local os_user=""
+  local os_home=""
+
+  # The most reliable and modern method is to check the /etc/os-release file.
+  if [ -f /etc/os-release ]; then
+    os_id=$(. /etc/os-release && echo "$ID")
+  
+  # Fallback for older systems
+  elif [ -f /etc/redhat-release ]; then
+    if grep -q -i "rocky" /etc/redhat-release; then os_id="rocky";
+    elif grep -q -i "centos" /etc/redhat-release; then os_id="centos";
+    else os_id="rhel"; fi
+  elif [ -f /etc/debian_version ]; then
+    os_id="debian"
+  else
+    os_id="unknown"
+  fi
+  
+  # Map the detected OS ID to the default user and home directory.
+  case "$os_id" in
+    ubuntu)
+      os_user="ubuntu"
+      os_home="/home/ubuntu"
+      ;;
+    rocky)
+      os_user="rocky"
+      os_home="/home/rocky"
+      ;;
+    centos)
+      os_user="centos"
+      os_home="/home/centos"
+      ;;
+    amzn)
+      os_user="ec2-user"
+      os_home="/home/ec2-user"
+      ;;
+    rhel)
+      os_user="ec2-user"
+      os_home="/home/ec2-user"
+      ;;
+    debian)
+      os_user="admin"
+      os_home="/home/admin"
+      ;;
+    *)
+      os_user="unknown"
+      os_home="/home/unknown"
+      ;;
+  esac
+
+  # Output the information as a JSON string.
+  echo "{\"id\":\"${os_id}\",\"user\":\"${os_user}\",\"home\":\"${os_home}\"}"
 }
+
+
+# --- UPDATED FUNCTION ---
+# One-time initialization hook. Creates directories, generates an SSH key pair
+# for Ansible to use, and distributes it for both the root user and the default
+# OS user. This ensures Ansible can SSH into localhost.
+run_initial_setup() {
+  echo "--- Running initial setup for Ansible controller ---"
+  
+  # 1. Create necessary directories
+  mkdir -p "$STATUS_DIR"
+
+  # 2. Generate a persistent SSH key for the Ansible controller if it doesn't exist
+  local key_path="/etc/ansible/ssh/id_rsa"
+  mkdir -p "$(dirname "$key_path")"
+  if [ ! -f "$key_path" ]; then
+    echo "Generating new SSH key pair for Ansible..."
+    # Generate a new 4096-bit RSA key with no passphrase.
+    ssh-keygen -t rsa -b 4096 -f "$key_path" -N ""
+  else
+    echo "Ansible SSH key already exists. Skipping generation."
+  fi
+
+  # 3. Get OS-specific user information
+  local os_info
+  os_info=$(get_os_info)
+  local default_user
+  default_user=$(echo "$os_info" | jq -r '.user')
+  local home_dir
+  home_dir=$(echo "$os_info" | jq -r '.home')
+
+  # 4. Read the public key content
+  local pub_key
+  pub_key=$(cat "${key_path}.pub")
+
+  # 5. Define a helper function to set up SSH for a given user
+  setup_ssh_for_user() {
+    local user="$1"
+    local home="$2"
+    local ssh_dir="${home}/.ssh"
+    local auth_keys_file="${ssh_dir}/authorized_keys"
+
+    echo "Configuring SSH for user: ${user}..."
+    
+    # Create .ssh directory with correct permissions and ownership
+    install -d -m 700 -o "${user}" -g "${user}" "${ssh_dir}"
+
+    # Copy the controller's keys
+    cp "${key_path}" "${ssh_dir}/id_rsa"
+    cp "${key_path}.pub" "${ssh_dir}/id_rsa.pub"
+    
+    # Set correct ownership and permissions for the keys
+    chown "${user}":"${user}" "${ssh_dir}/id_rsa" "${ssh_dir}/id_rsa.pub"
+    chmod 600 "${ssh_dir}/id_rsa" "${ssh_dir}/id_rsa.pub"
+
+    # Ensure authorized_keys file exists with correct permissions
+    touch "${auth_keys_file}"
+    chown "${user}":"${user}" "${auth_keys_file}"
+    chmod 600 "${auth_keys_file}"
+
+    # Idempotently add the public key to authorized_keys
+    if ! grep -q -F "$pub_key" "$auth_keys_file"; then
+      echo "Adding public key to ${auth_keys_file}."
+      echo "$pub_key" >> "$auth_keys_file"
+    else
+      echo "Public key already exists in ${auth_keys_file}."
+    fi
+  }
+
+  # 6. Run the setup for both root and the default OS user
+  setup_ssh_for_user "root" "/root"
+  if [ -n "$default_user" ] && [ "$default_user" != "unknown" ]; then
+    setup_ssh_for_user "$default_user" "$home_dir"
+  fi
+
+  # 7. Create the lock file to prevent this from running again
+  touch "$LOCK_FILE"
+  echo "--- Initial setup complete ---"
+}
+
