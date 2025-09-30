@@ -143,6 +143,14 @@ resource "aws_instance" "storage_server" {
     Name   = "${local.resource_prefix}-vol"
   })
 
+  # Add this block here
+  
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 2
+  }
+  
   # Create the boot disk
   
   root_block_device {

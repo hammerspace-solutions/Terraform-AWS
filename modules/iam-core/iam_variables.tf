@@ -63,3 +63,11 @@ variable "iam_profile_name" {
   type        = string
   default     = null
 }
+
+# This variable receives the ARN of the S3 bucket from the root module.
+
+variable "s3_scratch_bucket_arn" {
+  description = "The ARN of the S3 bucket used for Ansible SSM operations. If provided, a policy will be created to allow access."
+  type        = string
+  default     = null
+}

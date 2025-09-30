@@ -28,6 +28,10 @@ fi
 if [ ! -f "$LOCK_FILE" ]; then
   echo "--- Running initial setup ---"
   run_initial_setup
+
+  echo "--- Sleep during Initial setup so that other modules can get loaded"
+  sleep 180
+  
   echo "--- Initial setup complete ---"
 fi
 

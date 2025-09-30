@@ -20,10 +20,9 @@
 # -----------------------------------------------------------------------------
 # modules/ansible/ansible_ssm_bootstrap.tf
 #
-# This file contains the SSM resources for bootstrapping the Ansible instance.
+# This file contains the SSM resources to bootstrap the Ansible instance.
 # -----------------------------------------------------------------------------
 
-# Step 1: Create SSM document (idempotent, safe to re-run)
 resource "aws_ssm_document" "ansible_bootstrap" {
   count         = var.use_ssm_bootstrap ? 1 : 0
   name          = "${local.resource_prefix}-ansible-bootstrap"
@@ -31,9 +30,9 @@ resource "aws_ssm_document" "ansible_bootstrap" {
 
   content = jsonencode({
     schemaVersion = "2.2"
-    description   = "Bootstrap the Ansible host: install controller + authorized_keys (via SSM)"
+    description   = "Bootstrap the Ansible host: configure ansible.cfg, install daemon, and set up keys."
     parameters = {
-      TargetUser    = { type = "String", description = "Linux user to receive authorized_keys (in addition to root)" }
+      TargetUser    = { type = "String", description = "Linux user to receive authorized_keys" }
       AuthorizedB64 = { type = "String", description = "Base64 authorized_keys content" }
       FunctionsB64  = { type = "String", description = "Base64 functions script" }
       DaemonB64     = { type = "String", description = "Base64 daemon script" }
@@ -44,44 +43,18 @@ resource "aws_ssm_document" "ansible_bootstrap" {
       action = "aws:runShellScript"
       inputs = {
         runCommand = [
-          "# --- Create necessary directory structure ---",
-          "mkdir -p /usr/local/lib /usr/local/bin /etc/ansible /var/ansible/trigger /var/run/ansible_jobs_status /usr/local/ansible/jobs",
+          "set -x",
+          "echo 'Creating core directories...'",
+          "mkdir -p /etc/ansible /var/ansible/trigger /var/run/ansible_jobs_status /usr/local/ansible/jobs /usr/local/lib",
 
-          "# --- idempotency guard: skip install if files already present ---",
-          "if [ -f /usr/local/bin/ansible_controller_daemon.sh ] && systemctl list-unit-files | grep -q '^ansible-controller.service'; then",
-          "  SKIP_INSTALL=1",
-          "else",
-          "  SKIP_INSTALL=0",
-          "fi",
-
-          "# --- helper: append + dedupe authorized_keys ---",
+          "# --- Idempotency guard and key setup (rest of the script is the same) ---",
+          "if [ -f /usr/local/bin/ansible_controller_daemon.sh ] && systemctl list-unit-files | grep -q '^ansible-controller.service'; then SKIP_INSTALL=1; else SKIP_INSTALL=0; fi",
           "append_auth_keys() { target=\"$1\"; tmp=\"/tmp/authorized_keys.$$\"; umask 077; echo {{ AuthorizedB64 }} | base64 -d > \"$tmp\" || true; sed -i 's/\\r$//' \"$tmp\" 2>/dev/null || true; touch \"$target\" && chmod 600 \"$target\"; while IFS= read -r line; do [ -z \"$line\" ] && continue; case \"$line\" in \\#*) continue ;; esac; grep -qxF \"$line\" \"$target\" || echo \"$line\" >> \"$target\"; done < \"$tmp\"; rm -f \"$tmp\"; }",
-
-          "# --- always: root keys ---",
           "install -d -m 0700 /root/.ssh",
           "append_auth_keys /root/.ssh/authorized_keys",
-
-          "# --- also: target user keys unless root ---",
           "U='{{ TargetUser }}'",
-          "if [ \"$U\" != \"root\" ]; then",
-          "  HOME_DIR=$(getent passwd \"$U\" | cut -d: -f6 || echo \"/home/$U\")",
-          "  install -d -m 0700 \"$HOME_DIR/.ssh\"",
-          "  append_auth_keys \"$HOME_DIR/.ssh/authorized_keys\"",
-          "  chown -R \"$U\":\"$U\" \"$HOME_DIR/.ssh\"",
-          "fi",
-
-          "# --- install controller files only if not present ---",
-          "if [ \"$SKIP_INSTALL\" -eq 0 ]; then",
-          "  echo {{ FunctionsB64 }} | base64 -d > /usr/local/lib/ansible_functions.sh",
-          "  chmod 0644 /usr/local/lib/ansible_functions.sh",
-
-          "  echo {{ DaemonB64 }} | base64 -d > /usr/local/bin/ansible_controller_daemon.sh",
-          "  chmod 0755 /usr/local/bin/ansible_controller_daemon.sh",
-
-          "  echo {{ UnitB64 }} | base64 -d > /etc/systemd/system/ansible-controller.service",
-          "fi",
-
-          "# --- systemd ---",
+          "if [ \"$U\" != \"root\" ]; then HOME_DIR=$(getent passwd \"$U\" | cut -d: -f6 || echo \"/home/$U\"); install -d -m 0700 \"$HOME_DIR/.ssh\"; append_auth_keys \"$HOME_DIR/.ssh/authorized_keys\"; chown -R \"$U\":\"$U\" \"$HOME_DIR/.ssh\"; fi",
+          "if [ \"$SKIP_INSTALL\" -eq 0 ]; then echo {{ FunctionsB64 }} | base64 -d > /usr/local/lib/ansible_functions.sh; chmod 0644 /usr/local/lib/ansible_functions.sh; echo {{ DaemonB64 }} | base64 -d > /usr/local/bin/ansible_controller_daemon.sh; chmod 0755 /usr/local/bin/ansible_controller_daemon.sh; echo {{ UnitB64 }} | base64 -d > /etc/systemd/system/ansible-controller.service; fi",
           "systemctl daemon-reload",
           "systemctl enable --now ansible-controller.service"
         ]
@@ -90,11 +63,9 @@ resource "aws_ssm_document" "ansible_bootstrap" {
   })
 }
 
-# Step 2: Associate the ssm document with all instances
 resource "aws_ssm_association" "ansible_bootstrap" {
   count = (var.use_ssm_bootstrap ? var.instance_count : 0)
-
-  name = aws_ssm_document.ansible_bootstrap[0].name
+  name  = aws_ssm_document.ansible_bootstrap[0].name
 
   targets {
     key    = "InstanceIds"
@@ -115,7 +86,8 @@ resource "aws_ssm_association" "ansible_bootstrap" {
     UnitB64       = local.controller_unit_b64
   }
 
-  # This is the crucial change:
-  # Ensure this association only runs after the polling in ssm_wait.tf succeeds.
-  depends_on = [null_resource.wait_for_ssm_agent_polling]
+  depends_on = [
+    null_resource.wait_for_ssm_agent_polling
+  ]
 }
+

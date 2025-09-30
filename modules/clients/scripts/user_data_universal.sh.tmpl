@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Universal Linux user_data template (Ubuntu/Debian + Rocky/Alma/RHEL)
 # ROOT is always /root; adds SSM Agent installation + enablement.
 
@@ -15,21 +14,27 @@ OS_LIKE="$${ID_LIKE:-}"
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 try() { "$@" || true; }  # best-effort for cross-distro commands
 
-# -----------------------------
+# -----------------------------------------------
 # Base packages (add curl + jq for SSM helper)
-# -----------------------------
+# -----------------------------------------------
 if have_cmd apt-get; then
-  export DEBIAN_FRONTEND=noninteractive
   sudo apt-get -y update
   sudo apt-get -y upgrade
-  sudo apt-get install -y python3-pip git bc nfs-common screen net-tools fio xfsprogs curl jq
+  try sudo apt-get install -y python3
+  try sudo apt-get install -y python3-pip git bc nfs-common screen net-tools fio xfsprogs curl jq unzip
+  try sudo DEBIAN_FRONTEND=noninteractive apt-get install -y emacs
+  curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+  try unzip /tmp/awscliv2.zip
+  try sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
 elif have_cmd dnf; then
   try sudo dnf -y install epel-release
   sudo dnf -y upgrade
+  sudo dnf install -y python3
   sudo dnf install -y python3-pip git bc nfs-utils screen net-tools fio xfsprogs curl jq
 elif have_cmd yum; then
   try sudo yum -y install epel-release
   sudo yum -y update
+  sudo yum install -y python3
   sudo yum install -y python3-pip git bc nfs-utils screen net-tools fio xfsprogs curl jq
 fi
 
@@ -37,6 +42,13 @@ fi
 # WARNING!!
 # DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
 # ----------------------------------------------------------------------------
+
+# --- Install AWS SDK for Python (boto3/botocore) for Ansible SSM ---
+
+echo "Installing boto3 and botocore for Ansible SSM prerequisites..."
+try sudo pip3 install boto3 botocore
+
+# Getting all the variables from the spawning routine
 
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
@@ -46,6 +58,7 @@ TIER0='${TIER0}'
 TIER0_TYPE='${TIER0_TYPE}'
 
 # SSH client/server relax
+
 sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
@@ -277,14 +290,14 @@ ensure_ssm_agent
 # Optional: Docker + editor (Debian/Ubuntu only)
 
 if echo "$OS_ID $OS_LIKE" | grep -Ei 'debian|ubuntu' >/dev/null 2>&1 && have_cmd apt-get; then
-  sudo apt-get update -y
-  sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+    
+    sudo apt-get update -y
+    sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
     | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-  sudo apt-get update -y
-  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  sudo apt-get install -y emacs
+    sudo apt-get update -y
+    try sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
 sudo reboot

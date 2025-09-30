@@ -7,6 +7,9 @@
 # Don't pass in local_override.tf file
 local_override.tf
 
+# Don't pass in any key files
+*.pub
+
 # Don't pass in emacs files
 *~
 \#*

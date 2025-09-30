@@ -39,17 +39,21 @@ data "aws_ec2_instance_type_offering" "ansible" {
 locals {
   # Verify if the instance type is available in AWS. We will check this later with a
   # precondition
+
   ansible_instance_type_is_available = length(data.aws_ec2_instance_type_offering.ansible.instance_type) > 0
 
   # Establish resource naming prefix based upon the project name
+  
   resource_prefix = "${var.common_config.project_name}-ansible"
 
   # Append project name to tags
+  
   common_tags = merge(var.common_config.tags, {
     Project = var.common_config.project_name
   })
 
   # Pull keys from var or from file on disk
+  
   authorized_keys_content = coalesce(
     var.authorized_keys,
     length(fileset(path.root, "ssh_keys/*.pub")) > 0
@@ -59,10 +63,12 @@ locals {
   authorized_keys_b64 = base64encode(local.authorized_keys_content)
 
   # Embed controller scripts (read from templates in this module)
+  
   functions_b64 = filebase64("${path.module}/scripts/ansible_functions.sh.tmpl")
   daemon_b64    = filebase64("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
 
   # Embed systemd unit for the ansible controller
+  
   controller_unit = <<-UNIT
   [Unit]
   Description=Ansible Controller Daemon (inventory-triggered job runner)
@@ -84,6 +90,7 @@ locals {
   controller_unit_b64 = base64encode(local.controller_unit)
 
   # Get all the public ssh keys from the files
+  
   ssh_public_keys = try(
     [
       for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
@@ -93,15 +100,18 @@ locals {
   )
 
   # Get a minimal bootstrap template so that our services get launched
+  
   daemon_script_content    = file("${path.module}/scripts/ansible_controller_daemon.sh.tmpl")
   functions_script_content = file("${path.module}/scripts/ansible_functions.sh.tmpl")
 
   # Create some variables needed by template file
+  
   target_home = "/home/${var.target_user}"
   root_user   = "root"
   root_home   = "/${local.root_user}"
 
   # Process a minimal bootstrap script for user_data
+  
   bootstrap_user_data = templatefile("${path.module}/scripts/bootstrap_ssh.sh.tmpl", {
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
@@ -111,6 +121,7 @@ locals {
 }
 
 # Step 1: Create a security group for the Ansible instance(s)
+
 resource "aws_security_group" "ansible" {
   name        = "${local.resource_prefix}-sg"
   description = "Ansible Security Group"
@@ -134,6 +145,7 @@ resource "aws_security_group" "ansible" {
 
   # You should not allow access to ansible services from the internet.
   # This is for testing and should be modified to fit your needs.
+
   egress {
     description = "ALL"
     from_port   = 0
@@ -151,6 +163,7 @@ resource "aws_security_group" "ansible" {
 }
 
 # Step 2: Create EIP (if configured) for each instance in order
+
 resource "aws_eip" "ansible" {
   count  = var.assign_public_ip ? var.instance_count : 0
   domain = "vpc"
@@ -163,46 +176,37 @@ resource "aws_eip" "ansible" {
   )
 }
 
-# Step 3: Create network interfaces for each instance
-resource "aws_network_interface" "ansible_primary" {
-  count             = var.instance_count
-  subnet_id         = var.assign_public_ip ? var.public_subnet_id : var.common_config.subnet_id
-  security_groups   = [aws_security_group.ansible.id]
-  source_dest_check = false
+# Step 3: Create those instances!
 
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "${local.resource_prefix}-${count.index + 1}"
-    }
-  )
-}
-
-# Step 4: Attach to any EIP # so that it can be used for the primary network interface
-resource "aws_eip_association" "ansible" {
-  count                = var.assign_public_ip ? var.instance_count : 0
-  allocation_id        = aws_eip.ansible[count.index].id
-  network_interface_id = aws_network_interface.ansible_primary[count.index].id
-}
-
-# Step 4: Create those instances!
 resource "aws_instance" "ansible" {
   count                  = var.instance_count
   ami                    = var.ami
   instance_type          = var.instance_type
   key_name               = var.common_config.key_name
   placement_group        = var.common_config.placement_group_name
+  
   # Use the minimal bootstrap script here
+  
   user_data              = local.bootstrap_user_data
   iam_instance_profile = var.iam_profile_name
 
-  # Using the ENI as eth0
-  network_interface {
-    network_interface_id = aws_network_interface.ansible_primary[count.index].id
-    device_index         = 0
+  # Define the networking directly on the instance resource
+
+  subnet_id = var.assign_public_ip ? var.public_subnet_id : var.common_config.subnet_id
+  vpc_security_group_ids = [aws_security_group.ansible.id]
+  source_dest_check	 = false
+  
+  # Explicitly enable the EC2 Metadata Service and support both IMDSv1 and IMDSv2.
+  # This allows the instance to reliably assume its IAM role.
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional" # Supports both IMDSv1 and IMDSv2
+    http_put_response_hop_limit = 2
   }
 
   # Delete on shutdown
+  
   root_block_device {
     delete_on_termination = true
     encrypted             = true
@@ -214,4 +218,25 @@ resource "aws_instance" "ansible" {
       Name = "${local.resource_prefix}-${count.index + 1}",
     }
   )
+
+  # This will fail during 'terraform plan' if the module does not receive
+  # a valid IAM profile name, preventing the instance from launching without permissions.
+  
+  lifecycle {
+    precondition {
+      condition     = var.iam_profile_name != null && var.iam_profile_name != ""
+      error_message = "IAM Profile Error: The Ansible module requires a valid iam_profile_name. The value received was null or empty. Please ensure the root module is providing a valid IAM instance profile name."
+    }
+  }
+}
+
+# Step 4: Associate the EIP with the instance's primary network interface
+
+resource "aws_eip_association" "ansible" {
+  count                = var.assign_public_ip ? var.instance_count : 0
+  allocation_id        = aws_eip.ansible[count.index].id
+  
+  # Reference the primary ENI created by the instance itself.
+  
+  network_interface_id = aws_instance.ansible[count.index].primary_network_interface_id
 }

@@ -123,8 +123,8 @@ run_initial_setup() {
   mkdir -p "$(dirname "$key_path")"
   if [ ! -f "$key_path" ]; then
     echo "Generating new SSH key pair for Ansible..."
-    # Generate a new 4096-bit RSA key with no passphrase.
-    ssh-keygen -t rsa -b 4096 -f "$key_path" -N ""
+    # Generate a new 4096-bit RSA key with no passphrase and an empty comment.
+    ssh-keygen -t rsa -b 4096 -f "$key_path" -N "" -C ""
   else
     echo "Ansible SSH key already exists. Skipping generation."
   fi
