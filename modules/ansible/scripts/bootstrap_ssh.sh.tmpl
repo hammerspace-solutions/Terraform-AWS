@@ -12,11 +12,11 @@ set -euo pipefail
 # OS detection helpers
 # -----------------------------
 if [ -r /etc/os-release ]; then
-  # shellcheck source=/dev/null
   . /etc/os-release
 fi
 
-OS_ID="$${ID:-unknown}"
+# Helpers
+
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 try() { "$@" || true; }
 
@@ -25,21 +25,22 @@ echo "Starting bootstrap process..."
 # -----------------------------
 # Minimal deps so SSM fallback (curl) can work
 # -----------------------------
+
 if have_cmd apt-get; then
   sudo apt-get -y update
-  # install just enough for SSM fallback first
-  sudo apt-get install -y curl ca-certificates || true
+  sudo apt-get install -y curl ca-certificates jq unzip || true
 elif have_cmd dnf; then
   try sudo dnf -y upgrade
-  sudo dnf install -y curl ca-certificates || true
+  sudo dnf install -y curl ca-certificates jq unzip || true
 elif have_cmd yum; then
   try sudo yum -y update
-  sudo yum -y install curl ca-certificates || true
+  sudo yum -y install curl ca-certificates jq unzip || true
 fi
 
 # -----------------------------
 # SSM Agent install/enable (run as early as possible)
 # -----------------------------
+
 get_imds_token() {
   curl -sS -X PUT "http://169.254.169.254/latest/api/token" \
     -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
@@ -56,6 +57,23 @@ imds_get() {
   fi
 }
 
+# Install AWS CLI v2 (needed to fetch secret)
+
+if ! have_cmd aws; then
+    ARCH="$(uname -m)"
+    if [ "$ARCH" = "x86_64" ]; then
+	CLIZIP="awscliv2.zip";
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+	CLIZIP="awscliv2-arm64.zip"; else CLIZIP="awscliv2.zip";
+    fi
+    curl -fsSL "https://awscli.amazonaws.com/$${CLIZIP}" -o "/tmp/awscliv2.zip"
+    unzip -q /tmp/awscliv2.zip -d /tmp/awscli || true
+    sudo /tmp/awscli/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update || true
+fi
+
+
+# Encusre SSM agent running (controller only)
+
 ensure_ssm_agent() {
   # If unit already exists, just enable/start
   if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
@@ -64,6 +82,7 @@ ensure_ssm_agent() {
   fi
 
   # Fallback to regional S3
+  
   REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
   ARCH="$(uname -m)"
   if [ "$ARCH" = "x86_64" ]; then DEB_ARCH="amd64"; RPM_ARCH="linux_amd64";
@@ -91,21 +110,18 @@ ensure_ssm_agent() {
 }
 
 # ---------------------------------
-# Base packages + Ansible + AWS CLI
+# Base packages + Ansible
 # ---------------------------------
 
 if have_cmd apt-get; then
-  try sudo apt-get install -y python3 python3-pip git jq unzip ansible net-tools
+  try sudo apt-get install -y python3 python3-pip git ansible net-tools
   try sudo DEBIAN_FRONTEND=noninteractive apt-get install -y emacs
-  curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-  unzip /tmp/awscliv2.zip
-  sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
 elif have_cmd dnf; then
   try sudo dnf -y install epel-release
-  try sudo dnf -y install python3 python3-pip git jq unzip ansible-core net-tools || try sudo dnf -y install ansible
+  try sudo dnf -y install python3 python3-pip git ansible-core net-tools || try sudo dnf -y install ansible
 elif have_cmd yum; then
   try sudo yum -y install epel-release
-  try sudo yum -y install python3 python3-pip git jq unzip ansible
+  try sudo yum -y install python3 python3-pip git ansible
 fi
 
 # Install things necessary for ansible to run
@@ -121,17 +137,46 @@ fi
 
 echo "Ensuring SSM agent is installed and running..."
 ensure_ssm_agent
+echo "[bootstrap] SSM ready"
 
 # ----------------------------------------------------------------------------
 # TERRAFORM VARS (These will be replaced by the templatefile function)
 # ----------------------------------------------------------------------------
+
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
+PRIVATE_KEY_SECRET_ARN='${PRIVATE_KEY_SECRET_ARN}'
+REGION_IN='${REGION}'
+
+# --- SSH: fetch private key (Secrets Manager) & set up files ---
+
+sudo mkdir -p /etc/ansible/keys
+sudo chmod 700 /etc/ansible/keys
+
+if [ -n "$PRIVATE_KEY_SECRET_ARN" ] && [ "$PRIVATE_KEY_SECRET_ARN" != "null" ]; then
+    echo "[bootstrap] fetching private key from Secrets Manager..."
+    aws --region "$${REGION_IN}" secretsmanager get-secret-value \
+	--secret-id "$${PRIVATE_KEY_SECRET_ARN}" \
+	--query SecretString --output text > /tmp/ansible.key
+    sudo install -m 600 -o root -g root /tmp/ansible.key /etc/ansible/keys/ansible
+    shred -u /tmp/ansible.key || true
+fi
+
+# (Optional) add provided public keys to controller user for easier admin
+
+if [ -n "$SSH_KEYS" ] && [ "$SSH_KEYS" != "null" ]; then
+    sudo mkdir -p "${TARGET_HOME}/.ssh"
+    echo "$${SSH_KEYS}" | sudo tee -a "${TARGET_HOME}/.ssh/authorized_keys" >/dev/null
+    sudo chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh"
+    sudo chmod 700 "${TARGET_HOME}/.ssh"
+    sudo chmod 600 "${TARGET_HOME}/.ssh/authorized_keys"
+fi
 
 # -----------------------------
 # SSH relax + pubkey login
 # -----------------------------
+
 echo "Configuring SSH settings and authorized keys..."
 sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no

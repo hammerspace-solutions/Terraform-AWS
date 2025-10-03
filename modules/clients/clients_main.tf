@@ -136,7 +136,7 @@ resource "aws_instance" "clients" {
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.client.id]
+  vpc_security_group_ids = [aws_security_group.client.id, module.ansible.allow_ssh_from_ansible_sg_id]
   iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes

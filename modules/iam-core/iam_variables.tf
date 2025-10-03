@@ -71,3 +71,11 @@ variable "s3_scratch_bucket_arn" {
   type        = string
   default     = null
 }
+
+# Ansible-specific: ARN of the Secrets Manager secret holding the Ansible controller's private SSH key
+
+variable "ansible_private_key_secret_arn" {
+  description = "The ARN of the Secrets Manager secret for the Ansible controller's private SSH key. If provided, an Ansible-specific IAM role/profile will be created."
+  type        = string
+  default     = null
+}

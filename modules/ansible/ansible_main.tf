@@ -36,6 +36,15 @@ data "aws_ec2_instance_type_offering" "ansible" {
   location_type = "availability-zone"
 }
 
+data "aws_iam_policy_document" "controller_inline" {
+  statement {
+    sid	      = "SecretsRead"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.ansible_private_key_secret_arn]
+  }
+}
+
 locals {
   # Verify if the instance type is available in AWS. We will check this later with a
   # precondition
@@ -116,6 +125,8 @@ locals {
     TARGET_USER = var.target_user,
     TARGET_HOME = "/home/${var.target_user}",
     SSH_KEYS    = join("\n", local.ssh_public_keys)
+    PRIVATE_KEY_SECRET_ARN = var.ansible_private_key_secret_arn
+    REGION      = var.common_config.region
     }
   )
 }
@@ -176,6 +187,14 @@ resource "aws_eip" "ansible" {
   )
 }
 
+# Attach that policy to the controller instance role
+
+resource "aws_iam_role_policy" "controller_inline" {
+  name	 		 = "controller-inline"
+  role			 = aws_iam_role.controller_role.name
+  policy		 = data.aws_iam_policy_document.controller_inline.json
+}
+
 # Step 3: Create those instances!
 
 resource "aws_instance" "ansible" {
@@ -188,7 +207,7 @@ resource "aws_instance" "ansible" {
   # Use the minimal bootstrap script here
   
   user_data              = local.bootstrap_user_data
-  iam_instance_profile = var.iam_profile_name
+  iam_instance_profile   = var.iam_profile_name
 
   # Define the networking directly on the instance resource
 

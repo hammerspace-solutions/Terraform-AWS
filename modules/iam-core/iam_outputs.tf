@@ -52,3 +52,12 @@ output "instance_profile_name" {
     : try(one(aws_iam_instance_profile.ec2_ssm[*].name), null)
   )
 }
+
+# Ansible-specific profile name (null if not created)
+
+output "ansible_profile_name" {
+  value = try(
+    one(aws_iam_instance_profile.ansible_controller[*].name),
+    null
+  )
+}

@@ -52,3 +52,14 @@ output "ansible_details" {
     }
   ]
 }
+
+output "ansible_key_name" {
+  description = "This key pair name for SSH from Ansible controller to targets"
+  value	      = aws_key_pair.ansible.key_name
+}
+
+output "allow_ssh_from_ansible_sg_id" {
+  description = "SG ID to attach to targets for allowing SSH from Ansible"
+  value	      = aws_security_group.allow_ssh_from_ansible.id
+}
+

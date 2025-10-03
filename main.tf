@@ -507,12 +507,6 @@ module "ansible" {
   public_subnet_id        = var.public_subnet_id
   capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
 
-  # Pass the path to the key, not the content of the key.
-
-  admin_private_key_path = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
-
-  admin_public_key_path = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
-
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
   instance_type    = var.ansible_instance_type
@@ -534,6 +528,15 @@ module "ansible" {
   use_ssm_bootstrap = var.use_ssm_bootstrap
   authorized_keys   = var.authorized_keys
 
+  # Use public / private key for ansible communication
+
+  ansible_ssh_public_key = var.ansible_ssh_public_key
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
+  # Security for ssh control
+
+  ansible_controller_cidr = var.ansible_controller_cidr
+  
   depends_on = [
     module.iam_core
   ]

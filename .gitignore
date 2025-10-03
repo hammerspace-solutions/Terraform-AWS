@@ -1,6 +1,12 @@
 # Vscode config files
 .vscode
 
+# Don't store tree structure files
+*.tree
+
+# Don't ever put .DS_Store into git
+.DS_Store
+
 # Don't put .orig files into git
 *.orig
 
