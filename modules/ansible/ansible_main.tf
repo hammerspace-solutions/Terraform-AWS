@@ -15,7 +15,7 @@
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT of OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
 # modules/ansible/ansible_main.tf
@@ -34,15 +34,6 @@ data "aws_ec2_instance_type_offering" "ansible" {
     values = [var.common_config.availability_zone]
   }
   location_type = "availability-zone"
-}
-
-data "aws_iam_policy_document" "controller_inline" {
-  statement {
-    sid	      = "SecretsRead"
-    effect    = "Allow"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.ansible_private_key_secret_arn]
-  }
 }
 
 locals {
@@ -185,14 +176,6 @@ resource "aws_eip" "ansible" {
       Name = "${local.resource_prefix}-ansible-${count.index + 1}"
     }
   )
-}
-
-# Attach that policy to the controller instance role
-
-resource "aws_iam_role_policy" "controller_inline" {
-  name	 		 = "controller-inline"
-  role			 = aws_iam_role.controller_role.name
-  policy		 = data.aws_iam_policy_document.controller_inline.json
 }
 
 # Step 3: Create those instances!

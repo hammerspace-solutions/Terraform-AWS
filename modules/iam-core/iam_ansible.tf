@@ -29,7 +29,7 @@ locals {
 }
 
 resource "aws_iam_role" "ansible_controller" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   name = "${local.ansible_resource_prefix}-role"
   path = var.role_path
@@ -49,7 +49,7 @@ resource "aws_iam_role" "ansible_controller" {
 
 # Inline policy for SSM core permissions (consolidated here since SSM is only for Ansible)
 data "aws_iam_policy_document" "ansible_ssm_core" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   statement {
     effect = "Allow"
@@ -106,7 +106,7 @@ data "aws_iam_policy_document" "ansible_ssm_core" {
 }
 
 resource "aws_iam_role_policy" "ansible_ssm_core" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   name   = "${local.ansible_resource_prefix}-SSMCustomPolicy"
   role   = aws_iam_role.ansible_controller[0].id
@@ -115,7 +115,7 @@ resource "aws_iam_role_policy" "ansible_ssm_core" {
 
 # Policy for Secrets Manager access (specific to Ansible private key)
 data "aws_iam_policy_document" "ansible_secrets" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   statement {
     sid     = "SecretsRead"
@@ -126,7 +126,7 @@ data "aws_iam_policy_document" "ansible_secrets" {
 }
 
 resource "aws_iam_role_policy" "ansible_secrets" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   name   = "${local.ansible_resource_prefix}-SecretsPolicy"
   role   = aws_iam_role.ansible_controller[0].id
@@ -135,14 +135,14 @@ resource "aws_iam_role_policy" "ansible_secrets" {
 
 # Attach extra managed policies if provided
 resource "aws_iam_role_policy_attachment" "ansible_extra" {
-  for_each = var.ansible_private_key_secret_arn != null ? toset(var.extra_managed_policy_arns) : toset([])
+  for_each = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? toset(var.extra_managed_policy_arns) : toset([])
 
   role       = aws_iam_role.ansible_controller[0].name
   policy_arn = each.value
 }
 
 resource "aws_iam_instance_profile" "ansible_controller" {
-  count = var.ansible_private_key_secret_arn != null ? 1 : 0
+  count = var.iam_profile_name == null && var.ansible_private_key_secret_arn != null ? 1 : 0
 
   name = "${local.ansible_resource_prefix}-profile"
   role = aws_iam_role.ansible_controller[0].name

@@ -10,11 +10,11 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Global Variables](#global-variables)
 - [Component Variables](#component-variables)
   - [Client Variables](#client-variables)
-  - [Bastion Host Variables](#bastion-host-variables)
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
   - [ECGroup Variables](#ecgroup-variables)
   - [Ansible Variables](#ansible-variables)
+    - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
 - [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
@@ -23,8 +23,6 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Important Warning on Capacity Reservation Billing](#important-warning-on-capacity-reservation-billing)
 - [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
 - [Securely Accessing Instances](#securely-accessing-instances)
-  - [Option 1: Bastion Host (Recommended)](#option-1-bastion-host-recommended)
-  - [Option 2: AWS Systems Manager Session Manager (Most Secure)](#option-2-aws-systems-manager-session-manager-most-secure)
 - [Production Backend](#production-backend)
 - [Tier-0](#tier-0)
 - [Prerequisites](#prerequisites)
@@ -33,7 +31,6 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 - [Important Note on Placement Group Deletion](#important-note-on-placement-group-deletion)
 - [Outputs](#outputs)
 - [Modules](#modules)
-
 
 ## Configuration
 
@@ -69,9 +66,10 @@ These variables apply to the overall deployment:
 These variables configure the client instances and are prefixed with `clients_` in your `terraform.tfvars` file.
 
 * `clients_instance_count`: Number of client instances.
+* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
+* `clients_tier0_type`: Tier0 RAID config for clients. (raid-0, raid-5, raid-6) (Default: "raid-0")
 * `clients_ami`: AMI for client instances.
 * `clients_instance_type`: Instance type for clients.
-* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
 * `clients_boot_volume_size`: Root volume size (GB) for clients (Default: 100).
 * `clients_boot_volume_type`: Root volume type for clients (Default: "gp2").
 * `clients_ebs_count`: Number of extra EBS volumes per client (Default: 0).
@@ -79,19 +77,8 @@ These variables configure the client instances and are prefixed with `clients_` 
 * `clients_ebs_type`: Type of EBS volume for clients (Default: "gp3").
 * `clients_ebs_throughput`: Throughput for gp3 EBS volumes for clients (MB/s).
 * `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for clients.
-* `clients_user_data`: Path to user data script for clients.
 * `clients_target_user`: Default system user for client EC2s (Default: "ubuntu").
 
----
-### Bastion Host Variables
-These variables configure the bastion host instance, which acts as a secure jump box to access other instances. They are prefixed with `bastion_` in your `terraform.tfvars` file.
-
-* `bastion_instance_count`: Number of bastion client instances (Default: 1).
-* `bastion_ami`: AMI for the bastion client instances.
-* `bastion_instance_type`: Instance type for the bastion client.
-* `bastion_boot_volume_size`: Root volume size (GB) for the bastion client (Default: 100).
-* `bastion_boot_volume_type`: Root volume type for the bastion client (Default: "gp2").
-* `bastion_target_user`: Default system user for bastion EC2s (Default: "ubuntu").
 ---
 
 ### Storage Server Variables
@@ -101,7 +88,6 @@ These variables configure the storage server instances and are prefixed with `st
 * `storage_instance_count`: Number of storage instances (Default: 0).
 * `storage_ami`: (Required) AMI for storage instances.
 * `storage_instance_type`: Instance type for storage.
-* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
 * `storage_boot_volume_size`: Root volume size (GB) for storage (Default: 100).
 * `storage_boot_volume_type`: Root volume type for storage (Default: "gp2").
 * `storage_ebs_count`: Number of extra EBS volumes per storage (Default: 0).
@@ -109,8 +95,8 @@ These variables configure the storage server instances and are prefixed with `st
 * `storage_ebs_type`: Type of EBS volume for storage (Default: "gp3").
 * `storage_ebs_throughput`: Throughput for gp3 EBS volumes for storage (MB/s).
 * `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for storage.
-* `storage_user_data`: Path to user data script for storage.
 * `storage_target_user`: Default system user for storage EC2s (Default: "ubuntu").
+* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
 
 ---
 
@@ -118,7 +104,7 @@ These variables configure the storage server instances and are prefixed with `st
 
 These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
 
-* **`hammerspace_profile_id`**: The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created.
+* **`iam_profile_name`**: The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created.
 * **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
 * **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
 * `hammerspace_ami`: AMI ID for Hammerspace instances.
@@ -158,7 +144,6 @@ These variables configure the ECGroup storage cluster and are prefixed with `ecg
 * `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
 * `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
 * `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
-* `ecgroup_user_data`: Path to user data script for the nodes.
 
 ---
 
@@ -171,10 +156,125 @@ These variables configure the Ansible controller instance and its playbook. Pref
 * `ansible_instance_type`: Instance type for Ansible (Default: "m5n.8xlarge").
 * `ansible_boot_volume_size`: Root volume size (GB) (Default: 100).
 * `ansible_boot_volume_type`: Root volume type (Default: "gp2").
-* `ansible_user_data`: Path to user data script for Ansible.
 * `ansible_target_user`: Default system user for Ansible EC2 (Default: "ubuntu").
+* `ansible_ssh_public_key`: OpenSSH public key for the Ansible controller (e.g., `ssh-ed25519 AAA...`).
+* `ansible_private_key_secret_arn`: AWS Secrets Manager ARN holding the Ansible controller's private SSH key.
+* `ansible_controller_cidr`: CIDR allowed to SSH to target instances (used as a fallback if security group-based SSH is not possible).
 * `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
 * `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
+
+#### Generating and Storing SSH Keys for Ansible
+
+The Ansible controller uses a public/private SSH key pair to securely configure target instances (clients, storage servers, EC groups, etc.) via SSH. The public key is registered in AWS, and the private key is stored securely in AWS Secrets Manager. Follow these steps to generate and store the key pair:
+
+1. **Generate a Public/Private Key Pair**:
+   - On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
+     ```bash
+     ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
+   - This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
+
+2. **Store the Private Key in AWS Secrets Manager:
+
+   - Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
+   ```
+   aws secretsmanager create-secret \
+  --name ansible-controller-private-key \
+  --description "Private SSH key for Ansible controller" \
+  --secret-string file://ansible_controller_key \
+  --region <region>
+  ```
+  - Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
+
+3. **Update terraform.tfvars**:
+
+  - In your `terraform.tfvars file, set the following variables:
+
+  ```
+  ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
+  ansible_private_key_secret_arn = "<ARN from step 2>"
+  ```
+
+  - Example:
+
+  ```
+  ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
+ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
+  ```
+
+  - To get the public key contents, run:
+
+  ```
+  cat ansible_controller_key.pub
+  ```
+
+  - Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
+
+4. **IAM Permissions**:
+
+  - If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, ensure it includes the following permissions for the Ansible instance:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SecretsRead",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "<ansible_private_key_secret_arn>"
+    },
+    {
+      "Sid": "SSMAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeAssociation",
+        "ssm:GetDeployablePatchSnapshotForInstance",
+        "ssm:GetDocument",
+        "ssm:DescribeDocument",
+        "ssm:GetManifest",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:ListAssociations",
+        "ssm:ListInstanceAssociations",
+        "ssm:PutInventory",
+        "ssm:PutComplianceItems",
+        "ssm:PutConfigurePackageResult",
+        "ssm:UpdateAssociationStatus",
+        "ssm:UpdateInstanceAssociationStatus",
+        "ssm:UpdateInstanceInformation",
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommands",
+        "ssm:ListCommandInvocations",
+        "ssm:StartSession",
+        "ssm:TerminateSession",
+        "ssm:ResumeSession",
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage",
+        "ec2messages:DeleteMessage",
+        "ec2messages:FailMessage",
+        "ec2messages:GetEndpoint",
+        "ec2messages:GetMessages",
+        "ec2messages:SendReply"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+  - If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
+
+5. **Security Best Practices**:
+
+  - Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
+  - Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
+  - Use a strong, unique key pair for each deployment to avoid reuse risks.
+
+This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
 
 ---
 ## Infrastructure Guardrails and Validation
@@ -245,7 +345,7 @@ The `capacity_reservation_create_timeout` you set applies to this **entire waiti
 ---
 
 ## Required IAM Permissions for Custom Instance Profile
-If you are using the `hammerspace_profile_id` variable to provide a pre-existing IAM Instance Profile, the associated IAM Role must have a policy attached with the following permissions.
+If you are using the `iam_profile_name` variable to provide a pre-existing IAM Instance Profile, the associated IAM Role must have a policy attached with the following permissions.
 
 **Summary for AWS Administrators:**
 1.  Create an IAM Policy with the JSON below.
@@ -311,19 +411,6 @@ If you are using the `hammerspace_profile_id` variable to provide a pre-existing
 For production or security-conscious environments, allowing ingress traffic from the entire internet (`0.0.0.0/0`) is not recommended. This project defaults to a more secure model. Ingress traffic is only allowed from two sources:
 1.  The CIDR block of the VPC itself, allowing all instances within the deployment to communicate with each other.
 2.  Any additional CIDR blocks you specify in the `allowed_source_cidr_blocks` variable, which is ideal for corporate VPNs or management networks.
-
-### Option 1: Bastion Host (Recommended for Production)
-
-A Bastion Host (or "jump box") is a single, hardened EC2 instance that lives in a public subnet and is the only instance that accepts connections from the internet (or a corporate VPN). Users first SSH into the bastion host, and from there, they can "jump" to other instances in private subnets using their private IP addresses.
-
-This project supports this pattern through the `allowed_ssh_source_security_group_ids` variable in the `storage_servers` module (and can be added to others). You would:
-1.  Create a security group for your bastion host.
-2.  Pass the ID of that security group to the module.
-3.  The module will then create an ingress rule allowing SSH traffic *only* from resources within that bastion host security group.
-
-### Option 2: AWS Systems Manager Session Manager (Most Secure)
-
-A more modern approach is to use AWS Systems Manager Session Manager. This service allows you to get a secure shell connection to your instances without opening **any** inbound ports (not even port 22). Access is controlled entirely through IAM policies, providing the highest level of security and auditability. This requires setting up the SSM Agent on your instances and configuring the appropriate IAM permissions.
 
 ---
 
@@ -458,7 +545,6 @@ After a successful `apply`, Terraform will provide the following outputs. Sensit
 * `hammerspace_mgmt_url`: The URL to access the Hammerspace management interface.
 * `ecgroup_nodes`: Details about the deployed ECGroup nodes.
 * `ansible_details`: Details for the deployed Ansible controller.
-* `bastion_details`: Details for the deployed Bastion gateway.
 
 ---
 ## Modules
@@ -468,7 +554,6 @@ This project is structured into the following modules:
 * **storage_servers**: Deploys storage server EC2 instances with configurable RAID and NFS exports.
 * **hammerspace**: Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
 * **ecgroup**: Deploys a storage cluster that combines all of its storage into an erasure-coded array.
-* **bastion**: Deploys Bastion EC2 instance. This instance is the gateway to other instances that have been deployed. It is only instantiated when a public IP is requested. All of the other instances utilize private IP's, but the Bastion utilizes a public IP and acts as the gateway to the other instances in your environment.
 * **ansible**: Deploys an Ansible controller instance which performs "Day 2" configuration tasks after the primary infrastructure is provisioned. Its key functions are:
     * **Hammerspace Integration**: It runs a playbook that connects to the Anvil's API to add the newly created storage servers as data nodes, create a volume group, and create a share.
     * **ECGroup Configuration**: It runs a playbook to configure the ECGroup cluster, create the array, and set up the necessary services.
