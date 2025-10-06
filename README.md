@@ -169,8 +169,11 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 
 1. **Generate a Public/Private Key Pair**:
    - On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
-     ```bash
+   
+```bash
      ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
+```
+
    - This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
 
 2. **Store the Private Key in AWS Secrets Manager**:
@@ -190,7 +193,6 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 ```
   ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
   ansible_private_key_secret_arn = "<ARN from step 2>"
-
 ```
   - Example:
 
