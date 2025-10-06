@@ -58,7 +58,7 @@ locals {
   # Grab the first (and only) storage‐info block, or empty map if none
   
   instance_info = data.aws_ec2_instance_type.nvme_disks
-
+  
   # Calculate NVMe drive count (0 if no instance storage)
 
   nvme_count = try(
@@ -72,7 +72,7 @@ locals {
   ssh_public_keys = try(
     [
       for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
-        trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
+      trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
     ],
     []
   )
@@ -82,12 +82,12 @@ locals {
   # Process the bash shell template
   
   processed_user_data = templatefile("${path.module}/scripts/user_data_universal.sh.tmpl", {
-    TARGET_USER	      = var.target_user,
-    TARGET_HOME	      = "/home/${var.target_user}",
-    SSH_KEYS   	      = join("\n", local.ssh_public_keys),
-    TIER0	      = var.tier0,
-    TIER0_TYPE	      = var.tier0_type, 
-    ALLOW_ROOT	      = var.common_config.allow_root
+    TARGET_USER       = var.target_user,
+    TARGET_HOME       = "/home/${var.target_user}",
+    SSH_KEYS          = join("\n", local.ssh_public_keys),
+    TIER0             = var.tier0,
+    TIER0_TYPE        = var.tier0_type, 
+    ALLOW_ROOT        = var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-client"
@@ -136,7 +136,7 @@ resource "aws_instance" "clients" {
   key_name                    = var.common_config.key_name
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.client.id, module.ansible.allow_ssh_from_ansible_sg_id]
+  vpc_security_group_ids = [aws_security_group.client.id, var.ansible_sg_id]
   iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes
@@ -196,12 +196,12 @@ resource "aws_instance" "clients" {
       condition = (
         # If tier0 is true, then run the check...
         var.tier0 ?
-	(local.nvme_count >= lookup({
+(local.nvme_count >= lookup({
           "raid-0" = 2,
           "raid-5" = 3,
-	  "raid-6" = 4,
+  "raid-6" = 4,
         }, var.tier0_type, null)) :
-	true
+true
       )
       error_message = "Insufficient NVMe drives for the selected RAID type."
     }
@@ -211,4 +211,3 @@ resource "aws_instance" "clients" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
   })
 }
-

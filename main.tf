@@ -570,6 +570,8 @@ module "clients" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+
   depends_on = [
     module.hammerspace
   ]
@@ -615,24 +617,24 @@ module "hammerspace" {
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? one(aws_ec2_capacity_reservation.anvil[*].id) : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? one(aws_ec2_capacity_reservation.dsx[*].id) : null
 
-  ami                        = var.hammerspace_ami
-  anvil_security_group_id    = var.hammerspace_anvil_security_group_id
-  dsx_security_group_id      = var.hammerspace_dsx_security_group_id
-  anvil_count                = var.hammerspace_anvil_count
-  sa_anvil_destruction       = var.hammerspace_sa_anvil_destruction
-  anvil_type                 = var.hammerspace_anvil_instance_type
-  anvil_meta_disk_size       = var.hammerspace_anvil_meta_disk_size
-  anvil_meta_disk_type       = var.hammerspace_anvil_meta_disk_type
-  anvil_meta_disk_iops       = var.hammerspace_anvil_meta_disk_iops
+  ami                       = var.hammerspace_ami
+  anvil_security_group_id   = var.hammerspace_anvil_security_group_id
+  dsx_security_group_id     = var.hammerspace_dsx_security_group_id
+  anvil_count               = var.hammerspace_anvil_count
+  sa_anvil_destruction      = var.hammerspace_sa_anvil_destruction
+  anvil_type                = var.hammerspace_anvil_instance_type
+  anvil_meta_disk_size      = var.hammerspace_anvil_meta_disk_size
+  anvil_meta_disk_type      = var.hammerspace_anvil_meta_disk_type
+  anvil_meta_disk_iops      = var.hammerspace_anvil_meta_disk_iops
   anvil_meta_disk_throughput = var.hammerspace_anvil_meta_disk_throughput
-  dsx_count                  = var.hammerspace_dsx_count
-  dsx_type                   = var.hammerspace_dsx_instance_type
-  dsx_ebs_size               = var.hammerspace_dsx_ebs_size
-  dsx_ebs_type               = var.hammerspace_dsx_ebs_type
-  dsx_ebs_iops               = var.hammerspace_dsx_ebs_iops
-  dsx_ebs_throughput         = var.hammerspace_dsx_ebs_throughput
-  dsx_ebs_count              = var.hammerspace_dsx_ebs_count
-  dsx_add_vols               = var.hammerspace_dsx_add_vols
+  dsx_count                 = var.hammerspace_dsx_count
+  dsx_type                  = var.hammerspace_dsx_instance_type
+  dsx_ebs_size              = var.hammerspace_dsx_ebs_size
+  dsx_ebs_type              = var.hammerspace_dsx_ebs_type
+  dsx_ebs_iops              = var.hammerspace_dsx_ebs_iops
+  dsx_ebs_throughput        = var.hammerspace_dsx_ebs_throughput
+  dsx_ebs_count             = var.hammerspace_dsx_ebs_count
+  dsx_add_vols              = var.hammerspace_dsx_add_vols
 
   # IAM Roles
 
@@ -675,4 +677,3 @@ module "ecgroup" {
     module.hammerspace
   ]
 }
-

@@ -1,6 +1,9 @@
 # Vscode config files
 .vscode
 
+# Don't store ansible public/private key
+ansible_controller_key*
+
 # Don't store tree structure files
 *.tree
 

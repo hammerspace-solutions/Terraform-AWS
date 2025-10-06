@@ -177,11 +177,7 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 
    - Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
    ```
-   aws secretsmanager create-secret \
-  --name ansible-controller-private-key \
-  --description "Private SSH key for Ansible controller" \
-  --secret-string file://ansible_controller_key \
-  --region <region>
+   aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
   ```
   - Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
 

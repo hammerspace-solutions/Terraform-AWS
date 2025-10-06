@@ -23,24 +23,6 @@
 # This file contains the variables that will be output
 # -----------------------------------------------------------------------------
 
-# Ansible-specific role name (null when not created)
-
-output "ansible_role_name" {
-  value = try(
-    one(aws_iam_role.ansible_controller[*].name),
-    null
-  )
-}
-
-# Ansible-specific role ARN (null when not created)
-
-output "ansible_role_arn" {
-  value = try(
-    one(aws_iam_role.ansible_controller[*].arn),
-    null
-  )
-}
-
 # Ansible-specific profile name (null if not created)
 
 output "ansible_profile_name" {
