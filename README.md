@@ -168,27 +168,27 @@ These variables configure the Ansible controller instance and its playbook. Pref
 The Ansible controller uses a public/private SSH key pair to securely configure target instances (clients, storage servers, EC groups, etc.) via SSH. The public key is registered in AWS, and the private key is stored securely in AWS Secrets Manager. Follow these steps to generate and store the key pair:
 
 1. **Generate a Public/Private Key Pair**:
-   - On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
+- On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
    
 ```bash
      ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
 ```
 
-   - This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
+- This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
 
 2. **Store the Private Key in AWS Secrets Manager**:
 
-   - Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
+- Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
      
 ```
    aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
 ```
 
-  - Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
+- Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
 
 3. **Update terraform.tfvars**:
 
-  - In your `terraform.tfvars file, set the following variables:
+- In your `terraform.tfvars file, set the following variables:
 
 ```
   ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
@@ -201,13 +201,13 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
   ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
 ```
 
-  - To get the public key contents, run:
+- To get the public key contents, run:
 
 ```
   cat ansible_controller_key.pub
 ```
 
-  - Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
+- Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
 
 4. **IAM Permissions**:
 
@@ -266,13 +266,13 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 }
 ```
 
-  - If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
+- If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
 
 5. **Security Best Practices**:
 
-  - Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
-  - Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
-  - Use a strong, unique key pair for each deployment to avoid reuse risks.
+- Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
+- Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
+- Use a strong, unique key pair for each deployment to avoid reuse risks.
 
 This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
 
