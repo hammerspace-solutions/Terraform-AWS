@@ -220,16 +220,6 @@ resource "aws_instance" "ansible" {
       Name = "${local.resource_prefix}-${count.index + 1}",
     }
   )
-
-  # This will fail during 'terraform plan' if the module does not receive
-  # a valid IAM profile name, preventing the instance from launching without permissions.
-  
-  lifecycle {
-    precondition {
-      condition     = var.iam_profile_name != null && var.iam_profile_name != ""
-      error_message = "IAM Profile Error: The Ansible module requires a valid iam_profile_name. The value received was null or empty. Please ensure the root module is providing a valid IAM instance profile name."
-    }
-  }
 }
 
 # Step 4: Associate the EIP with the instance's primary network interface

@@ -42,11 +42,11 @@ These variables apply to the overall deployment:
 
 * `region`: AWS region for all resources (Default: "us-west-2").
 * `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
-* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
-* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned.
 * `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
+* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned.
 * `vpc_id`: VPC ID for all resources.
 * `subnet_id`: Subnet ID for resources.
+* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
 * `key_name`: SSH key pair name.
 * `tags`: Common tags for all resources (Default: `{}`).
 * `project_name`: Project name for tagging and resource naming.
@@ -173,7 +173,7 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
      ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
    - This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
 
-2. **Store the Private Key in AWS Secrets Manager:
+2. **Store the Private Key in AWS Secrets Manager**:
 
    - Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
    ```

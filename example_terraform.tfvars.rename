@@ -28,6 +28,11 @@ assign_public_ip  	     	     = false
 
 # iam_profile_name	             = "Hammerspace"
 
+# Store the public and private key for Ansible
+
+ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-east-1:919243021404:secret:ansible-controller-private-key-EXAMPLE"
+ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIe/LNfPiKvDPeNIIJmKO/JEdzNmPowIZ9L2EXAMPLE Ansible Controller Key"
+
 # Custom AMI owner ID's
 # This is a list of the owners of any custom AMI's. Since Hammerspace is a custom AMI,
 # in order to provide guard-rail checking if the AMI exists in a given region, we will
