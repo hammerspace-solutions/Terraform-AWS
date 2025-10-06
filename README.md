@@ -176,32 +176,34 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 2. **Store the Private Key in AWS Secrets Manager**:
 
    - Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
-   ```
+     
+```
    aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
-  ```
+```
+
   - Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
 
 3. **Update terraform.tfvars**:
 
   - In your `terraform.tfvars file, set the following variables:
 
-  ```
+```
   ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
   ansible_private_key_secret_arn = "<ARN from step 2>"
-  ```
 
+```
   - Example:
 
-  ```
+```
   ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
-ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
-  ```
+  ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
+```
 
   - To get the public key contents, run:
 
-  ```
+```
   cat ansible_controller_key.pub
-  ```
+```
 
   - Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
 
