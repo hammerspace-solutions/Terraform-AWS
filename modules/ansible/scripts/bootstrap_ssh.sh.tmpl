@@ -2,6 +2,7 @@
 # Universal Ansible bootstrap (Ubuntu/Debian + Rocky/Alma/RHEL)
 # - Bring SSM Agent up ASAP (repo → snap → regional S3 fallback)
 # - Install Ansible + boto libs + collections for AWS/SSM
+# - Install SSM Session Manager Plugin
 # - Manage SSH keys for TARGET_USER and root (/root)
 # - Relax SSH host key prompts
 
@@ -14,8 +15,7 @@ if [ -r /etc/os-release ]; then
   . /etc/os-release
 fi
 
-OS_ID="$${ID:-unknown}"
-OS_LIKE="$${ID_LIKE:-}"
+# Helpers
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 try() { "$@" || true; }
 
@@ -25,23 +25,20 @@ echo "Starting bootstrap process..."
 # Minimal deps so SSM fallback (curl) can work
 # -----------------------------
 if have_cmd apt-get; then
-  export DEBIAN_FRONTEND=noninteractive
   sudo apt-get -y update
-  # install just enough for SSM fallback first
-  sudo apt-get install -y curl ca-certificates || true
+  sudo apt-get install -y curl ca-certificates jq unzip
 elif have_cmd dnf; then
   try sudo dnf -y upgrade
-  sudo dnf install -y curl ca-certificates || true
+  sudo dnf install -y curl ca-certificates jq unzip
 elif have_cmd yum; then
   try sudo yum -y update
-  sudo yum -y install curl ca-certificates || true
+  sudo yum -y install curl ca-certificates jq unzip
 fi
 
 # -----------------------------
 # SSM Agent install/enable (run as early as possible)
 # -----------------------------
 get_imds_token() {
-  echo "Get token from AWS"
   curl -sS -X PUT "http://169.254.169.254/latest/api/token" \
     -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
 }
@@ -57,53 +54,54 @@ imds_get() {
   fi
 }
 
+# Install AWS CLI v2 (needed to fetch secret)
+if ! have_cmd aws; then
+    echo "[bootstrap] Installing AWS CLI..."
+    ARCH="$(uname -m)"
+    if [ "$ARCH" = "x86_64" ]; then
+        CLIZIP="awscli-exe-linux-x86_64.zip"
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        CLIZIP="awscli-exe-linux-aarch64.zip"
+    else
+        echo "[bootstrap] ERROR: Unsupported architecture: $ARCH"
+        exit 1
+    fi
+    curl -fsSL "https://awscli.amazonaws.com/$CLIZIP" -o "/tmp/awscliv2.zip" > /tmp/curl_status.log 2>&1 || {
+        STATUS=$(cat /tmp/curl_status.log)
+        echo "[bootstrap] ERROR: Failed to download AWS CLI from https://awscli.amazonaws.com/$CLIZIP (HTTP $STATUS)"
+        exit 1
+    }
+    unzip -q /tmp/awscliv2.zip -d /tmp/awscli || {
+        echo "[bootstrap] ERROR: Failed to unzip /tmp/awscliv2.zip"
+        exit 1
+    }
+    sudo /tmp/awscli/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update || {
+        echo "[bootstrap] ERROR: Failed to install AWS CLI"
+        exit 1
+    }
+    if ! have_cmd aws; then
+        echo "[bootstrap] ERROR: AWS CLI installation failed, command not found"
+        exit 1
+    fi
+    echo "[bootstrap] AWS CLI installed: $(aws --version)"
+fi
+
+# Ensure SSM agent running (controller only)
 ensure_ssm_agent() {
-  # If unit already exists, just enable/start
   if systemctl list-unit-files | grep -q '^amazon-ssm-agent\.service'; then
     try sudo systemctl enable --now amazon-ssm-agent
     return 0
   fi
 
-  # 1) Native repos
-  if have_cmd apt-get; then
-    if try sudo apt-get install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  elif have_cmd dnf; then
-    if try sudo dnf install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  elif have_cmd yum; then
-    if try sudo yum install -y amazon-ssm-agent; then
-      try sudo systemctl enable --now amazon-ssm-agent
-      return 0
-    fi
-  fi
-
-  # 2) Snap (Ubuntu)
-  if have_cmd snap; then
-    if try sudo snap install amazon-ssm-agent --classic; then
-      try sudo systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
-      return 0
-    fi
-  fi
-
-  # 3) Regional S3 fallback
   REGION="$(imds_get latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
   ARCH="$(uname -m)"
-  if [ "$ARCH" = "x86_64" ]; then
-    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
-  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    DEB_ARCH="arm64"; RPM_ARCH="linux_arm64"
-  else
-    DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"
-  fi
+  if [ "$ARCH" = "x86_64" ]; then DEB_ARCH="amd64"; RPM_ARCH="linux_amd64";
+  elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then DEB_ARCH="arm64"; RPM_ARCH="linux_arm64";
+  else DEB_ARCH="amd64"; RPM_ARCH="linux_amd64"; fi
 
   if have_cmd apt-get; then
     PKG="/tmp/amazon-ssm-agent.deb"
-    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/debian_$${DEB_ARCH}/amazon-ssm-agent.deb"
+    URL="https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/debian_$DEB_ARCH/amazon-ssm-agent.deb"
     if curl -fsSL "$URL" -o "$PKG"; then
       try sudo dpkg -i "$PKG" || try sudo apt-get -y -f install
       try sudo systemctl enable --now amazon-ssm-agent
@@ -111,71 +109,93 @@ ensure_ssm_agent() {
     fi
   else
     PKG="/tmp/amazon-ssm-agent.rpm"
-    URL="https://s3.$${REGION}.amazonaws.com/amazon-ssm-$${REGION}/latest/$${RPM_ARCH}/amazon-ssm-agent.rpm"
+    URL="https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/$RPM_ARCH/amazon-ssm-agent.rpm"
     if curl -fsSL "$URL" -o "$PKG"; then
       if have_cmd dnf; then try sudo dnf -y install "$PKG"; else try sudo yum -y install "$PKG"; fi
       try sudo systemctl enable --now amazon-ssm-agent
       return 0
     fi
   fi
-
   echo "WARN: Failed to install amazon-ssm-agent via all methods."
 }
 
-echo "Ensuring SSM agent is installed and running (early)…"
-ensure_ssm_agent
-
-# -----------------------------
-# Base packages + Ansible (as early as possible after SSM)
-# -----------------------------
+# Base packages + Ansible
 if have_cmd apt-get; then
-  # full base deps now
-  try sudo apt-get install -y python3 python3-pip git jq unzip net-tools
+  try sudo apt-get install -y python3 python3-pip git ansible net-tools
   try sudo DEBIAN_FRONTEND=noninteractive apt-get install -y emacs
-  # Ansible from distro repos
-  try sudo apt-get install -y ansible
 elif have_cmd dnf; then
-  try dnf install -y python3 python3-pip git jq unzip net-tools
-  # Prefer ansible-core; fall back to ansible
-  try sudo dnf -y install ansible-core || try sudo dnf -y install ansible
+  try sudo dnf -y install epel-release
+  try sudo dnf -y install python3 python3-pip git ansible-core net-tools || try sudo dnf -y install ansible
 elif have_cmd yum; then
-  try yum -y install python3 python3-pip git jq unzip net-tools
-  try sudo yum -y install ansible-core || try sudo yum -y install ansible
+  try sudo yum -y install epel-release
+  try sudo yum -y install python3 python3-pip git ansible
 fi
 
-# Ensure pip + AWS Python libs for Ansible AWS modules/SSM connection plugin
-try python3 -m pip install --upgrade pip
-try python3 -m pip install --upgrade boto3 botocore
-
-# Ensure Ansible exists even if OS package failed (minimal control plane)
-if ! have_cmd ansible && ! have_cmd ansible-playbook; then
-  try python3 -m pip install --upgrade ansible-core || python3 -m pip install --upgrade ansible
-fi
-
-# Ansible collections commonly used with SSM + AWS
+try python3 -m pip install --upgrade pip boto3 botocore
 if have_cmd ansible-galaxy; then
-  try ansible-galaxy collection install amazon.aws community.aws
+    echo "Installing specific versions of Ansible AWS collections to ensure stability..."
+    try ansible-galaxy collection install amazon.aws
+    try ansible-galaxy collection install community.aws
 fi
 
-# ----------------------------------------------------------------------------
-# TERRAFORM VARS (ROOT is fixed at /root; we also set TARGET_* here)
-# ----------------------------------------------------------------------------
+echo "Ensuring SSM agent is installed and running..."
+ensure_ssm_agent
+echo "[bootstrap] SSM ready"
+
+# TERRAFORM VARS
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
+PRIVATE_KEY_SECRET_ARN='${PRIVATE_KEY_SECRET_ARN}'
+PUBLIC_KEY='${PUBLIC_KEY}'
+REGION_IN='${REGION}'
 
-# -----------------------------
-# SSH relax + pubkey login
-# -----------------------------
+# SSH: fetch private key (Secrets Manager) & set up files
+sudo mkdir -p /etc/ansible/keys
+sudo chmod 700 /etc/ansible/keys
+
+if [ -n "$PRIVATE_KEY_SECRET_ARN" ] && [ "$PRIVATE_KEY_SECRET_ARN" != "null" ]; then
+    echo "[bootstrap] Fetching private key from Secrets Manager..."
+    aws --region "$${REGION_IN}" secretsmanager get-secret-value \
+        --secret-id "$${PRIVATE_KEY_SECRET_ARN}" \
+        --query SecretString --output text > /tmp/ansible.key 2> /tmp/awscli_error.log || {
+        echo "[bootstrap] ERROR: Failed to fetch private key from Secrets Manager: $(cat /tmp/awscli_error.log)"
+        exit 1
+    }
+    sudo install -m 600 -o root -g root /tmp/ansible.key /etc/ansible/keys/ansible
+    shred -u /tmp/ansible.key || true
+
+    echo "[bootstrap] Installing public key"
+    echo "$${PUBLIC_KEY}" > /tmp/ansible_key.pub
+    sudo install -m 600 -o root -g root /tmp/ansible_key.pub /etc/ansible/keys/ansible.pub
+fi
+
+# Add provided public keys to controller user for admin access
+if [ -n "$SSH_KEYS" ] && [ "$SSH_KEYS" != "null" ]; then
+    sudo mkdir -p "${TARGET_HOME}/.ssh"
+    echo "$${SSH_KEYS}" | sudo tee -a "${TARGET_HOME}/.ssh/authorized_keys" >/dev/null
+    sudo chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh"
+    sudo chmod 700 "${TARGET_HOME}/.ssh"
+    sudo chmod 600 "${TARGET_HOME}/.ssh/authorized_keys"
+fi
+
+# Configure SSH settings for ubuntu user
+sudo mkdir -p "${TARGET_HOME}/.ssh"
+sudo tee "${TARGET_HOME}/.ssh/config" > /dev/null <<'EOF'
+Host *
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+sudo chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh/config"
+sudo chmod 600 "${TARGET_HOME}/.ssh/config"
+
+# Configure SSH settings system-wide
+echo "Configuring SSH settings and authorized keys..."
 sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
-sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
-    PermitRootLogin yes
-    PubkeyAuthentication yes
-EOF
-try sudo systemctl restart ssh
-try sudo systemctl restart sshd
 
-echo "Ending bootstrap process...."
+try sudo systemctl restart ssh || try sudo systemctl restart sshd
+
+echo "Bootstrap process complete."

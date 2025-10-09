@@ -1,11 +1,23 @@
 # Vscode config files
 .vscode
 
+# Don't store ansible public/private key
+ansible_controller_key*
+
+# Don't store tree structure files
+*.tree
+
+# Don't ever put .DS_Store into git
+.DS_Store
+
 # Don't put .orig files into git
 *.orig
 
 # Don't pass in local_override.tf file
 local_override.tf
+
+# Don't pass in any key files
+*.pub
 
 # Don't pass in emacs files
 *~

@@ -23,32 +23,23 @@
 # This file contains the variables that will be output
 # -----------------------------------------------------------------------------
 
-# Created role name (null when not created)
+# Ansible-specific profile name (null if not created)
 
-output "role_name" {
+output "ansible_profile_name" {
   value = try(
-    one(aws_iam_role.ec2_ssm[*].name),
+    one(aws_iam_instance_profile.ansible_controller[*].name),
     null
   )
 }
 
-# Created role ARN (null when not created)
-
-output "role_arn" {
-  value = try(
-    one(aws_iam_role.ec2_ssm[*].arn),
-    null
-  )
-}
-
-# Effective instance profile name:
+# Instance profile name:
 # - If a name was provided to the module, pass it through
-# - Otherwise, return the created one (or null if not present yet)
+# - Otherwise, return the ansible one (or null if not present yet)
 
 output "instance_profile_name" {
   value = (
     var.iam_profile_name != null
     ? var.iam_profile_name
-    : try(one(aws_iam_instance_profile.ec2_ssm[*].name), null)
+    : try(one(aws_iam_instance_profile.ansible_controller[*].name), null)
   )
 }

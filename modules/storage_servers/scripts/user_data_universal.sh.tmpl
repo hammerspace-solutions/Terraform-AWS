@@ -103,11 +103,18 @@ ensure_ssm_agent() {
   fi
   echo "WARN: Failed to install amazon-ssm-agent via all methods."
 }
+
+# ----------------------------------------------------------------------------
+# WARNING!!
+# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
+# ----------------------------------------------------------------------------
+
 ensure_ssm_agent
 
 # -----------------------------
 # SSH relax + pubkey login
 # -----------------------------
+
 sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
@@ -119,10 +126,12 @@ EOF
 try sudo systemctl restart ssh
 try sudo systemctl restart sshd
 
-# ----------------------------------------------------------------------------
-# WARNING!!
-# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
-# ----------------------------------------------------------------------------
+# --- Install AWS SDK for Python (boto3/botocore) for Ansible SSM ---
+
+echo "Installing boto3 and botocore for Ansible SSM prerequisites..."
+try sudo pip3 install boto3 botocore
+
+# Getting all the variables from the spawning routine
 
 SSH_KEYS='${SSH_KEYS}'
 TARGET_USER='${TARGET_USER}'
@@ -151,22 +160,33 @@ if [ -n "$${SSH_KEYS}" ]; then
   echo "End Add SSH Keys"
 fi
 
-# Optional root keys (fixed stray quote)
+# Optional root keys
+
 if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
-  echo "Starting SSH Key Management Deployment for root"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
-  touch /root/.ssh/authorized_keys
+  if [ -f /root/.ssh/authorized_keys ]; then
+      echo "Remove no-port-forwarding from root authorized_keys"
+      PUBLIC_KEY=$(head -1 /root/.ssh/authorized_keys | sed -n 's/.*\(\(ssh-\|ecdsa-\)[^ ]* [^ ]*\).*/\1/p')
+      echo $PUBLIC_KEY > /root/.ssh/authorized_keys.tmp
+      mv /root/.ssh/authorized_keys.tmp /root/.ssh/authorized_keys
+      echo "Done removing no-port-forwarding"
+  else
+      touch /root/.ssh/authorized_keys
+  fi
+
+  echo "Starting SSH Key Management Deployment for root"
   echo "$${SSH_KEYS}" | while read -r key; do
-    if [ -n "$${key}" ] && ! grep -qF "$${key}" "/root/.ssh/authorized_keys"; then
-      echo "$${key}" >> "/root/.ssh/authorized_keys"
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" /root/.ssh/authorized_keys; then
+      echo "$${key}" >> /root/.ssh/authorized_keys
     fi
   done
-  chmod 600 "/root/.ssh/authorized_keys"
-  chown -R root:root "/root/.ssh"
+  chmod 600 /root/.ssh/authorized_keys
+  chown -R root:root /root/.ssh
   echo "Ending SSH Key Management Deployment for root"
 fi
 
 # RAID pre-checks
+
 case "$${RAID_LEVEL}" in
   "raid-0") MIN_DEVICES=2 ;;
   "raid-5") MIN_DEVICES=3 ;;
@@ -180,6 +200,7 @@ if [ "$${EBS_COUNT}" -lt "$${MIN_DEVICES}" ]; then
 fi
 
 # Wait for all NVMe devices (boot + EBS_COUNT)
+
 TARGET_DISK_COUNT=$(( $${EBS_COUNT} + 1 ))
 while [ "$(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | wc -l)" -lt "$${TARGET_DISK_COUNT}" ]; do
   sleep 10
@@ -188,6 +209,7 @@ done
 echo "All $${TARGET_DISK_COUNT} devices found."
 
 # Resolve boot device and exclude from RAID set
+
 get_physical_device() {
   local mount_point="$${1}"
   local device
@@ -207,6 +229,7 @@ get_physical_device() {
 BOOT_DEVICE=$(get_physical_device "/")
 
 # POSIX-friendly device collection (no bash arrays)
+
 ALL_NVME_DEVICES_LIST="$(ls /dev/nvme[0-9]n[0-9] 2>/dev/null | sort || true)"
 RAID_DEVICE_LIST=""
 RAID_DEVICE_COUNT=0
@@ -226,16 +249,20 @@ if [ "$RAID_DEVICE_COUNT" -ne "$${EBS_COUNT}" ]; then
 fi
 
 # Create RAID
+
 case "$${RAID_LEVEL}" in
   "raid-0") raid_options="--level=0 --raid-devices=$${EBS_COUNT}" ;;
   "raid-5") raid_options="--level=5 --raid-devices=$${EBS_COUNT}" ;;
   "raid-6") raid_options="--level=6 --raid-devices=$${EBS_COUNT}" ;;
 esac
 echo "Creating $${RAID_LEVEL} over $${EBS_COUNT} devices: $RAID_DEVICE_LIST"
+
 # shellcheck disable=SC2086
+
 sudo mdadm --create --verbose /dev/md0 $${raid_options} $RAID_DEVICE_LIST
 
 # Filesystem + mount
+
 sudo mkfs -t xfs /dev/md0
 sudo mkdir -p /hsvol1
 echo "/dev/md0 /hsvol1 xfs defaults,nofail,discard 0 0" | sudo tee -a /etc/fstab
@@ -243,9 +270,11 @@ sudo mount /hsvol1
 sudo chmod 777 /hsvol1
 
 # NFS export
+
 echo "/hsvol1 *(rw,sync,no_root_squash,no_subtree_check)" | sudo tee -a /etc/exports
 
 # NFS tuning (both styles)
+
 if [ -d /etc/nfs.conf.d ]; then
   sudo tee /etc/nfs.conf.d/local.conf > /dev/null <<'EOF'
 [nfsd]
@@ -277,6 +306,7 @@ if [ -f /etc/sysconfig/nfs ]; then
 fi
 
 # Firewall (RHEL-like)
+
 if have_cmd firewall-cmd; then
   try sudo firewall-cmd --permanent --add-service="nfs"
   try sudo firewall-cmd --permanent --add-service="rpc-bind"
@@ -285,12 +315,14 @@ if have_cmd firewall-cmd; then
 fi
 
 # Start/enable NFS
+
 try sudo systemctl enable --now nfs-kernel-server
 try sudo systemctl restart nfs-kernel-server
 try sudo systemctl enable --now nfs-server
 try sudo systemctl restart nfs-server
 
 # Show RAID
+
 echo "RAID details:"
 sudo mdadm --detail /dev/md0 || true
 

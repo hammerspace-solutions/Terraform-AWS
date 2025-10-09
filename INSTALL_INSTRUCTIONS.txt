@@ -1,0 +1,11 @@
+# Generate once per environment
+ssh-keygen -t rsa -b 4096 -N "" -C "" -f ./ansible
+
+# Upload *private* key into AWS Secrets Manager (encrypted w/ KMS)
+aws secretsmanager create-secret \
+  --name terraform-aws-key \
+  --secret-string file://ansible \
+  --description "Ansible controller SSH private key for env=prod"
+
+# Keep the *public* key content handy (we'll pass it to Terraform as a var)
+pub=$(cat ./ansible.pub); echo "$pub"

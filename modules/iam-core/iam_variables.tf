@@ -63,3 +63,24 @@ variable "iam_profile_name" {
   type        = string
   default     = null
 }
+
+# This variable receives the ARN of the S3 bucket from the root module.
+
+variable "s3_scratch_bucket_arn" {
+  description = "The ARN of the S3 bucket used for Ansible SSM operations. If provided, a policy will be created to allow access."
+  type        = string
+  default     = null
+}
+
+# Ansible-specific: ARN of the Secrets Manager secret holding the Ansible controller's private SSH key
+
+variable "ansible_private_key_secret_arn" {
+  description = "The ARN of the Secrets Manager secret for the Ansible controller's private SSH key. If provided and iam_profile_name is null, an Ansible-specific IAM role/profile will be created."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ansible_private_key_secret_arn == null || var.iam_profile_name == null
+    error_message = "If ansible_private_key_secret_arn is set, iam_profile_name must be null to create the Ansible-specific profile. Ensure the existing profile has SSM and Secrets Manager permissions if using it for Ansible."
+  }
+}

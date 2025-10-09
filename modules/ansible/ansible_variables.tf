@@ -108,21 +108,8 @@ variable "target_nodes_json" {
   default     = "[]"
 }
 
-variable "admin_private_key_path" {
-  description = "The local path to the private key for the Ansible controller"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "admin_public_key_path" {
-  description = "The local path to the public key for the Ansible controller"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 # Turn on SSM bootstrap (set false to keep old SSH provisioners)
+
 variable "use_ssm_bootstrap" {
   description = "Use SSM to push keys and install the Ansible controller on the Ansible host"
   type        = bool
@@ -146,11 +133,35 @@ variable "authorized_keys" {
 variable "ssm_bootstrap_delay" {
   description = "Time to wait for SSM Agent to come alive"
   type	      = string
-  default     = "180s"
+  default     = "30s"
+}
+
+variable "ssm_bootstrap_retries" {
+  description = "The number of times to retry checking for the SSM agent before failing."
+  type	      = number
+  default     = 4 # Results in a total default wait of 4 * 30s = 120s
 }
 
 variable "ssm_association_schedule" {
   description = "State Manager schedule for bootstrap retries"
   type	      = string
-  default     = "rate(30 minutes)"
+  default     = null # was THIS: "rate(30 minutes)"
 }
+
+variable "ansible_ssh_public_key" {
+  description = "OpenSSH public key for controller (e.g. ssh-ed25519 AAA...)"
+  type        = string
+}
+
+variable "ansible_private_key_secret_arn" {
+  description = "Secrets Manager ARN holding the controller's private key"
+  type        = string
+}
+
+variable "ansible_controller_cidr" {
+  description = "CIDR allowed to SSH to targets (fallback)"
+  type        = string
+  default     = null
+}
+
+

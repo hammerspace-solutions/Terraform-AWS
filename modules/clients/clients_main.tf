@@ -58,7 +58,7 @@ locals {
   # Grab the first (and only) storage‐info block, or empty map if none
   
   instance_info = data.aws_ec2_instance_type.nvme_disks
-
+  
   # Calculate NVMe drive count (0 if no instance storage)
 
   nvme_count = try(
@@ -72,7 +72,7 @@ locals {
   ssh_public_keys = try(
     [
       for file in fileset(var.common_config.ssh_keys_dir, "*.pub") :
-        trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
+      trimspace(file("${var.common_config.ssh_keys_dir}/${file}"))
     ],
     []
   )
@@ -82,12 +82,12 @@ locals {
   # Process the bash shell template
   
   processed_user_data = templatefile("${path.module}/scripts/user_data_universal.sh.tmpl", {
-    TARGET_USER	      = var.target_user,
-    TARGET_HOME	      = "/home/${var.target_user}",
-    SSH_KEYS   	      = join("\n", local.ssh_public_keys),
-    TIER0	      = var.tier0,
-    TIER0_TYPE	      = var.tier0_type, 
-    ALLOW_ROOT	      = var.common_config.allow_root
+    TARGET_USER       = var.target_user,
+    TARGET_HOME       = "/home/${var.target_user}",
+    SSH_KEYS          = join("\n", local.ssh_public_keys),
+    TIER0             = var.tier0,
+    TIER0_TYPE        = var.tier0_type, 
+    ALLOW_ROOT        = var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-client"
@@ -133,10 +133,10 @@ resource "aws_instance" "clients" {
 
   # Use values from the common_config object
   subnet_id                   = var.common_config.subnet_id
-  key_name                    = var.common_config.key_name
+  key_name                    = var.ansible_key_name  # Attach Ansible controller's key pair for SSH access
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.client.id]
+  vpc_security_group_ids = [aws_security_group.client.id, var.ansible_sg_id]  # Allow SSH from Ansible
   iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes
@@ -144,6 +144,14 @@ resource "aws_instance" "clients" {
   volume_tags = merge(local.common_tags, {
     Name   = "${local.resource_prefix}-vol"
   })
+
+  # Add this block here
+  
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 2
+  }
 
   # Create the boot disk
   
@@ -183,17 +191,17 @@ resource "aws_instance" "clients" {
       condition     = local.client_instance_type_is_available
       error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
     }
-    
+     
     precondition {
       condition = (
         # If tier0 is true, then run the check...
         var.tier0 ?
-	(local.nvme_count >= lookup({
+(local.nvme_count >= lookup({
           "raid-0" = 2,
           "raid-5" = 3,
-	  "raid-6" = 4,
+  "raid-6" = 4,
         }, var.tier0_type, null)) :
-	true
+true
       )
       error_message = "Insufficient NVMe drives for the selected RAID type."
     }
@@ -203,4 +211,3 @@ resource "aws_instance" "clients" {
     Name    = "${local.resource_prefix}-${count.index + 1}"
   })
 }
-

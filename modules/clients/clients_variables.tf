@@ -34,7 +34,7 @@ variable "common_config" {
     tags                 = map(string)
     project_name         = string
     ssh_keys_dir         = string
-    allow_root		 = bool
+    allow_root = bool
     placement_group_name = string
     allowed_source_cidr_blocks = list(string)
   })
@@ -42,18 +42,30 @@ variable "common_config" {
 
 variable "iam_profile_name" {
   description = "The IAM profile to use for roles and permissions"
-  type	      = string
+  type        = string
   default     = null
 }
 
 variable "iam_profile_group" {
   description = "The IAM group name"
-  type	      = string
+  type        = string
   default     = null
 }
 
 variable "capacity_reservation_id" {
   description = "The ID of the On-Demand Capacity Reservation to target."
+  type        = string
+  default     = null
+}
+
+variable "ansible_key_name" {
+  description = "The key pair name for SSH from Ansible controller to clients"
+  type        = string
+  default     = null
+}
+
+variable "ansible_sg_id" {
+  description = "Security Group ID to allow SSH from Ansible controller"
   type        = string
   default     = null
 }
@@ -78,7 +90,7 @@ variable "instance_type" {
 
 variable "tier0" {
   description = "Tier0 enabled or not?"
-  type	      = bool
+  type       = bool
   default     = false
 }
 

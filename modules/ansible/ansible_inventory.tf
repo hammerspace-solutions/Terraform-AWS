@@ -13,22 +13,35 @@
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# AUTHORS OF COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 # -----------------------------------------------------------------------------
-# modules/iam-core/iam_main.tf
+# modules/ansible/inventory.tf
 #
-# This file contains the main logic for setting up IAM roles and permissions.
+# This file generates the Ansible inventory based on the deployed nodes.
 # -----------------------------------------------------------------------------
 
-data "aws_partition" "current" {}
-
 locals {
-  resource_prefix = "${var.common_config.project_name}-ssm"
-  common_tags     = var.common_config.tags
+  # The template expects a flat list of nodes, so we parse the JSON input variable.
+  all_nodes = jsondecode(var.target_nodes_json)
+
+  # Filter the nodes for each group
+  client_nodes  = [for n in local.all_nodes : n.private_ip if n.type == "client"]
+  storage_nodes = [for n in local.all_nodes : n.private_ip if n.type == "storage_server"]
+  ecgroup_nodes = [for n in local.all_nodes : n.private_ip if n.type == "ecgroup"]
+  hammerspace_nodes = [for n in local.all_nodes : n.private_ip if n.type == "anvil" || n.type == "dsx"]
 }
 
-# General IAM resources can be added here if needed (e.g., for S3 or other non-SSM permissions).
-# Currently empty as SSM-specific resources have been consolidated to iam_ansible.tf.
+resource "local_file" "ansible_inventory" {
+  # The file is created within the module directory.
+  # Terraform will handle reading its content for the SSM push.
+  filename = "${path.module}/scripts/inventory.ini"
+  content  = templatefile("${path.module}/scripts/inventory.ini.tpl", {
+    clients         = local.client_nodes
+    storage_servers = local.storage_nodes
+    ecgroup_nodes   = local.ecgroup_nodes
+    hammerspace_nodes = local.hammerspace_nodes
+  })
+}

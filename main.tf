@@ -338,6 +338,7 @@ locals {
   all_ssh_nodes = concat(
     local.deploy_clients ? module.clients[0].client_ansible_info : [],
     local.deploy_storage ? module.storage_servers[0].storage_ansible_info : [],
+    local.deploy_ecgroup ? module.ecgroup[0].ecgroup_ansible_info : [],
     local.deploy_hammerspace ? module.hammerspace[0].anvil_ansible_info : [],
     local.deploy_hammerspace ? module.hammerspace[0].dsx_ansible_info : []
   )
@@ -493,6 +494,8 @@ module "iam_core" {
   common_config             = local.common_config
   role_path                 = var.iam_role_path
   extra_managed_policy_arns = var.iam_additional_policy_arns
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
 }
 
 # Deploy the Ansible module if requested
@@ -506,18 +509,16 @@ module "ansible" {
   public_subnet_id        = var.public_subnet_id
   capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
 
-  # Pass the path to the key, not the content of the key.
-
-  admin_private_key_path = fileexists("./modules/ansible/id_rsa") ? "./modules/ansible/id_rsa" : ""
-
-  admin_public_key_path = fileexists("./modules/ansible/id_rsa.pub") ? "./modules/ansible/id_rsa.pub" : ""
-
   instance_count   = var.ansible_instance_count
   ami              = var.ansible_ami
   instance_type    = var.ansible_instance_type
   boot_volume_size = var.ansible_boot_volume_size
   boot_volume_type = var.ansible_boot_volume_type
   target_user      = var.ansible_target_user
+
+  # Pass all nodes to be configured into the module as a JSON string
+
+  target_nodes_json = jsonencode(local.all_ssh_nodes)
 
   # IAM Roles
 
@@ -529,6 +530,15 @@ module "ansible" {
   use_ssm_bootstrap = var.use_ssm_bootstrap
   authorized_keys   = var.authorized_keys
 
+  # Use public / private key for ansible communication
+
+  ansible_ssh_public_key = var.ansible_ssh_public_key
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
+  # Security for ssh control
+
+  ansible_controller_cidr = var.ansible_controller_cidr
+  
   depends_on = [
     module.iam_core
   ]
@@ -562,8 +572,12 @@ module "clients" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
+  # Key and security group(s) needed for ansible configuration
+  
+  ansible_key_name = module.ansible[0].ansible_key_name
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }
@@ -593,8 +607,12 @@ module "storage_servers" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
+  # Key and security group(s) needed for ansible configuration
+  
+  ansible_key_name = module.ansible[0].ansible_key_name
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }
@@ -609,40 +627,37 @@ module "hammerspace" {
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? one(aws_ec2_capacity_reservation.anvil[*].id) : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? one(aws_ec2_capacity_reservation.dsx[*].id) : null
 
-  ami                        = var.hammerspace_ami
-  anvil_security_group_id    = var.hammerspace_anvil_security_group_id
-  dsx_security_group_id      = var.hammerspace_dsx_security_group_id
-  anvil_count                = var.hammerspace_anvil_count
-  sa_anvil_destruction       = var.hammerspace_sa_anvil_destruction
-  anvil_type                 = var.hammerspace_anvil_instance_type
-  anvil_meta_disk_size       = var.hammerspace_anvil_meta_disk_size
-  anvil_meta_disk_type       = var.hammerspace_anvil_meta_disk_type
-  anvil_meta_disk_iops       = var.hammerspace_anvil_meta_disk_iops
+  ami                       = var.hammerspace_ami
+  anvil_security_group_id   = var.hammerspace_anvil_security_group_id
+  dsx_security_group_id     = var.hammerspace_dsx_security_group_id
+  anvil_count               = var.hammerspace_anvil_count
+  sa_anvil_destruction      = var.hammerspace_sa_anvil_destruction
+  anvil_type                = var.hammerspace_anvil_instance_type
+  anvil_meta_disk_size      = var.hammerspace_anvil_meta_disk_size
+  anvil_meta_disk_type      = var.hammerspace_anvil_meta_disk_type
+  anvil_meta_disk_iops      = var.hammerspace_anvil_meta_disk_iops
   anvil_meta_disk_throughput = var.hammerspace_anvil_meta_disk_throughput
-  dsx_count                  = var.hammerspace_dsx_count
-  dsx_type                   = var.hammerspace_dsx_instance_type
-  dsx_ebs_size               = var.hammerspace_dsx_ebs_size
-  dsx_ebs_type               = var.hammerspace_dsx_ebs_type
-  dsx_ebs_iops               = var.hammerspace_dsx_ebs_iops
-  dsx_ebs_throughput         = var.hammerspace_dsx_ebs_throughput
-  dsx_ebs_count              = var.hammerspace_dsx_ebs_count
-  dsx_add_vols               = var.hammerspace_dsx_add_vols
+  dsx_count                 = var.hammerspace_dsx_count
+  dsx_type                  = var.hammerspace_dsx_instance_type
+  dsx_ebs_size              = var.hammerspace_dsx_ebs_size
+  dsx_ebs_type              = var.hammerspace_dsx_ebs_type
+  dsx_ebs_iops              = var.hammerspace_dsx_ebs_iops
+  dsx_ebs_throughput        = var.hammerspace_dsx_ebs_throughput
+  dsx_ebs_count             = var.hammerspace_dsx_ebs_count
+  dsx_add_vols              = var.hammerspace_dsx_add_vols
 
   # IAM Roles
 
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
-  depends_on = [
-    module.ansible
-  ]
 }
 
 # Deploy the ECGroup module if requested
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.3"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.5"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -669,8 +684,6 @@ module "ecgroup" {
   iam_profile_group = var.iam_admin_group_name
 
   depends_on = [
-    module.ansible,
     module.hammerspace
   ]
 }
-

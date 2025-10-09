@@ -50,7 +50,7 @@ output "storage_ansible_info" {
       id         = i.id
       private_ip = i.private_ip
       name	 = i.tags.Name
-      type	 = "storage"
+      type	 = "storage_server"
     }
   ]
 }
