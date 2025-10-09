@@ -133,10 +133,10 @@ resource "aws_instance" "clients" {
 
   # Use values from the common_config object
   subnet_id                   = var.common_config.subnet_id
-  key_name                    = var.common_config.key_name
+  key_name                    = var.ansible_key_name  # Attach Ansible controller's key pair for SSH access
   placement_group             = var.common_config.placement_group_name
 
-  vpc_security_group_ids = [aws_security_group.client.id, var.ansible_sg_id]
+  vpc_security_group_ids = [aws_security_group.client.id, var.ansible_sg_id]  # Allow SSH from Ansible
   iam_instance_profile = var.iam_profile_name
 
   # Put tags on the volumes
@@ -191,7 +191,7 @@ resource "aws_instance" "clients" {
       condition     = local.client_instance_type_is_available
       error_message = "ERROR: Instance type ${var.instance_type} for Clients is not available in AZ ${var.common_config.availability_zone}."
     }
-    
+     
     precondition {
       condition = (
         # If tier0 is true, then run the check...

@@ -27,6 +27,7 @@
 # --- Pre-flight Check for AWS CLI ---
 # This check runs during the 'plan' phase to ensure the AWS CLI is installed
 # on the machine running Terraform, as it's a prerequisite for the polling provisioner.
+
 check "aws_cli_is_installed" {
   data "external" "aws_cli_check" {
     # Using 'type' is a highly reliable, shell-builtin way to check for a command.

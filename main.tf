@@ -494,6 +494,8 @@ module "iam_core" {
   common_config             = local.common_config
   role_path                 = var.iam_role_path
   extra_managed_policy_arns = var.iam_additional_policy_arns
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
 }
 
 # Deploy the Ansible module if requested
@@ -570,6 +572,7 @@ module "clients" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
+  ansible_key_name = module.ansible[0].ansible_key_name
   ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [

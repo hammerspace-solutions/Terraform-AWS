@@ -12,8 +12,9 @@ TRIGGER_FILE="$TRIGGER_DIR/inventory.ini"   # incoming inventory file
 INVENTORY_DST="/etc/ansible/inventory.ini"  # active inventory location
 
 STATUS_DIR="/var/run/ansible_jobs_status"   # holds success/failure markers and current run id
+LOG_DIR="/var/log/ansible_jobs"            # directory for job script logs
 LOCK_FILE="/var/ansible_initial_setup.done"
-CHECK_INTERVAL=10                           # seconds
+CHECK_INTERVAL=10                          # seconds
 
 # --- Source the function library ---
 if [ -f "$ANSIBLE_LIB_PATH" ]; then
@@ -35,7 +36,8 @@ if [ ! -f "$LOCK_FILE" ]; then
   echo "--- Initial setup complete ---"
 fi
 
-mkdir -p "$STATUS_DIR" "$JOBS_DIR" "$TRIGGER_DIR" "$(dirname "$INVENTORY_DST")"
+mkdir -p "$STATUS_DIR" "$JOBS_DIR" "$TRIGGER_DIR" "$(dirname "$INVENTORY_DST")" "$LOG_DIR"
+chmod 700 "$LOG_DIR"
 
 last_hash_file="$STATUS_DIR/last_inventory.sha256"
 
@@ -55,6 +57,11 @@ while true; do
       export INVENTORY_FILE="$INVENTORY_DST"
       echo "$RUN_ID" > "$STATUS_DIR/current_run_id"
 
+      # Create log directory for this run
+      run_log_dir="$LOG_DIR/$RUN_ID"
+      mkdir -p "$run_log_dir"
+      chmod 700 "$run_log_dir"
+
       mapfile -t jobs < <(find "$JOBS_DIR" -maxdepth 1 -type f -name "*.sh" -printf "%f\n" | sort -V)
 
       if [ "${#jobs[@]}" -eq 0 ]; then
@@ -62,20 +69,22 @@ while true; do
       else
         for script_name in "${jobs[@]}"; do
           script_path="$JOBS_DIR/$script_name"
-          echo "--- Running job: $script_name (RUN_ID=$RUN_ID) ---"
-          if bash "$script_path"; then
+          log_file="$run_log_dir/${script_name}.log"
+          echo "--- Running job: $script_name (RUN_ID=$RUN_ID) at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---" | tee -a "$log_file"
+          if bash "$script_path" >> "$log_file" 2>&1; then
             rm -f "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
             echo "SUCCESS" > "$STATUS_DIR/${RUN_ID}.${script_name}.success"
-            echo "Job $script_name succeeded."
+            echo "Job $script_name succeeded at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee -a "$log_file"
           else
             echo "FAILURE" > "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
-            echo "ERROR: Job $script_name failed. See logs."
+            echo "ERROR: Job $script_name failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'). See $log_file." | tee -a "$log_file"
             break
           fi
+          chmod 600 "$log_file"
         done
       fi
 
-      echo "--- Run complete for inventory hash $RUN_ID ---"
+      echo "--- Run complete for inventory hash $RUN_ID at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---"
     fi
   fi
 

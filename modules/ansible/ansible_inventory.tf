@@ -28,9 +28,10 @@ locals {
   all_nodes = jsondecode(var.target_nodes_json)
 
   # Filter the nodes for each group
-  client_nodes  = [for n in local.all_nodes : n if n.type == "client"]
-  storage_nodes = [for n in local.all_nodes : n if n.type == "storage_server"]
-  ecgroup_nodes = [for n in local.all_nodes : n if n.type == "ecgroup"]
+  client_nodes  = [for n in local.all_nodes : n.private_ip if n.type == "client"]
+  storage_nodes = [for n in local.all_nodes : n.private_ip if n.type == "storage_server"]
+  ecgroup_nodes = [for n in local.all_nodes : n.private_ip if n.type == "ecgroup"]
+  hammerspace_nodes = [for n in local.all_nodes : n.private_ip if n.type == "anvil" || n.type == "dsx"]
 }
 
 resource "local_file" "ansible_inventory" {
@@ -41,5 +42,6 @@ resource "local_file" "ansible_inventory" {
     clients         = local.client_nodes
     storage_servers = local.storage_nodes
     ecgroup_nodes   = local.ecgroup_nodes
+    hammerspace_nodes = local.hammerspace_nodes
   })
 }

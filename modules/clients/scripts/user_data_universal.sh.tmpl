@@ -88,9 +88,18 @@ fi
 # Optional root keys
 
 if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
-  echo "Starting SSH Key Management Deployment for root"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
-  touch /root/.ssh/authorized_keys
+  if [ -f /root/.ssh/authorized_keys ]; then
+      echo "Remove no-port-forwarding from root authorized_keys"
+      PUBLIC_KEY=$(head -1 /root/.ssh/authorized_keys | sed -n 's/.*\(\(ssh-\|ecdsa-\)[^ ]* [^ ]*\).*/\1/p')
+      echo $PUBLIC_KEY > /root/.ssh/authorized_keys.tmp
+      mv /root/.ssh/authorized_keys.tmp /root/.ssh/authorized_keys
+      echo "Done removing no-port-forwarding"
+  else
+      touch /root/.ssh/authorized_keys
+  fi
+
+  echo "Starting SSH Key Management Deployment for root"
   echo "$${SSH_KEYS}" | while read -r key; do
     if [ -n "$${key}" ] && ! grep -qF "$${key}" /root/.ssh/authorized_keys; then
       echo "$${key}" >> /root/.ssh/authorized_keys
@@ -99,6 +108,13 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
   chmod 600 /root/.ssh/authorized_keys
   chown -R root:root /root/.ssh
   echo "Ending SSH Key Management Deployment for root"
+fi
+
+# Enable root SSH login
+if [ "$ALLOW_ROOT" = "true" ]; then
+    echo "Configuring SSH to allow root login..."
+    sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sudo systemctl restart ssh || sudo systemctl restart sshd
 fi
 
 # NFS test mountpoint
