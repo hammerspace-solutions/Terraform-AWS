@@ -117,6 +117,7 @@ locals {
     TARGET_HOME = "/home/${var.target_user}",
     SSH_KEYS    = join("\n", local.ssh_public_keys)
     PRIVATE_KEY_SECRET_ARN = var.ansible_private_key_secret_arn
+    PUBLIC_KEY  = var.ansible_ssh_public_key
     REGION      = var.common_config.region
     }
   )

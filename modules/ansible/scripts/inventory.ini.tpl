@@ -4,7 +4,7 @@
 [all:children]
 clients
 storage_servers
-ecgroup
+ecgroup_nodes
 hammerspace
 
 [clients]

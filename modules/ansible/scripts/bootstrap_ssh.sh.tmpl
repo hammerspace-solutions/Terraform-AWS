@@ -147,6 +147,7 @@ TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
 PRIVATE_KEY_SECRET_ARN='${PRIVATE_KEY_SECRET_ARN}'
+PUBLIC_KEY='${PUBLIC_KEY}'
 REGION_IN='${REGION}'
 
 # SSH: fetch private key (Secrets Manager) & set up files
@@ -163,6 +164,10 @@ if [ -n "$PRIVATE_KEY_SECRET_ARN" ] && [ "$PRIVATE_KEY_SECRET_ARN" != "null" ]; 
     }
     sudo install -m 600 -o root -g root /tmp/ansible.key /etc/ansible/keys/ansible
     shred -u /tmp/ansible.key || true
+
+    echo "[bootstrap] Installing public key"
+    echo "$${PUBLIC_KEY}" > /tmp/ansible_key.pub
+    sudo install -m 600 -o root -g root /tmp/ansible_key.pub /etc/ansible/keys/ansible.pub
 fi
 
 # Add provided public keys to controller user for admin access

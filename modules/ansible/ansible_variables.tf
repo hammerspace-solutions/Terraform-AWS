@@ -145,7 +145,7 @@ variable "ssm_bootstrap_retries" {
 variable "ssm_association_schedule" {
   description = "State Manager schedule for bootstrap retries"
   type	      = string
-  default     = "rate(30 minutes)"
+  default     = null # was THIS: "rate(30 minutes)"
 }
 
 variable "ansible_ssh_public_key" {

@@ -2,9 +2,10 @@
 #
 # Ansible Job: Distribute SSH Keys to All Nodes
 #
-# This script distributes the Ansible controller's public key to all client, storage_server, and ecgroup nodes' root user.
-# It also collects and distributes all client public keys for client-to-client SSH (root user), and updates known_hosts
-# on all nodes for passwordless access. It is idempotent but updates all nodes on changes.
+# This script distributes the Ansible controller's public key to all client, storage_server, and
+# ecgroup nodes' root user.
+# It also collects and distributes all client public keys for client-to-client SSH (root user), and
+# updates known_hosts on all nodes for passwordless access. It is idempotent but updates all nodes on changes.
 
 set -euo pipefail
 
@@ -83,10 +84,9 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
         echo "$host" >> "$tmp_inventory"
     done
 
-    # 6. Gather public keys from all clients
-    tmp_gather_playbook=$(mktemp)
-    cat > "$tmp_gather_playbook" <<EOF
----
+    # 6. Combined playbook for gathering and distributing keys
+    tmp_playbook=$(mktemp)
+    cat > "$tmp_playbook" <<EOF
 - hosts: clients
   gather_facts: yes
   become: yes
@@ -106,21 +106,12 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
       ansible.builtin.set_fact:
         client_public_key: "{{ public_key.content | b64decode }}"
         cacheable: yes
-EOF
 
-    echo "Gathering public keys from all clients..."
-    ansible-playbook -i "$tmp_inventory" -e "ansible_connection=ssh ansible_ssh_private_key_file=$CONTROLLER_KEY_PATH ansible_ssh_extra_args='-o StrictHostKeyChecking=no'" --user root "$tmp_gather_playbook"
-
-    # 7. Create playbook for key distribution and known_hosts update
-    tmp_playbook=$(mktemp)
-    cat > "$tmp_playbook" <<EOF
----
 - hosts: all_nodes
   gather_facts: yes
   become: yes
   vars:
     controller_public_key_src: "${CONTROLLER_KEY_PATH}.pub"
-    all_client_ips: "{{ hostvars | json_query('*.ansible_host') | select('defined') | list }}"
     all_client_public_keys: "{{ hostvars | json_query('*.client_public_key') | select('defined') | list }}"
 
   tasks:
@@ -151,7 +142,7 @@ EOF
         cmd: "ssh-keyscan -H {{ item }}"
         creates: "/root/.ssh/known_hosts"
       register: ssh_keyscan
-      loop: "{{ all_client_ips + groups['storage_servers'] + groups['ecgroup_nodes'] }}"
+      loop: "{{ groups['all'] }}"
       changed_when: false
 
     - name: Update known_hosts for root
@@ -167,7 +158,7 @@ EOF
     echo "Running Ansible playbook to distribute SSH keys and update known_hosts..."
     ansible-playbook -i "$tmp_inventory" -e "ansible_connection=ssh ansible_ssh_private_key_file=$CONTROLLER_KEY_PATH ansible_ssh_extra_args='-o StrictHostKeyChecking=no'" --user root "$tmp_playbook"
 
-    # 8. Update state file with all new hosts
+    # 7. Update state file with all new hosts
     echo "Playbook finished. Updating state file with all hosts..."
     for host in $all_hosts; do
         if ! grep -q -F -x "$host" "$STATE_FILE"; then
@@ -175,8 +166,8 @@ EOF
         fi
     done
 
-    # 9. Clean up temporary files
-    rm -f "$tmp_inventory" "$tmp_gather_playbook" "$tmp_playbook"
+    # 8. Clean up temporary files
+    rm -f "$tmp_inventory" "$tmp_playbook"
 
 else
     echo "No changes detected. Exiting."
