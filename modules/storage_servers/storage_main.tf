@@ -132,9 +132,9 @@ resource "aws_instance" "storage_server" {
 
   placement_group             = var.common_config.placement_group_name
   subnet_id                   = var.common_config.subnet_id
-  key_name                    = var.common_config.key_name
+  key_name                    = var.ansible_key_name
 
-  vpc_security_group_ids = [aws_security_group.storage.id]
+  vpc_security_group_ids = [aws_security_group.storage.id, var.ansible_sg_id]
   iam_instance_profile = var.iam_profile_name
   
   # Put tags on the volumes

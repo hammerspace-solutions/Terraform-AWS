@@ -103,6 +103,12 @@ ensure_ssm_agent() {
   fi
   echo "WARN: Failed to install amazon-ssm-agent via all methods."
 }
+
+# ----------------------------------------------------------------------------
+# WARNING!!
+# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
+# ----------------------------------------------------------------------------
+
 ensure_ssm_agent
 
 # -----------------------------
@@ -119,11 +125,6 @@ sudo tee -a /etc/ssh/sshd_config > /dev/null <<'EOF'
 EOF
 try sudo systemctl restart ssh
 try sudo systemctl restart sshd
-
-# ----------------------------------------------------------------------------
-# WARNING!!
-# DO NOT MODIFY ANYTHING BELOW THIS LINE OR INSTANCES MAY NOT START CORRECTLY!
-# ----------------------------------------------------------------------------
 
 # --- Install AWS SDK for Python (boto3/botocore) for Ansible SSM ---
 
@@ -159,18 +160,28 @@ if [ -n "$${SSH_KEYS}" ]; then
   echo "End Add SSH Keys"
 fi
 
-# Optional root keys (fixed stray quote)
+# Optional root keys
+
 if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
-  echo "Starting SSH Key Management Deployment for root"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
-  touch /root/.ssh/authorized_keys
+  if [ -f /root/.ssh/authorized_keys ]; then
+      echo "Remove no-port-forwarding from root authorized_keys"
+      PUBLIC_KEY=$(head -1 /root/.ssh/authorized_keys | sed -n 's/.*\(\(ssh-\|ecdsa-\)[^ ]* [^ ]*\).*/\1/p')
+      echo $PUBLIC_KEY > /root/.ssh/authorized_keys.tmp
+      mv /root/.ssh/authorized_keys.tmp /root/.ssh/authorized_keys
+      echo "Done removing no-port-forwarding"
+  else
+      touch /root/.ssh/authorized_keys
+  fi
+
+  echo "Starting SSH Key Management Deployment for root"
   echo "$${SSH_KEYS}" | while read -r key; do
-    if [ -n "$${key}" ] && ! grep -qF "$${key}" "/root/.ssh/authorized_keys"; then
-      echo "$${key}" >> "/root/.ssh/authorized_keys"
+    if [ -n "$${key}" ] && ! grep -qF "$${key}" /root/.ssh/authorized_keys; then
+      echo "$${key}" >> /root/.ssh/authorized_keys
     fi
   done
-  chmod 600 "/root/.ssh/authorized_keys"
-  chown -R root:root "/root/.ssh"
+  chmod 600 /root/.ssh/authorized_keys
+  chown -R root:root /root/.ssh
   echo "Ending SSH Key Management Deployment for root"
 fi
 

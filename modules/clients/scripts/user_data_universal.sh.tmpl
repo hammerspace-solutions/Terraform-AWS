@@ -110,13 +110,6 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
   echo "Ending SSH Key Management Deployment for root"
 fi
 
-# Enable root SSH login
-if [ "$ALLOW_ROOT" = "true" ]; then
-    echo "Configuring SSH to allow root login..."
-    sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-    sudo systemctl restart ssh || sudo systemctl restart sshd
-fi
-
 # NFS test mountpoint
 
 sudo mkdir -p /mnt/nfs-test

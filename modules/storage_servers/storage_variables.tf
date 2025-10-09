@@ -58,6 +58,18 @@ variable "capacity_reservation_id" {
   default     = null
 }
 
+variable "ansible_key_name" {
+  description = "The key pair name for SSH from Ansible controller to clients"
+  type        = string
+  default     = null
+}
+
+variable "ansible_sg_id" {
+  description = "Security Group ID to allow SSH from Ansible controller"
+  type        = string
+  default     = null
+}
+
 variable "allow_test_ingress" {
   description = "If true, adds ingress rules to the security group to allow SSH and ICMP for testing purposes."
   type        = bool

@@ -572,6 +572,8 @@ module "clients" {
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
 
+  # Key and security group(s) needed for ansible configuration
+  
   ansible_key_name = module.ansible[0].ansible_key_name
   ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
 
@@ -604,6 +606,11 @@ module "storage_servers" {
 
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
+
+  # Key and security group(s) needed for ansible configuration
+  
+  ansible_key_name = module.ansible[0].ansible_key_name
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace
