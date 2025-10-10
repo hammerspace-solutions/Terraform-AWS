@@ -28,10 +28,11 @@ locals {
   all_nodes = jsondecode(var.target_nodes_json)
 
   # Filter the nodes for each group
-  client_nodes  = [for n in local.all_nodes : n.private_ip if n.type == "client"]
-  storage_nodes = [for n in local.all_nodes : n.private_ip if n.type == "storage_server"]
-  ecgroup_nodes = [for n in local.all_nodes : n.private_ip if n.type == "ecgroup"]
-  hammerspace_nodes = [for n in local.all_nodes : n.private_ip if n.type == "anvil" || n.type == "dsx"]
+  client_nodes  = [for n in local.all_nodes : n if n.type == "client"]
+  storage_nodes = [for n in local.all_nodes : n if n.type == "storage_server"]
+  ecgroup_nodes = [for n in local.all_nodes : n if n.type == "ecgroup"]
+  hammerspace_nodes = [for n in local.all_nodes : n if n.type == "anvil" || n.type == "dsx"]
+  hs_password   = length(local.hammerspace_nodes) > 0 ? local.hammerspace_nodes[0].id : ""
 }
 
 resource "local_file" "ansible_inventory" {
@@ -43,5 +44,8 @@ resource "local_file" "ansible_inventory" {
     storage_servers = local.storage_nodes
     ecgroup_nodes   = local.ecgroup_nodes
     hammerspace_nodes = local.hammerspace_nodes
+    hs_password	    = local.hs_password
+    volume_group_name = var.ansible_vg_name
+    share_name      = var.ansible_share_name
   })
 }

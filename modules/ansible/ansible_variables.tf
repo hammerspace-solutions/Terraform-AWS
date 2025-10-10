@@ -164,4 +164,14 @@ variable "ansible_controller_cidr" {
   default     = null
 }
 
+variable "ansible_vg_name" {
+  description = "Name of the volume group for Hammerspace configuration"
+  type        = string
+  default     = "default-vg"  # Fallback if not provided
+}
 
+variable "ansible_share_name" {
+  description = "Name of the share for Hammerspace configuration"
+  type        = string
+  default     = "default-share"  # Fallback if not provided
+}

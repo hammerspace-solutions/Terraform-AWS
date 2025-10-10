@@ -538,6 +538,12 @@ module "ansible" {
   # Security for ssh control
 
   ansible_controller_cidr = var.ansible_controller_cidr
+
+  # Pass the volume group and share names so that they can be automatically
+  # created in an Anvil
+
+  ansible_vg_name = var.ansible_vg_name
+  ansible_share_name = var.ansible_share_name
   
   depends_on = [
     module.iam_core
