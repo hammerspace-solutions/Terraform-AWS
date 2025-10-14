@@ -11,9 +11,6 @@ set -euo pipefail
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
 STATE_FILE="/var/run/ansible_jobs_status/volume_group_state.txt" # Track current nodes in VG
-HS_USERNAME="admin"
-HS_PASSWORD="secret"
-VOLUME_GROUP_NAME="default-vg"
 
 # --- Source the function library ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
@@ -25,8 +22,73 @@ source "$ANSIBLE_LIB_PATH"
 # --- Main Logic ---
 echo "--- Starting Manage Volume Group Job ---"
 
-# Parse inventory (same as above)
-# ... (copy parsing code from first script for all_hammerspace, all_storage_servers, storage_map)
+# 1. Verify inventory file exists
+if [ ! -f "$INVENTORY_FILE" ]; then
+  echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
+  exit 1
+fi
+
+# 2. Get the username, password, volume group, and share name from the inventroy
+
+hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+
+# Debug: Echo parsed vars
+echo "Parsed hs_username: $hs_username"
+echo "Parsed hs_password: $hs_password"
+echo "Parsed volume_group_name: $volume_group_name"
+echo "Parsed share_name: $share_name"
+
+# Set variables for later use
+
+HS_USERNAME=$hs_username
+HS_PASSWORD=$hs_password
+HS_VOLUME_GROUP=$volume_group_name
+HS_SHARE=$share_name
+
+# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+
+all_hammerspace=""
+flag="0"  # Initialize flag for hammerspace parsing
+while read -r line; do
+  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="hammerspace"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="0"
+  fi
+  if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    all_hammerspace+="$line"$'\n'
+  fi
+done < "$INVENTORY_FILE"
+
+all_storage_servers=""
+storage_map=() # Array of "IP:name"
+flag="0"  # Initialize flag for storage_servers parsing
+while read -r line; do
+  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="1"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="0"
+  fi
+  if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    ip=$(echo "$line" | awk '{print $1}')
+    # Note: This assumes inventory lines have node_name="..." format
+    # If not, you'll need to adjust how you get the node name
+    name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
+    all_storage_servers+="$ip"$'\n'
+    storage_map+=("$ip:$name")
+  fi
+done < "$INVENTORY_FILE"
+
+all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
+all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
+
+# Debug: Log parsed IPs
+
+echo "Parsed hammerspace: $all_hammerspace"
+echo "Parsed storage_servers: $all_storage_servers"
 
 if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
   echo "No storage_servers or hammerspace found in inventory. Exiting."
@@ -65,14 +127,13 @@ vg_node_locations="${vg_node_locations%,}]"
 # Playbook for create/update VG
 tmp_playbook=$(mktemp)
 cat > "$tmp_playbook" <<EOF
----
 - hosts: localhost
   gather_facts: false
   vars:
     hs_username: "$HS_USERNAME"
     hs_password: "$HS_PASSWORD"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
-    volume_group_name: "$VOLUME_GROUP_NAME"
+    volume_group_name: "$HS_VOLUME_GROUP"
     vg_node_locations: $vg_node_locations
 
   tasks:

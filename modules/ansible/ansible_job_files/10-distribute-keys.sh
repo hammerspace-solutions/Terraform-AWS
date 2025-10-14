@@ -4,7 +4,7 @@
 #
 # This script distributes the Ansible controller's public key to all client, storage_server, and
 # ecgroup nodes' root user.
-# It also collects and distributes all client public keys for client-to-client SSH (root user), and
+# It also collects and distributes all public keys for full mesh root SSH across all nodes, and
 # updates known_hosts on all nodes for passwordless access. It is idempotent but updates all nodes on changes.
 
 set -euo pipefail
@@ -31,7 +31,7 @@ if [ ! -f "$INVENTORY_FILE" ]; then
   exit 1
 fi
 
-# 2. Find all client, storage server, and ecgroup IPs from the inventory
+# 2. Find all client, storage server, and ecgroup IPs from the inventory (ignoring extra fields like node_name)
 all_clients=$(awk '/^\[clients\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && NF {print $1}' "$INVENTORY_FILE" | grep -v '^$' || echo "")
 all_storage_servers=$(awk '/^\[storage_servers\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && NF {print $1}' "$INVENTORY_FILE" | grep -v '^$' || echo "")
 all_ecgroup_nodes=$(awk '/^\[ecgroup_nodes\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && NF {print $1}' "$INVENTORY_FILE" | grep -v '^$' || echo "")
@@ -79,15 +79,11 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
     for host in $all_hosts; do
         echo "$host" >> "$tmp_inventory"
     done
-    echo "[clients]" >> "$tmp_inventory"
-    for host in $all_clients; do
-        echo "$host" >> "$tmp_inventory"
-    done
 
     # 6. Combined playbook for gathering and distributing keys
     tmp_playbook=$(mktemp)
     cat > "$tmp_playbook" <<EOF
-- hosts: clients
+- hosts: all_nodes
   gather_facts: yes
   become: yes
   tasks:
@@ -104,7 +100,7 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
       register: public_key
     - name: Set fact for public key
       ansible.builtin.set_fact:
-        client_public_key: "{{ public_key.content | b64decode }}"
+        node_public_key: "{{ public_key.content | b64decode }}"
         cacheable: yes
 
 - hosts: all_nodes
@@ -112,7 +108,7 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
   become: yes
   vars:
     controller_public_key_src: "${CONTROLLER_KEY_PATH}.pub"
-    all_client_public_keys: "{{ hostvars | json_query('*.client_public_key') | select('defined') | list }}"
+    all_node_public_keys: "{{ hostvars | json_query('*.node_public_key') | select('defined') | list }}"
 
   tasks:
     - name: Ensure .ssh directory exists for root
@@ -129,21 +125,22 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
         state: present
         key: "{{ lookup('file', controller_public_key_src) }}"
 
-    - name: Add all clients' public keys to root's authorized_keys for client-to-client SSH
+    - name: Add all nodes' public keys to root's authorized_keys for full mesh SSH
       ansible.posix.authorized_key:
         user: root
         state: present
         key: "{{ item }}"
-      loop: "{{ all_client_public_keys }}"
-      when: "'clients' in group_names"
+      loop: "{{ all_node_public_keys }}"
 
     - name: Scan SSH host keys for all nodes
       ansible.builtin.command:
-        cmd: "ssh-keyscan -H {{ item }}"
-        creates: "/root/.ssh/known_hosts"
+        cmd: "ssh-keyscan -H -T 10 {{ item }}"
       register: ssh_keyscan
       loop: "{{ groups['all'] }}"
       changed_when: false
+      ignore_errors: yes
+      retries: 3
+      delay: 5
 
     - name: Update known_hosts for root
       ansible.builtin.known_hosts:

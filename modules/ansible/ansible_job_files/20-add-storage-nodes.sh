@@ -11,9 +11,6 @@ set -euo pipefail
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
 STATE_FILE="/var/run/ansible_jobs_status/added_storage_nodes.txt"
-HS_USERNAME="admin"  # Replace with actual or use env var
-HS_PASSWORD="secret" # Replace with actual or use env var
-VOLUME_GROUP_NAME="default-vg" # Customize as needed
 
 # --- Source the function library ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
@@ -31,32 +28,65 @@ if [ ! -f "$INVENTORY_FILE" ]; then
   exit 1
 fi
 
-# 2. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+# 2. Get the username, password, volume group, and share name from the inventroy
+
+hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+
+# Debug: Echo parsed vars
+echo "Parsed hs_username: $hs_username"
+echo "Parsed hs_password: $hs_password"
+echo "Parsed volume_group_name: $volume_group_name"
+echo "Parsed share_name: $share_name"
+
+# Set variables for later use
+
+HS_USERNAME=$hs_username
+HS_PASSWORD=$hs_password
+HS_VOLUME_GROUP=$volume_group_name
+HS_SHARE=$share_name
+
+# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+
 all_hammerspace=""
+flag="0"  # Initialize flag for hammerspace parsing
 while read -r line; do
+  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="hammerspace"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="0"
+  fi
   if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     all_hammerspace+="$line"$'\n'
   fi
-  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then flag="hammerspace"; elif [[ "$line" =~ ^\[ ]]; then flag=0; fi
 done < "$INVENTORY_FILE"
 
 all_storage_servers=""
 storage_map=() # Array of "IP:name"
-flag=0
+flag="0"  # Initialize flag for storage_servers parsing
 while read -r line; do
+  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="1"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="0"
+  fi
   if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     ip=$(echo "$line" | awk '{print $1}')
-    name=$(echo "$line" | grep -oP 'node_name="\K[^"]+')
+    # Note: This assumes inventory lines have node_name="..." format
+    # If not, you'll need to adjust how you get the node name
+    name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
     all_storage_servers+="$ip"$'\n'
     storage_map+=("$ip:$name")
   fi
-  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then flag=1; elif [[ "$line" =~ ^\[ ]]; then flag=0; fi
 done < "$INVENTORY_FILE"
 
-all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u)
-all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u)
+all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
+all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
 
 # Debug: Log parsed IPs
+
 echo "Parsed hammerspace: $all_hammerspace"
 echo "Parsed storage_servers: $all_storage_servers"
 
@@ -69,7 +99,8 @@ data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
 
 all_hosts=$(echo -e "$all_storage_servers" | sort -u)
 
-# 3. Identify new hosts (storage_servers not in state)
+# 4. Identify new hosts (storage_servers not in state)
+
 touch "$STATE_FILE"
 new_hosts=()
 for host in $all_hosts; do
@@ -79,10 +110,12 @@ for host in $all_hosts; do
 done
 
 # If new hosts, run addition
+
 if [ ${#new_hosts[@]} -gt 0 ]; then
   echo "Found ${#new_hosts[@]} new storage servers: ${new_hosts[*]}. Adding them."
 
-  # 4. Build storages list from map (assume body for each: name from node_name, type OTHER)
+  # 5. Build storages list from map (assume body for each: name from node_name, type OTHER)
+  
   storages_json="["
 
   for entry in "${storage_map[@]}"; do
@@ -94,10 +127,10 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
   done
   storages_json="${storages_json%,}]"
 
-  # 5. Combined playbook for adding nodes
+  # 6. Combined playbook for adding nodes
+  
   tmp_playbook=$(mktemp)
   cat > "$tmp_playbook" <<EOF
----
 - hosts: localhost
   gather_facts: false
   vars:
@@ -185,13 +218,13 @@ EOF
   echo "Running Ansible playbook to add storage nodes..."
   ansible-playbook "$tmp_playbook" 
 
-  # 6. Update state file with new hosts
+  # 7. Update state file with new hosts
   echo "Playbook finished. Updating state file with new storage servers..."
   for host in "${new_hosts[@]}"; do
     echo "$host" >> "$STATE_FILE"
   done
 
-  # 7. Clean up
+  # 8. Clean up
   rm -f "$tmp_playbook"
 
 else

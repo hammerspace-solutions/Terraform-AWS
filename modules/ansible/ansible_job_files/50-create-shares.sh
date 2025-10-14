@@ -11,17 +11,85 @@ set -euo pipefail
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
 STATE_FILE="/var/run/ansible_jobs_status/created_shares.txt"
-HS_USERNAME="admin"
-HS_PASSWORD="secret"
-SHARE_NAME="data-share" # Customize
-# Assume share body, replace with actual JSON structure
-SHARE_BODY='{ "name": "'$SHARE_NAME'", "_type": "SHARE" }' # Add more fields
 
 # --- Source the function library ---
-# ... (same)
+if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
+  echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
+  exit 1
+fi
+source "$ANSIBLE_LIB_PATH"
 
 # --- Main Logic ---
-# Parse (same)
+echo "--- Starting Create Share(s) Job ---"
+
+# 1. Verify inventory file exists
+if [ ! -f "$INVENTORY_FILE" ]; then
+  echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
+  exit 1
+fi
+
+# 2. Get the username, password, volume group, and share name from the inventroy
+
+hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+
+# Debug: Echo parsed vars
+echo "Parsed hs_username: $hs_username"
+echo "Parsed hs_password: $hs_password"
+echo "Parsed volume_group_name: $volume_group_name"
+echo "Parsed share_name: $share_name"
+
+# Set variables for later use
+
+HS_USERNAME=$hs_username
+HS_PASSWORD=$hs_password
+HS_VOLUME_GROUP=$volume_group_name
+HS_SHARE_NAME=$share_name
+SHARE_BODY='{ "name": "'$HS_SHARE_NAME'", "_type": "SHARE" }' # Add more fields
+
+# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+
+all_hammerspace=""
+flag="0"  # Initialize flag for hammerspace parsing
+while read -r line; do
+  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="hammerspace"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
+    flag="0"
+  fi
+  if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    all_hammerspace+="$line"$'\n'
+  fi
+done < "$INVENTORY_FILE"
+
+all_storage_servers=""
+storage_map=() # Array of "IP:name"
+flag="0"  # Initialize flag for storage_servers parsing
+while read -r line; do
+  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="1"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+    flag="0"
+  fi
+  if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    ip=$(echo "$line" | awk '{print $1}')
+    # Note: This assumes inventory lines have node_name="..." format
+    # If not, you'll need to adjust how you get the node name
+    name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
+    all_storage_servers+="$ip"$'\n'
+    storage_map+=("$ip:$name")
+  fi
+done < "$INVENTORY_FILE"
+
+all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
+all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
+
+# Debug: Log parsed IPs
+
+echo "Parsed hammerspace: $all_hammerspace"
+echo "Parsed storage_servers: $all_storage_servers"
 
 if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
   echo "No storage_servers or hammerspace found in inventory. Exiting."
@@ -30,8 +98,8 @@ fi
 
 data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
 
-if grep -q -F -x "$SHARE_NAME" "$STATE_FILE"; then
-  echo "Share $SHARE_NAME already created. Exiting."
+if grep -q -F -x "$HS_SHARE_NAME" "$STATE_FILE"; then
+  echo "Share $HS_SHARE_NAME already created. Exiting."
   exit 0
 fi
 
@@ -45,7 +113,7 @@ cat > "$tmp_playbook" <<EOF
     hs_username: "$HS_USERNAME"
     hs_password: "$HS_PASSWORD"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
-    share_name: "$SHARE_NAME"
+    share_name: "$HS_SHARE_NAME"
     share: $SHARE_BODY
 
   tasks:
@@ -110,7 +178,7 @@ EOF
   ansible-playbook "$tmp_playbook"
 
   # Update state
-  echo "$SHARE_NAME" >> "$STATE_FILE"
+  echo "$HS_SHARE_NAME" >> "$STATE_FILE"
 
   # Clean up
   rm -f "$tmp_playbook"

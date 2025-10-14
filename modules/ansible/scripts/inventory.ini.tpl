@@ -15,17 +15,17 @@ hammerspace
 
 [clients]
 %{ for node in clients ~}
-${node.private_ip}
+${node.private_ip} node_name="${node.name}"
 %{ endfor ~}
 
 [storage_servers]
 %{ for node in storage_servers ~}
-${node.private_ip}
+${node.private_ip} node_name="${node.name}"
 %{ endfor ~}
 
 [ecgroup_nodes]
 %{ for node in ecgroup_nodes ~}
-${node.private_ip}
+${node.private_ip} node_name="${node.name}"
 %{ endfor ~}
 
 [hammerspace]
