@@ -122,7 +122,7 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
     ip=$(echo "$entry" | cut -d: -f1)
     name=$(echo "$entry" | cut -d: -f2-)
     if echo "${new_hosts[*]}" | grep -q "$ip"; then
-      storages_json+="{ \"name\": \"$name\", \"_type\": \"NODE\", \"nodeType\": \"OTHER\" }," # Add more fields if known
+      storages_json+="{ \"name\": \"$name\", \"_type\": \"NODE\", \"nodeType\": \"OTHER\", \"mgmtIpAddress\": {\"address\": \"$ip\"}},"
     fi
   done
   storages_json="${storages_json%,}]"

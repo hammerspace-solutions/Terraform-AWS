@@ -47,7 +47,20 @@ HS_USERNAME=$hs_username
 HS_PASSWORD=$hs_password
 HS_VOLUME_GROUP=$volume_group_name
 HS_SHARE_NAME=$share_name
-SHARE_BODY='{ "name": "'$HS_SHARE_NAME'", "_type": "SHARE" }' # Add more fields
+
+SHARE_BODY='{'
+SHARE_BODY+='"name": "'$HS_SHARE_NAME'",'
+SHARE_BODY+='"path": "/'$HS_SHARE_NAME'",'
+SHARE_BODY+='"maxShareSize": "0",'
+SHARE_BODY+='"alertThreshold": "90",'
+SHARE_BODY+='"maxShareSizeType": "TB",'
+SHARE_BODY+='"smbAliases": [],'
+SHARE_BODY+='"exportOptions": [{"subnet": "'*'", "rootSquash": "false", "accessPermissions": "RW"}],'
+SHARE_BODY+='"shareSnapshots": [],'
+SHARE_BODY+='"shareObjectives": [{"objective": {"name": "no-atime"}, "applicability": "TRUE"},'
+SHARE_BODY+='{"objective": {"name": "confine-to-'$HS_VOLUME_GROUP'"}, "applicability": "TRUE"}],'
+SHARE_BODY+='"smbBrowsable": "true", "shareSizeLimit": "0"'
+SHARE_BODY+='}'
 
 # 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
 
