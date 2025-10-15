@@ -89,6 +89,7 @@ all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || tr
 
 echo "Parsed hammerspace: $all_hammerspace"
 echo "Parsed storage_servers: $all_storage_servers"
+echo "Parsed storage_map: $storage_map"
 
 if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
   echo "No storage_servers or hammerspace found in inventory. Exiting."
@@ -97,12 +98,15 @@ fi
 
 data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
 
-# Build node_names from map
-node_names=()
-for entry in "${storage_map[@]}"; do
-  name=$(echo "$entry" | cut -d: -f2-)
-  node_names+=("$name")
-done
+# Read existing added volumes from STATE_FILE
+touch "$STATE_FILE"
+existing_volumes=()
+while IFS= read -r line; do
+  existing_volumes+=("$line")
+done < "$STATE_FILE"
+
+# Convert to JSON array for playbook var
+existing_volumes_json=$(printf '%s\n' "${existing_volumes[@]}" | jq -R . | jq -s .)
 
 # Playbook to get non-reserved volumes, add missing
 tmp_playbook=$(mktemp)
@@ -113,6 +117,7 @@ cat > "$tmp_playbook" <<EOF
     hs_username: "$HS_USERNAME"
     hs_password: "$HS_PASSWORD"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
+    existing_volumes: $existing_volumes_json
 
   tasks:
     - name: Get all nodes
@@ -148,30 +153,39 @@ cat > "$tmp_playbook" <<EOF
             | list
           }}
 
-    - name: Create volumes for addition
+    - name: Create volumes for addition (filter out existing)
       set_fact:
         volumes_for_add: >-
-          [{% for item in non_reserved_volumes %}
-            {
-              "name": "{{ item.node.name }}::{{ item.exportPath }}",
-              "logicalVolume": {
-                "name": "{{ item.exportPath }}",
-                "_type": "LOGICAL_VOLUME"
-              },
-              "node": {
-                "name": "{{ item.node.name }}",
-                "_type": "NODE"
-              },
-              "_type": "STORAGE_VOLUME",
-              "accessType": "READ_WRITE",
-              "storageCapabilities": {
-                "performance": {
-                    "utilizationThreshold": 0.95,
-                    "utilizationEvacuationThreshold": 0.9
-                }
-              }
-            }{% if not loop.last %},{% endif %}
-          {% endfor %}]
+          [
+            {% for item in non_reserved_volumes %}
+              {% set full_name = item.node.name ~ ':/' ~ item.exportPath %}
+              {% if full_name not in existing_volumes %}
+                {
+                  "name": "{{ item.node.name }}::{{ item.exportPath }}",
+                  "logicalVolume": {
+                    "name": "{{ item.exportPath }}",
+                    "_type": "LOGICAL_VOLUME"
+                  },
+                  "node": {
+                    "name": "{{ item.node.name }}",
+                    "_type": "NODE"
+                  },
+                  "_type": "STORAGE_VOLUME",
+                  "accessType": "READ_WRITE",
+                  "storageCapabilities": {
+                    "performance": {
+                        "utilizationThreshold": 0.95,
+                        "utilizationEvacuationThreshold": 0.9
+                    }
+                  }
+                }{% if not loop.last %},{% endif %}
+              {% endif %}
+            {% endfor %}
+          ]
+
+    - name: Check if there are volumes to add
+      set_fact:
+        has_volumes_to_add: "{{ volumes_for_add | length > 0 }}"
 
     - name: Add storage volumes
       block:
@@ -226,20 +240,49 @@ cat > "$tmp_playbook" <<EOF
           delay: 20
           when: item.status == 202
           loop: "{{ __results.results }}"
+
+        - name: Extract added volume names (in desired format)
+          set_fact:
+            added_volume_names: >-
+              [
+                {% for item in volumes_for_add %}
+                  "{{ item.node.name }}:/{{ item.logicalVolume.name }}"{% if not loop.last %},{% endif %}
+                {% endfor %}
+              ]
+
+        - name: Output added volumes
+          debug:
+            msg: "{{ added_volume_names | to_json }}"
+
+      when: has_volumes_to_add
 EOF
 
   echo "Running Ansible playbook to add storage volumes..."
-  ansible-playbook "$tmp_playbook"
+  playbook_output=$(ansible-playbook "$tmp_playbook" 2>&1)
+  echo "$playbook_output"
 
-  # Update state with added volumes (extract from playbook or assume all)
-  for volume in "$(ansible-playbook "$tmp_playbook" -e "dump_volumes=true" | grep volumes_for_add | jq -r '.[] .name')"; do # Hypothetical
-    if ! grep -q -F -x "$volume" "$STATE_FILE"; then
-      echo "$volume" >> "$STATE_FILE"
+  # Extract added volumes from output (improved parsing to handle full line)
+  
+  added_volumes_json=$(echo "$playbook_output" | awk '/"msg":/ {gsub(/.*"msg": /, ""); gsub(/, *$/, ""); print}' | sed 's/^[ \t]*//;s/[ \t]*$//' || echo "[]")
+
+  if [ "$added_volumes_json" != "[]" ] && [ -n "$added_volumes_json" ]; then
+    # Strip unwanted things from the json string
+      
+    added_volumes_json=${added_volumes_json#\"}
+    added_volumes_json=${added_volumes_json%\"}
+    added_volumes_json=$(echo "$added_volumes_json" | sed 's/\\\"/"/g')
+    added_volumes=$(echo $added_volumes_json | jq -r '.[]' 2>/dev/null)
+
+    if [ -n "$added_volumes" ]; then
+      for volume in $added_volumes; do
+        if ! grep -q -F -x "$volume" "$STATE_FILE"; then
+          echo "$volume" >> "$STATE_FILE"
+        fi
+      done
     fi
-  done
+  fi
 
   # Clean up
   rm -f "$tmp_playbook"
 
   echo "--- Add Storage Volumes Job Complete ---"
-  
