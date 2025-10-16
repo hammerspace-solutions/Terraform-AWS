@@ -18,7 +18,7 @@ try() { "$@" || true; }  # best-effort for cross-distro commands
 # Base packages (add curl + jq for SSM helper)
 # -----------------------------------------------
 
-echo "---- Loading base packages"
+echo "[bootstrap] ---- Loading base packages"
 
 if have_cmd apt-get; then
   sudo apt-get -y update
@@ -48,7 +48,7 @@ fi
 
 # --- Install AWS SDK for Python (boto3/botocore) for Ansible SSM ---
 
-echo "Installing boto3 and botocore for Ansible SSM prerequisites..."
+echo "[bootstrap] Installing boto3 and botocore for Ansible SSM prerequisites..."
 try sudo pip3 install boto3 botocore
 
 # Getting all the variables from the spawning routine
@@ -62,13 +62,13 @@ TIER0_TYPE='${TIER0_TYPE}'
 
 # Output variables
 
-echo "--- Input variables"
-echo "TARGET_USER=$${TARGET_USER}"
-echo "TARGET_HOME=$${TARGET_HOME}"
-echo "SSH_KEYS=$${SSH_KEYS}"
-echo "ALLOW_ROOT=$${ALLOW_ROOT}"
-echo "TIER0=$${TIER0}"
-echo "TIER0_TYPE=$${TIER0_TYPE}"
+echo "[bootstrap] --- Input variables"
+echo "[bootstrap] TARGET_USER=$${TARGET_USER}"
+echo "[bootstrap] TARGET_HOME=$${TARGET_HOME}"
+echo "[bootstrap] SSH_KEYS=$${SSH_KEYS}"
+echo "[bootstrap] ALLOW_ROOT=$${ALLOW_ROOT}"
+echo "[bootstrap] TIER0=$${TIER0}"
+echo "[bootstrap] TIER0_TYPE=$${TIER0_TYPE}"
 
 # SSH client/server relax
 
@@ -86,7 +86,7 @@ try sudo systemctl restart sshd
 # Keys for target user
 
 if [ -n "$${SSH_KEYS}" ]; then
-  echo "---- Update SSH_KEYS into $${TARGET_HOME} directory"
+  echo "[bootstrap] ---- Update SSH_KEYS into $${TARGET_HOME} directory"
   mkdir -p "$${TARGET_HOME}/.ssh"
   chmod 700 "$${TARGET_HOME}/.ssh"
   touch "$${TARGET_HOME}/.ssh/authorized_keys"
@@ -102,21 +102,21 @@ fi
 # Optional root keys
 
 if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
-  echo "---- Update SSH_KEYS into root directory"
+  echo "[bootstrap] ---- Update SSH_KEYS into root directory"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
   if [ -f /root/.ssh/authorized_keys ]; then
       PUBLIC_KEY=$(head -1 /root/.ssh/authorized_keys | sed -n 's/.*\(\(ssh-\|ecdsa-\)[^ ]* [^ ]*\).*/\1/p')
       if [ ! -z "$PUBLIC_KEY" ]; then
-	  echo "---- Remove no-port-forwarding from root authorized_keys"
+	  echo "[bootstrap] ---- Remove no-port-forwarding from root authorized_keys"
 	  echo $PUBLIC_KEY > /root/.ssh/authorized_keys.tmp
 	  mv /root/.ssh/authorized_keys.tmp /root/.ssh/authorized_keys
-	  echo "Done removing no-port-forwarding"
+	  echo "[bootstrap] Done removing no-port-forwarding"
       fi
   else
       touch /root/.ssh/authorized_keys
   fi
 
-  echo "---- Starting SSH Key Management Deployment for root"
+  echo "[bootstrap] ---- Starting SSH Key Management Deployment for root"
   echo "$${SSH_KEYS}" | while read -r key; do
     if [ -n "$${key}" ] && ! grep -qF "$${key}" /root/.ssh/authorized_keys; then
       echo "$${key}" >> /root/.ssh/authorized_keys
@@ -124,7 +124,7 @@ if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
   done
   chmod 600 /root/.ssh/authorized_keys
   chown -R root:root /root/.ssh
-  echo "Ending SSH Key Management Deployment for root"
+  echo "[bootstrap] Ending SSH Key Management Deployment for root"
 fi
 
 # NFS test mountpoint
@@ -135,7 +135,7 @@ sudo chmod 777 /mnt/nfs-test
 # Tier0 RAID/NFS if requested
 
 tier0_setup() {
-  echo "---- Tier0 enabled: installing RAID/NVMe/NFS…"
+  echo "[bootstrap] ---- Tier0 enabled: installing RAID/NVMe/NFS…"
   if have_cmd apt; then
     sudo apt -y update
     sudo apt -y install mdadm nvme-cli jq nfs-kernel-server sysstat xfsprogs
@@ -149,9 +149,9 @@ tier0_setup() {
   fi
 
   mapfile -t NVME_DEVICES < <(nvme list | awk '/Amazon EC2 NVMe Instance Storage/ {print $1}')
-  echo "---- Found $${#NVME_DEVICES[@]} NVMe device(s): $${NVME_DEVICES[*]}"
+  echo "[bootstrap] ---- Found $${#NVME_DEVICES[@]} NVMe device(s): $${NVME_DEVICES[*]}"
   if [ "$${#NVME_DEVICES[@]}" -eq 0 ]; then
-    echo "---- No NVMe instance-store devices; skipping RAID."
+    echo "[bootstrap] ---- No NVMe instance-store devices; skipping RAID."
     return 0
   fi
 
@@ -160,12 +160,12 @@ tier0_setup() {
     raid-0) MIN_REQUIRED=2; raid_options="--level=0 --raid-devices=$${TOTAL_DEVICES}" ;;
     raid-5) MIN_REQUIRED=3; raid_options="--level=5 --raid-devices=$${TOTAL_DEVICES}" ;;
     raid-6) MIN_REQUIRED=4; raid_options="--level=6 --raid-devices=$${TOTAL_DEVICES}" ;;
-    *) echo "---- Error: Invalid TIER0 value $${TIER0_TYPE}."; return 1 ;;
+    *) echo "[bootstrap] ---- Error: Invalid TIER0 value $${TIER0_TYPE}."; return 1 ;;
   esac
-  [ "$${TOTAL_DEVICES}" -lt "$${MIN_REQUIRED}" ] && { echo "Insufficient devices for $${TIER0_TYPE}"; return 1; }
+  [ "$${TOTAL_DEVICES}" -lt "$${MIN_REQUIRED}" ] && { echo "[bootstrap] Insufficient devices for $${TIER0_TYPE}"; return 1; }
 
   RAID_NUM="$${TIER0_TYPE#raid-}"
-  echo "---- Creating RAID$${RAID_NUM}…"
+  echo "[bootstrap] ---- Creating RAID$${RAID_NUM}…"
   sudo mdadm --create --verbose /dev/md0 $${raid_options} $${NVME_DEVICES[*]}
   sudo mkfs.xfs -f /dev/md0
   sudo mkdir -p /tier0
@@ -216,7 +216,7 @@ EOF
   try sudo systemctl enable --now nfs-server
   try sudo systemctl restart nfs-server
 }
-[ "$${TIER0}" = "true" ] && tier0_setup || echo "Tier0 not enabled"
+[ "$${TIER0}" = "true" ] && tier0_setup || echo "[bootstrap] Tier0 not enabled"
 
 # Add target user to docker group if exists
 
@@ -309,14 +309,13 @@ ensure_ssm_agent() {
     fi
   fi
 
-  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+  echo "[bootstrap] WARN: Failed to install amazon-ssm-agent via all methods."
 }
 ensure_ssm_agent
 
 # Optional: Docker + editor (Debian/Ubuntu only)
 
 if echo "$OS_ID $OS_LIKE" | grep -Ei 'debian|ubuntu' >/dev/null 2>&1 && have_cmd apt-get; then
-    
     sudo apt-get update -y
     sudo apt-get install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg

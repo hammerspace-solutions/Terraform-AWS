@@ -89,7 +89,6 @@ all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || tr
 
 echo "Parsed hammerspace: $all_hammerspace"
 echo "Parsed storage_servers: $all_storage_servers"
-echo "Parsed storage_map: $storage_map"
 
 if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
   echo "No storage_servers or hammerspace found in inventory. Exiting."

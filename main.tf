@@ -663,7 +663,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.5"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=ansible-changes"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -684,10 +684,19 @@ module "ecgroup" {
   storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
   storage_ebs_iops        = var.ecgroup_storage_volume_iops
 
+  # Use private key for ansible communication
+
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
   # IAM Roles
 
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
+
+  # Key and security group(s) needed for ansible configuration
+  
+  ansible_key_name = module.ansible[0].ansible_key_name
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace
