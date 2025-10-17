@@ -175,3 +175,15 @@ variable "ansible_share_name" {
   type        = string
   default     = "default-share"  # Fallback if not provided
 }
+
+# Variables for dealing with ECGroup metadata and storage arrays
+
+variable "ecgroup_metadata_array" {
+  description = "ECGroup metadata array."
+  type        = string
+}
+
+variable "ecgroup_storage_array" {
+  description = "ECGroup storage array."
+  type        = string
+}

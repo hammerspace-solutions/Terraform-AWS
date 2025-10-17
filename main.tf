@@ -544,6 +544,11 @@ module "ansible" {
 
   ansible_vg_name = var.ansible_vg_name
   ansible_share_name = var.ansible_share_name
+
+  # Pass the ecgroup_metadata information if ECGroups were deployed
+
+  ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
+  ecgroup_storage_array = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
   
   depends_on = [
     module.iam_core
@@ -625,7 +630,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count  = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=iam-changes"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.4"
 
   common_config                 = local.common_config
   assign_public_ip              = var.assign_public_ip
@@ -663,7 +668,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=ansible-changes"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.6"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null

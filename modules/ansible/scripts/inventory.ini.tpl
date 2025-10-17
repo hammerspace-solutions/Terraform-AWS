@@ -6,6 +6,8 @@ hs_username = admin
 hs_password = ${hs_password}
 volume_group_name = ${volume_group_name}
 share_name = ${share_name}
+ecgroup_metadata_array = ${ecgroup_metadata_array}
+ecgroup_storage_array = ${ecgroup_storage_array}
 
 [all:children]
 clients

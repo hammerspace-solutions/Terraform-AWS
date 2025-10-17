@@ -33,6 +33,8 @@ locals {
   ecgroup_nodes = [for n in local.all_nodes : n if n.type == "ecgroup"]
   hammerspace_nodes = [for n in local.all_nodes : n if n.type == "anvil" || n.type == "dsx"]
   hs_password   = length(local.hammerspace_nodes) > 0 ? local.hammerspace_nodes[0].id : ""
+  ecgroup_metadata_array = var.ecgroup_metadata_array
+  ecgroup_storage_array = var.ecgroup_storage_array
 }
 
 resource "local_file" "ansible_inventory" {
@@ -47,5 +49,7 @@ resource "local_file" "ansible_inventory" {
     hs_password	    = local.hs_password
     volume_group_name = var.ansible_vg_name
     share_name      = var.ansible_share_name
+    ecgroup_metadata_array = local.ecgroup_metadata_array
+    ecgroup_storage_array = local.ecgroup_storage_array
   })
 }

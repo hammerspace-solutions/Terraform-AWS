@@ -78,13 +78,13 @@ output "ecgroup_nodes" {
 
 output "ecgroup_metadata_array" {
   description = "ECGroup metadata array"
-  sensitive   = true
+  sensitive   = false
   value       = module.ecgroup[*].metadata_array
 }
 
 output "ecgroup_storage_array" {
   description = "ECGroup storage array"
-  sensitive   = true
+  sensitive   = false
   value       = module.ecgroup[*].storage_array
 }
 

@@ -11,29 +11,41 @@ set -euo pipefail
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
 STATE_FILE="/var/run/ansible_jobs_status/configured_ecgroup_nodes.txt"  # Track configured ECGroup nodes
-ECGROUP_PRIVATE_KEY_PATH="/etc/ecgroups/keys/ecgroups"
+ECGROUP_PRIVATE_KEY_PATH="/etc/ansible/keys/ansible"
 
 # --- Source the function library ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
-  echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
+  echo "[configure-ecgroup] FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
   exit 1
 fi
 source "$ANSIBLE_LIB_PATH"
 
 # --- Main Logic ---
-echo "--- Starting Configure ECGroup Cluster Job ---"
+echo "[configure-ecgroup] --- Starting Configure ECGroup Cluster Job ---"
 
 # 1. Verify inventory file exists
+
 if [ ! -f "$INVENTORY_FILE" ]; then
-  echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
+  echo "[configure-ecgroup] ERROR: Inventory file $INVENTORY_FILE not found." >&2
   exit 1
 fi
 
-# 2. Parse ecgroup_nodes with IPs and names
+# 2. Get the ecgroup_metadata_array and the ecgroup_storage_array
+
+eg_md_array=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_metadata_array = / \
+{sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+eg_storage_array=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_storage_array = / \
+{sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+
+echo "[configure-ecgroup] EC_MD_ARRAY = $eg_md_array"
+echo "[configure-ecgroup] EC_ST_ARRAY = $eg_storage_array"
+
+# 3. Parse ecgroup_nodes with IPs and names
 
 all_ecgroup_nodes=""
 ecgroup_map=() # Array of "IP:name"
 flag="0"  # Initialize flag for ecgroup_nodes parsing
+
 while read -r line; do
   if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="1"
@@ -51,16 +63,19 @@ done < "$INVENTORY_FILE"
 all_ecgroup_nodes=$(echo "$all_ecgroup_nodes" | grep -v '^$' | sort -u || true)
 
 # Debug: Log parsed IPs
-echo "Parsed ecgroup_nodes: $all_ecgroup_nodes"
+
+echo "[configure-ecgroup] Parsed ecgroup_nodes: $all_ecgroup_nodes"
 
 if [ -z "$all_ecgroup_nodes" ]; then
-  echo "No ecgroup_nodes found in inventory. Exiting."
+  echo "[configure-ecgroup] No ecgroup_nodes found in inventory. Exiting."
   exit 0
 fi
 
 all_hosts=$(echo -e "$all_ecgroup_nodes" | sort -u)
+echo "[configure-ecgroup] All Hosts: $all_hosts"
 
 # 4. Identify new hosts (ecgroup_nodes not in state)
+
 touch "$STATE_FILE"
 new_hosts=()
 for host in $all_hosts; do
@@ -70,10 +85,12 @@ for host in $all_hosts; do
 done
 
 # If new hosts, run configuration
+
 if [ ${#new_hosts[@]} -gt 0 ]; then
-  echo "Found ${#new_hosts[@]} new ECGroup nodes: ${new_hosts[*]}. Configuring them."
+  echo "[configure-ecgroup] Found ${#new_hosts[@]} new ECGroup nodes: ${new_hosts[*]}. Configuring them."
 
   # 5. Build ECGroup hosts list (IPs) and nodes list (names) from map
+  
   ecgroup_hosts=""
   ecgroup_nodes=""
   for entry in "${ecgroup_map[@]}"; do
@@ -85,20 +102,30 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
   ecgroup_hosts="${ecgroup_hosts% }"
   ecgroup_nodes="${ecgroup_nodes% }"
 
+  echo "[configure-ecgroup] ECGroup Hosts: $ecgroup_hosts"
+  echo "[configure-ecgroup] ECGroup Nodes: $ecgroup_nodes"
+
   # Assume ECGROUP_METADATA_ARRAY and ECGROUP_STORAGE_ARRAY are parsed or hardcoded; adjust as needed
   # For example, derive from inventory or vars if available
-  ECGROUP_METADATA_ARRAY="/dev/sdb"  # Placeholder; customize based on your setup
-  ECGROUP_STORAGE_ARRAY="/dev/sdc"   # Placeholder; customize
-  ECGROUP_USER="admin"              # Adjust if different
+  
+  ECGROUP_METADATA_ARRAY="${eg_md_array}"
+  ECGROUP_STORAGE_ARRAY="${eg_storage_array}"
+  ECGROUP_USER="admin"               # admin user for ECGroups
+  ROOT_USER="root"                   # root user needed for ssh
 
   # 6. Create temporary ECGroup inventory
+  
   tmp_inventory=$(mktemp)
   echo "[ecgroup]" > "$tmp_inventory"
   for host in $ecgroup_hosts; do
     echo "$host ansible_user=$ECGROUP_USER ansible_ssh_private_key_file=$ECGROUP_PRIVATE_KEY_PATH" >> "$tmp_inventory"
   done
 
+  echo "[configure-ecgroup] --- Inventory File: $tmp_inventory"
+  cat "$tmp_inventory"
+
   # 7. Combined playbook for configuring ECGroup
+  
   tmp_playbook=$(mktemp)
   cat > "$tmp_playbook" <<EOF
 - name: Configure ECGroup from the controller node
@@ -109,9 +136,14 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   become: true
   tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+
     - name: Create the cluster
       shell: >
-        /opt/rozofs-installer/rozo_rozofs_create.sh -n {{ ecgroup_name }} -s "$ecgroup_nodes" -t external -d 3
+        /opt/rozofs-installer/rozo_rozofs_create.sh -n {{ ecgroup_name }} -s "$ecgroup_hosts" -t external -d 3
       register: create_cluster_result
       retries: 3
       delay: 10
@@ -119,7 +151,7 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
 
     - name: Add CTDB nodes
       shell: >
-        /opt/rozofs-installer/rozo_rozofs_ctdb_node_add.sh -n {{ ecgroup_name }} -c "$ecgroup_nodes"
+        /opt/rozofs-installer/rozo_rozofs_ctdb_node_add.sh -n {{ ecgroup_name }} -c "$ecgroup_hosts"
       register: ctdb_node_add_result
       retries: 3
       delay: 10
@@ -151,43 +183,24 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
   run_once: true
 EOF
 
-  # 8. Wait for instances to be ready (with timeout)
-  echo "Waiting for ECGroup instances to be ready (port 22 open)..."
-  for ip in $all_hosts; do
-    SECONDS=0
-    while ! nc -z -w1 "$ip" 22 &>/dev/null; do
-      sleep 2
-      if (( SECONDS >= 240 )); then
-        echo "ERROR: $ip did not open port 22 after 240 seconds."
-        exit 1
-      fi
-    done
-  done
-
-  # 9. Test SSH connectivity
-  echo "Testing SSH connectivity to ECGroup nodes..."
-  for node in $all_hosts; do
-    ssh -i "$ECGROUP_PRIVATE_KEY_PATH" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$ECGROUP_USER@$node" "echo 'SSH connection successful to $node'" || {
-      echo "ERROR: Could not SSH to $node"
-      exit 1
-    }
-  done
-
-  # 10. Run the Ansible playbook
-  echo "Running Ansible playbook to configure ECGroup..."
+  # 8. Run the Ansible playbook
+  
+  echo "[configure-ecgroup] Running Ansible playbook to configure ECGroup..."
   ansible-playbook "$tmp_playbook" -i "$tmp_inventory"
 
-  # 11. Update state file with new hosts
+  # 9. Update state file with new hosts
+  
   echo "Playbook finished. Updating state file with new ECGroup nodes..."
   for host in "${new_hosts[@]}"; do
     echo "$host" >> "$STATE_FILE"
   done
 
-  # 12. Clean up
-  rm -f "$tmp_inventory" "$tmp_playbook"
+  # 10. Clean up
+  
+#  rm -f "$tmp_inventory" "$tmp_playbook"
 
 else
-  echo "No new ECGroup nodes detected. Exiting."
+  echo "[configure-ecgroup] No new ECGroup nodes detected. Exiting."
 fi
 
-echo "--- Configure ECGroup Cluster Job Complete ---"
+echo "[configure-ecgroup] --- Configure ECGroup Cluster Job Complete ---"
