@@ -538,6 +538,17 @@ module "ansible" {
   # Security for ssh control
 
   ansible_controller_cidr = var.ansible_controller_cidr
+
+  # Pass the volume group and share names so that they can be automatically
+  # created in an Anvil
+
+  ansible_vg_name = var.ansible_vg_name
+  ansible_share_name = var.ansible_share_name
+
+  # Pass the ecgroup_metadata information if ECGroups were deployed
+
+  ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
+  ecgroup_storage_array = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
   
   depends_on = [
     module.iam_core
@@ -619,7 +630,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count  = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=iam-changes"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.4"
 
   common_config                 = local.common_config
   assign_public_ip              = var.assign_public_ip
@@ -657,7 +668,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.5"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.6"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
@@ -678,10 +689,19 @@ module "ecgroup" {
   storage_ebs_throughput  = var.ecgroup_storage_volume_throughput
   storage_ebs_iops        = var.ecgroup_storage_volume_iops
 
+  # Use private key for ansible communication
+
+  ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
+
   # IAM Roles
 
   iam_profile_name  = local.iam_profile_name
   iam_profile_group = var.iam_admin_group_name
+
+  # Key and security group(s) needed for ansible configuration
+  
+  ansible_key_name = module.ansible[0].ansible_key_name
+  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace

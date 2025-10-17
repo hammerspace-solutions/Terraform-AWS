@@ -19,7 +19,7 @@ fi
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 try() { "$@" || true; }
 
-echo "Starting bootstrap process..."
+echo "[bootstrap] Starting bootstrap process..."
 
 # -----------------------------
 # Minimal deps so SSM fallback (curl) can work
@@ -116,7 +116,7 @@ ensure_ssm_agent() {
       return 0
     fi
   fi
-  echo "WARN: Failed to install amazon-ssm-agent via all methods."
+  echo "[bootstrap] WARN: Failed to install amazon-ssm-agent via all methods."
 }
 
 # Base packages + Ansible
@@ -133,12 +133,12 @@ fi
 
 try python3 -m pip install --upgrade pip boto3 botocore
 if have_cmd ansible-galaxy; then
-    echo "Installing specific versions of Ansible AWS collections to ensure stability..."
+    echo "[bootstrap] Installing specific versions of Ansible AWS collections to ensure stability..."
     try ansible-galaxy collection install amazon.aws
     try ansible-galaxy collection install community.aws
 fi
 
-echo "Ensuring SSM agent is installed and running..."
+echo "[bootstrap] Ensuring SSM agent is installed and running..."
 ensure_ssm_agent
 echo "[bootstrap] SSM ready"
 
@@ -190,7 +190,7 @@ sudo chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh/config"
 sudo chmod 600 "${TARGET_HOME}/.ssh/config"
 
 # Configure SSH settings system-wide
-echo "Configuring SSH settings and authorized keys..."
+echo "[bootstrap] Configuring SSH settings and authorized keys..."
 sudo tee -a /etc/ssh/ssh_config > /dev/null <<'EOF'
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
@@ -198,4 +198,4 @@ EOF
 
 try sudo systemctl restart ssh || try sudo systemctl restart sshd
 
-echo "Bootstrap process complete."
+echo "[bootstrap] Bootstrap process complete."
