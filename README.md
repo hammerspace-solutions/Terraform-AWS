@@ -40,10 +40,14 @@ Configuration is managed through `terraform.tfvars` by setting values for the va
 
 These variables apply to the overall deployment:
 
+* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
+* `capacity_reservation_expiration`: The time before capacity reservations are expired. (Default: `"5m"`).
+* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
+* `assign_public_ip`: If `true`, assigns a public IP address to the Ansible instance. If `false`, only a private IP will be assigned.
+* `iam_profile_name`**: The name of an existing IAM Instance Profile to attach to instance(s). If left blank, a new one will be created.
 * `region`: AWS region for all resources (Default: "us-west-2").
 * `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
 * `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
-* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned.
 * `vpc_id`: VPC ID for all resources.
 * `subnet_id`: Subnet ID for resources.
 * `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
@@ -52,8 +56,6 @@ These variables apply to the overall deployment:
 * `project_name`: Project name for tagging and resource naming.
 * `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
 * `allow_root`: Allow root access to SSH (Default: `false`).
-* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
-* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
 * `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
 * `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
 
@@ -104,7 +106,6 @@ These variables configure the storage server instances and are prefixed with `st
 
 These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
 
-* **`iam_profile_name`**: The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created.
 * **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
 * **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
 * `hammerspace_ami`: AMI ID for Hammerspace instances.
