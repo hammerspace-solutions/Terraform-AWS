@@ -15,21 +15,20 @@ STATUS_DIR="/var/run/ansible_jobs_status"   # holds success/failure markers and 
 LOG_DIR="/var/log/ansible_jobs"             # directory for job script logs
 LOCK_FILE="/var/ansible_initial_setup.done"
 CHECK_INTERVAL=10                           # seconds
-FIRST_WAIT=300
+WAIT_TIME=300
 
 # --- Source the function library ---
 if [ -f "$ANSIBLE_LIB_PATH" ]; then
-  # shellcheck source=/usr/local/lib/ansible_functions.sh
-  source "$ANSIBLE_LIB_PATH"
+    source "$ANSIBLE_LIB_PATH"
 else
-  echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
-  exit 1
+    echo "[ansible-controller] FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
+    exit 1
 fi
 
 # --- One-time initialization ---
 if [ ! -f "$LOCK_FILE" ]; then
-  echo "--- Running initial setup ---"
-  run_initial_setup
+    echo "[ansible-controller] --- Running initial setup ---"
+    run_initial_setup
 fi
 
 mkdir -p "$STATUS_DIR" "$JOBS_DIR" "$TRIGGER_DIR" "$(dirname "$INVENTORY_DST")" "$LOG_DIR"
@@ -37,56 +36,58 @@ chmod 700 "$LOG_DIR"
 
 last_hash_file="$STATUS_DIR/last_inventory.sha256"
 
-echo "--- Sleep before first run so that other modules can get loaded: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---"
-sleep $FIRST_WAIT
-echo "--- Wake up after other modules are loaded: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---"
-echo "--- Ansible controller started. Watching $TRIGGER_FILE; jobs dir: $JOBS_DIR ---"
+echo "[ansible-controller] --- started. Watching $TRIGGER_FILE; jobs dir: $JOBS_DIR ---"
 
 while true; do
-  if [ -f "$TRIGGER_FILE" ]; then
-    new_hash="$(sha256sum "$TRIGGER_FILE" | awk '{print $1}')"
-    old_hash="$(cat "$last_hash_file" 2>/dev/null || true)"
+    if [ -f "$TRIGGER_FILE" ]; then
+	new_hash="$(sha256sum "$TRIGGER_FILE" | awk '{print $1}')"
+	old_hash="$(cat "$last_hash_file" 2>/dev/null || true)"
 
-    if [ "$new_hash" != "$old_hash" ]; then
-      echo "--- New inventory detected (hash $new_hash). Starting run ---"
-      cp -f "$TRIGGER_FILE" "$INVENTORY_DST"
-      chmod 0644 "$INVENTORY_DST"
-      echo "$new_hash" > "$last_hash_file"
+	if [ "$new_hash" != "$old_hash" ]; then
+	    echo "[ansible-controller] --- New inventory detected (hash $new_hash). ---"
+	    echo "[ansible-controller] Wait $WAIT_TIME second(s) to give instance(s) time to configure"
+	    sleep $WAIT_TIME
+	    echo "[ansible-controller] Starting processing of new inventory"
+	
+	    cp -f "$TRIGGER_FILE" "$INVENTORY_DST"
+	    chmod 0644 "$INVENTORY_DST"
+	    echo "$new_hash" > "$last_hash_file"
 
-      export RUN_ID="$new_hash"
-      export INVENTORY_FILE="$INVENTORY_DST"
-      echo "$RUN_ID" > "$STATUS_DIR/current_run_id"
+	    export RUN_ID="$new_hash"
+	    export INVENTORY_FILE="$INVENTORY_DST"
+	    echo "$RUN_ID" > "$STATUS_DIR/current_run_id"
 
-      # Create log directory for this run
-      run_log_dir="$LOG_DIR/$RUN_ID"
-      mkdir -p "$run_log_dir"
-      chmod 700 "$run_log_dir"
+	    # Create log directory for this run
+	  
+	    run_log_dir="$LOG_DIR/$RUN_ID"
+	    mkdir -p "$run_log_dir"
+	    chmod 700 "$run_log_dir"
 
-      mapfile -t jobs < <(find "$JOBS_DIR" -maxdepth 1 -type f -name "*.sh" -printf "%f\n" | sort -V)
+	    mapfile -t jobs < <(find "$JOBS_DIR" -maxdepth 1 -type f -name "*.sh" -printf "%f\n" | sort -V)
 
-      if [ "${#jobs[@]}" -eq 0 ]; then
-        echo "WARN: No job scripts found in $JOBS_DIR"
-      else
-        for script_name in "${jobs[@]}"; do
-          script_path="$JOBS_DIR/$script_name"
-          log_file="$run_log_dir/${script_name}.log"
-          echo "--- Running job: $script_name (RUN_ID=$RUN_ID) at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---" | tee -a "$log_file"
-          if bash "$script_path" >> "$log_file" 2>&1; then
-            rm -f "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
-            echo "SUCCESS" > "$STATUS_DIR/${RUN_ID}.${script_name}.success"
-            echo "Job $script_name succeeded at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee -a "$log_file"
-          else
-            echo "FAILURE" > "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
-            echo "ERROR: Job $script_name failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'). See $log_file." | tee -a "$log_file"
-            break
-          fi
-          chmod 600 "$log_file"
-        done
-      fi
+	    if [ "${#jobs[@]}" -eq 0 ]; then
+		echo "[ansible-controller] WARN: No job scripts found in $JOBS_DIR"
+	    else
+		for script_name in "${jobs[@]}"; do
+		    script_path="$JOBS_DIR/$script_name"
+		    log_file="$run_log_dir/${script_name}.log"
+		    echo "[ansible-controller] --- Running job: $script_name (RUN_ID=$RUN_ID) at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---" | tee -a "$log_file"
+		    if bash "$script_path" >> "$log_file" 2>&1; then
+			rm -f "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
+			echo "SUCCESS" > "$STATUS_DIR/${RUN_ID}.${script_name}.success"
+			echo "[ansible-controller] Job $script_name succeeded at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee -a "$log_file"
+		    else
+			echo "FAILURE" > "$STATUS_DIR/${RUN_ID}.${script_name}.failure"
+			echo "[ansible-controller] ERROR: Job $script_name failed at $(date -u '+%Y-%m-%d %H:%M:%S UTC'). See $log_file." | tee -a "$log_file"
+			break
+		    fi
+		    chmod 600 "$log_file"
+		done
+	    fi
 
-      echo "--- Run complete for inventory hash $RUN_ID at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---"
+	    echo "[ansible-controller] Run complete for inventory hash $RUN_ID at $(date -u '+%Y-%m-%d %H:%M:%S UTC') ---"
+	fi
     fi
-  fi
 
-  sleep "$CHECK_INTERVAL"
+    sleep "$CHECK_INTERVAL"
 done
