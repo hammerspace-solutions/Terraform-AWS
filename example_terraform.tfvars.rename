@@ -3,6 +3,10 @@
 
 capacity_reservation_create_timeout  = "3m"
 
+# Expiration time (in minutes) for capacity reservations.
+
+capacity_reservation_expiration = "10m"
+
 # Which components to deploy
 #
 # Valid answers are "clients", "storage", "hammerspace", "ecgroup", or "all".

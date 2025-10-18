@@ -375,7 +375,7 @@ resource "aws_ec2_capacity_reservation" "anvil" {
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-Anvil-Reservation" })
 
   timeouts {
@@ -392,7 +392,7 @@ resource "aws_ec2_capacity_reservation" "dsx" {
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-DSX-Reservation" })
 
   timeouts {
@@ -409,7 +409,7 @@ resource "aws_ec2_capacity_reservation" "clients" {
   instance_count    = var.clients_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-Clients-Reservation" })
 
   timeouts {
@@ -426,7 +426,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
   instance_count    = var.storage_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-Storage-Reservation" })
 
   timeouts {
@@ -445,7 +445,7 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
   instance_count    = var.ecgroup_node_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-ECGroup-Reservation" })
 
   timeouts {
@@ -464,7 +464,7 @@ resource "aws_ec2_capacity_reservation" "ansible" {
   instance_count    = var.ansible_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
-  end_date          = timeadd(timestamp(), "60m")
+  end_date          = timeadd(timestamp(), var.capacity_reservation_expiration)
   tags              = merge(var.tags, { Name = "${var.project_name}-Ansible-Reservation" })
 
   timeouts {
