@@ -15,7 +15,7 @@ STATUS_DIR="/var/run/ansible_jobs_status"   # holds success/failure markers and 
 LOG_DIR="/var/log/ansible_jobs"             # directory for job script logs
 LOCK_FILE="/var/ansible_initial_setup.done"
 CHECK_INTERVAL=10                           # seconds
-WAIT_TIME=300
+WAIT_TIME=540
 
 # --- Source the function library ---
 if [ -f "$ANSIBLE_LIB_PATH" ]; then
