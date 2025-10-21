@@ -32,21 +32,21 @@ fi
 
 hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+storage_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+storage_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 
 # Debug: Echo parsed vars
 echo "Parsed hs_username: $hs_username"
 echo "Parsed hs_password: $hs_password"
-echo "Parsed volume_group_name: $volume_group_name"
-echo "Parsed share_name: $share_name"
+echo "Parsed storage_vg_name: $storage_vg_name"
+echo "Parsed storage_share_name: $storage_share_name"
 
 # Set variables for later use
 
 HS_USERNAME=$hs_username
 HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$volume_group_name
-HS_SHARE=$share_name
+HS_VOLUME_GROUP=$storage_vg_name
+HS_SHARE=$storage_share_name
 
 # 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
 

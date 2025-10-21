@@ -100,3 +100,15 @@ variable "storage_raid_level" {
     error_message = "RAID level must be one of: raid-0, raid-5, or raid-6"
   }
 }
+
+variable "storage_vg_name" {
+  description = "Name of the volume group for Hammerspace configuration"
+  type        = string
+  default     = "storage-vg"  # Fallback if not provided
+}
+
+variable "storage_share_name" {
+  description = "Name of the share for Hammerspace configuration"
+  type        = string
+  default     = "storage-share"  # Fallback if not provided
+}
