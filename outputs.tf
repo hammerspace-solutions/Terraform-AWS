@@ -25,7 +25,7 @@
 
 output "terraform_project_version" {
   description = "The version of the Terraform-AWS project configuration."
-  value       = "2025.08.04-033fe5b"
+  value       = "2025.10.24-655dbc7"
 }
 
 output "client_instances" {
