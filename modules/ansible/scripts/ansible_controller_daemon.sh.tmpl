@@ -15,7 +15,8 @@ STATUS_DIR="/var/run/ansible_jobs_status"   # holds success/failure markers and 
 LOG_DIR="/var/log/ansible_jobs"             # directory for job script logs
 LOCK_FILE="/var/ansible_initial_setup.done"
 CHECK_INTERVAL=10                           # seconds
-WAIT_TIME=540
+WAIT_TIME=300                               # wait for instances to "come alive"
+INITIAL_WAIT_TIME=300                       # wait after initial start of Ansible
 
 # --- Source the function library ---
 if [ -f "$ANSIBLE_LIB_PATH" ]; then
@@ -35,6 +36,14 @@ mkdir -p "$STATUS_DIR" "$JOBS_DIR" "$TRIGGER_DIR" "$(dirname "$INVENTORY_DST")" 
 chmod 700 "$LOG_DIR"
 
 last_hash_file="$STATUS_DIR/last_inventory.sha256"
+
+# Wait after start of Ansible... We need this to make sure that the initial configuration
+# takes a little longer than "add-on" configuration changes.
+
+echo "[ansible-controller] --- Wait $INITIAL_WAIT_TIME second(s) for initial Ansible startup"
+sleep $INITIAL_WAIT_TIME
+
+# Go into a loop looking for changes to the inventory.ini file
 
 echo "[ansible-controller] --- started. Watching $TRIGGER_FILE; jobs dir: $JOBS_DIR ---"
 
