@@ -6,9 +6,7 @@ This project was originally written for internal Hammerspace use to size Hammers
 Guard-rails have been added to make sure that the deployments are as easy as possible for the uninitiated cloud user.
 
 ## Table of Contents
-- [Installation][#installation]
-- [How to Use][#how-to-use]
-  - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
+- [Installation](#installation)
 - [Configuration](#configuration)
   - [Global Variables](#global-variables)
 - [Component Variables](#component-variables)
@@ -18,6 +16,8 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [ECGroup Variables](#ecgroup-variables)
   - [Ansible Variables](#ansible-variables)
     - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
+- [How to Use](#how-to-use)
+  - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
 - [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
@@ -80,32 +80,121 @@ Before running this Terraform configuration, please ensure the following one-tim
   cp example_terraform.tfvars.rename terraform.tfvars
   vim terraform.tfvars
   ```
-* **Edit terraform.tfvars** - Look at the [Configuration][#configuration] section below and make your changes for your environment. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
-  
----
+* **Edit terraform.tfvars** - Look at the [Configuration](#configuration) section below and make your changes for your environment. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
 
-## How to Use
 
-1.  **Initialize**: `terraform init`
-2.  **Verify**: `terraform validate`
-3.  **Plan**: `terraform plan`
-4.  **Apply**: `terraform apply`
+#### Generating and Storing SSH Keys for Ansible
 
-### Local Development Setup (AWS Profile)
-To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
+The Ansible controller uses a public/private SSH key pair to securely configure target instances (clients, storage servers, EC groups, etc.) via SSH. The public key is registered in AWS, and the private key is stored securely in AWS Secrets Manager. Follow these steps to generate and store the key pair:
 
-1.  **Create an override file**: In the root directory of the project, create a new file named `local_override.tf`.
-2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
+1. **Generate a Public/Private Key Pair**:
+- On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
+   
+```bash
+     ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
+```
 
-    ```terraform
-    # Terraform-AWS/local_override.tf
-    # This file is for local development overrides and should not be committed.
+- This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
 
-    provider "aws" {
-      profile = "your-profile-name"
+2. **Store the Private Key in AWS Secrets Manager**:
+
+- Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
+     
+```
+   aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
+```
+
+- Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
+
+3. **Update terraform.tfvars**:
+
+- In your `terraform.tfvars file, set the following variables:
+
+```
+  ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
+  ansible_private_key_secret_arn = "<ARN from step 2>"
+```
+  - Example:
+
+```
+  ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
+  ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
+```
+
+- To get the public key contents, run:
+
+```
+  cat ansible_controller_key.pub
+```
+
+- Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
+
+#### IAM Permissions
+
+  - If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, ensure it includes the following permissions for the Ansible instance:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SecretsRead",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "<ansible_private_key_secret_arn>"
+    },
+    {
+      "Sid": "SSMAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeAssociation",
+        "ssm:GetDeployablePatchSnapshotForInstance",
+        "ssm:GetDocument",
+        "ssm:DescribeDocument",
+        "ssm:GetManifest",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:ListAssociations",
+        "ssm:ListInstanceAssociations",
+        "ssm:PutInventory",
+        "ssm:PutComplianceItems",
+        "ssm:PutConfigurePackageResult",
+        "ssm:UpdateAssociationStatus",
+        "ssm:UpdateInstanceAssociationStatus",
+        "ssm:UpdateInstanceInformation",
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommands",
+        "ssm:ListCommandInvocations",
+        "ssm:StartSession",
+        "ssm:TerminateSession",
+        "ssm:ResumeSession",
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage",
+        "ec2messages:DeleteMessage",
+        "ec2messages:FailMessage",
+        "ec2messages:GetEndpoint",
+        "ec2messages:GetMessages",
+        "ec2messages:SendReply"
+      ],
+      "Resource": "*"
     }
-    ```
-When you run Terraform locally, it will automatically merge this file with `main.tf`, using your profile. The CI/CD system will not have this file and will correctly fall back to using the credentials stored in its environment secrets.
+  ]
+}
+```
+
+- If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
+
+#### Security Best Practices
+
+- Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
+- Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
+- Use a strong, unique key pair for each deployment to avoid reuse risks.
+
+This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
 
 ## Configuration
 
@@ -239,118 +328,32 @@ These variables configure the Ansible controller instance and its playbook. Pref
 * `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
 * `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
-#### Generating and Storing SSH Keys for Ansible
 
-The Ansible controller uses a public/private SSH key pair to securely configure target instances (clients, storage servers, EC groups, etc.) via SSH. The public key is registered in AWS, and the private key is stored securely in AWS Secrets Manager. Follow these steps to generate and store the key pair:
+---
 
-1. **Generate a Public/Private Key Pair**:
-- On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
-   
-```bash
-     ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
-```
+## How to Use
 
-- This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
+1.  **Initialize**: `terraform init`
+2.  **Verify**: `terraform validate`
+3.  **Plan**: `terraform plan`
+4.  **Apply**: `terraform apply`
 
-2. **Store the Private Key in AWS Secrets Manager**:
+### Local Development Setup (AWS Profile)
+To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
 
-- Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
-     
-```
-   aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
-```
+1.  **Create an override file**: In the root directory of the project, create a new file named `local_override.tf`.
+2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
 
-- Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
+    ```terraform
+    # Terraform-AWS/local_override.tf
+    # This file is for local development overrides and should not be committed.
 
-3. **Update terraform.tfvars**:
-
-- In your `terraform.tfvars file, set the following variables:
-
-```
-  ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
-  ansible_private_key_secret_arn = "<ARN from step 2>"
-```
-  - Example:
-
-```
-  ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
-  ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
-```
-
-- To get the public key contents, run:
-
-```
-  cat ansible_controller_key.pub
-```
-
-- Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
-
-4. **IAM Permissions**:
-
-  - If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, ensure it includes the following permissions for the Ansible instance:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "SecretsRead",
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "<ansible_private_key_secret_arn>"
-    },
-    {
-      "Sid": "SSMAccess",
-      "Effect": "Allow",
-      "Action": [
-        "ssm:DescribeAssociation",
-        "ssm:GetDeployablePatchSnapshotForInstance",
-        "ssm:GetDocument",
-        "ssm:DescribeDocument",
-        "ssm:GetManifest",
-        "ssm:GetParameter",
-        "ssm:GetParameters",
-        "ssm:ListAssociations",
-        "ssm:ListInstanceAssociations",
-        "ssm:PutInventory",
-        "ssm:PutComplianceItems",
-        "ssm:PutConfigurePackageResult",
-        "ssm:UpdateAssociationStatus",
-        "ssm:UpdateInstanceAssociationStatus",
-        "ssm:UpdateInstanceInformation",
-        "ssm:SendCommand",
-        "ssm:GetCommandInvocation",
-        "ssm:ListCommands",
-        "ssm:ListCommandInvocations",
-        "ssm:StartSession",
-        "ssm:TerminateSession",
-        "ssm:ResumeSession",
-        "ssmmessages:CreateControlChannel",
-        "ssmmessages:CreateDataChannel",
-        "ssmmessages:OpenControlChannel",
-        "ssmmessages:OpenDataChannel",
-        "ec2messages:AcknowledgeMessage",
-        "ec2messages:DeleteMessage",
-        "ec2messages:FailMessage",
-        "ec2messages:GetEndpoint",
-        "ec2messages:GetMessages",
-        "ec2messages:SendReply"
-      ],
-      "Resource": "*"
+    provider "aws" {
+      profile = "your-profile-name"
     }
-  ]
-}
-```
+    ```
+When you run Terraform locally, it will automatically merge this file with `main.tf`, using your profile. The CI/CD system will not have this file and will correctly fall back to using the credentials stored in its environment secrets.
 
-- If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
-
-5. **Security Best Practices**:
-
-- Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
-- Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
-- Use a strong, unique key pair for each deployment to avoid reuse risks.
-
-This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
 
 ---
 ## Infrastructure Guardrails and Validation
