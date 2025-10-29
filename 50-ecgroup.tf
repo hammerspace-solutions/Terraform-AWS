@@ -107,3 +107,15 @@ variable "ecgroup_storage_volume_iops" {
   type        = number
   default     = null
 }
+
+variable "ecgroup_vg_name" {
+  description = "Name of the volume group for Hammerspace configuration"
+  type        = string
+  default     = "ecgroup-vg"  # Fallback if not provided
+}
+
+variable "ecgroup_share_name" {
+  description = "Name of the share for Hammerspace configuration"
+  type        = string
+  default     = "ecgroup-share"  # Fallback if not provided
+}

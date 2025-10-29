@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Ansible Job: Add Storage Nodes
+# Ansible Job: Add ECGroup Cluster
 #
-# This script adds missing storage nodes (type OTHER) to the Hammerspace system using the API.
-# It is idempotent and only adds new nodes based on the inventory.
+# This script adds missing ECGroup cluster (type OTHER) to the Hammerspace system using
+# the API. It is idempotent and only adds the first node of the cluster based on the inventory.
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ fi
 source "$ANSIBLE_LIB_PATH"
 
 # --- Main Logic ---
-echo "--- Starting Add Storage Nodes Job ---"
+echo "--- Starting Add ECGroup Cluster Job ---"
 
 # 1. Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
@@ -32,23 +32,23 @@ fi
 
 hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-storage_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-storage_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+ecgroup_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+ecgroup_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 
 # Debug: Echo parsed vars
 echo "Parsed hs_username: $hs_username"
 echo "Parsed hs_password: $hs_password"
-echo "Parsed storage_vg_name: $storage_vg_name"
-echo "Parsed storage_share_name: $storage_share_name"
+echo "Parsed ecgroup_vg_name: $ecgroup_vg_name"
+echo "Parsed ecgroup_share_name: $ecgroup_share_name"
 
 # Set variables for later use
 
 HS_USERNAME=$hs_username
 HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$storage_vg_name
-HS_SHARE=$storage_share_name
+HS_VOLUME_GROUP=$ecgroup_vg_name
+HS_SHARE=$ecgroup_share_name
 
-# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+# 3. Parse hammerspace and ecgroup_servers with names (assuming inventory has IP node_name="name")
 
 all_hammerspace=""
 flag="0"  # Initialize flag for hammerspace parsing
@@ -63,13 +63,13 @@ while read -r line; do
   fi
 done < "$INVENTORY_FILE"
 
-all_storage_servers=""
+all_ecgroup_servers=""
 storage_map=() # Array of "IP:name"
 flag="0"  # Initialize flag for storage_servers parsing
 while read -r line; do
-  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+  if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="1"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="0"
   fi
   if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
@@ -77,29 +77,28 @@ while read -r line; do
     # Note: This assumes inventory lines have node_name="..." format
     # If not, you'll need to adjust how you get the node name
     name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
-    all_storage_servers+="$ip"$'\n'
+    all_ecgroup_servers+="$ip"$'\n'
     storage_map+=("$ip:$name")
   fi
 done < "$INVENTORY_FILE"
 
 all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
-all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
+all_ecgroup_servers=$(echo "$all_ecgroup_servers" | grep -v '^$' | sort -u || true)
 
 # Debug: Log parsed IPs
 
 echo "Parsed hammerspace: $all_hammerspace"
-echo "Parsed storage_servers: $all_storage_servers"
+echo "Parsed ecgroup_servers: $all_ecgroup_servers"
 
-if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
-  echo "No storage_servers or hammerspace found in inventory. Exiting."
+if [ -z "$all_ecgroup_servers" ] || [ -z "$all_hammerspace" ]; then
+  echo "No ECGroup Cluster or Hammerspace Anvil found in inventory. Exiting."
   exit 0
 fi
 
 data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
+all_hosts=$(echo -e "$all_ecgroup_servers" | sort -u)
 
-all_hosts=$(echo -e "$all_storage_servers" | sort -u)
-
-# 4. Identify new hosts (storage_servers not in state)
+# 4. Identify new hosts (ECGroup servers not in state)
 
 touch "$STATE_FILE"
 new_hosts=()
@@ -119,11 +118,12 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
   storages_json="["
 
   for entry in "${storage_map[@]}"; do
-    ip=$(echo "$entry" | cut -d: -f1)
-    name=$(echo "$entry" | cut -d: -f2-)
-    if echo "${new_hosts[*]}" | grep -q "$ip"; then
-      storages_json+="{ \"name\": \"$name\", \"_type\": \"NODE\", \"nodeType\": \"OTHER\", \"mgmtIpAddress\": {\"address\": \"$ip\"}},"
-    fi
+      ip=$(echo "$entry" | cut -d: -f1)
+      name=$(echo "$entry" | cut -d: -f2-)
+      if echo "${new_hosts[*]}" | grep -q "$ip"; then
+	  storages_json+="{ \"name\": \"$name\", \"_type\": \"NODE\", \"nodeType\": \"OTHER\", \"mgmtIpAddress\": {\"address\": \"$ip\"}},"
+	  break # All we want is the first IP for adding an ECGroup
+      fi
   done
   storages_json="${storages_json%,}]"
 
@@ -215,13 +215,14 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
       delay: 10
 EOF
 
-  echo "Running Ansible playbook to add storage nodes..."
+  echo "Running Ansible playbook to add ECGroup cluster..."
   ansible-playbook "$tmp_playbook" 
 
   # 7. Update state file with new hosts
   echo "Playbook finished. Updating state file with new storage servers..."
   for host in "${new_hosts[@]}"; do
-    echo "$host" >> "$STATE_FILE"
+      echo "$host" >> "$STATE_FILE"
+      break # Again, only add the first IP of an ECGroup cluster
   done
 
   # 8. Clean up
@@ -231,4 +232,4 @@ else
   echo "No new storage servers detected. Exiting."
 fi
 
-echo "--- Add Storage Nodes Job Complete ---"
+echo "--- Add ECGroup Cluster Job Complete ---"

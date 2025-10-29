@@ -6,6 +6,7 @@ This project was originally written for internal Hammerspace use to size Hammers
 Guard-rails have been added to make sure that the deployments are as easy as possible for the uninitiated cloud user.
 
 ## Table of Contents
+- [Installation](#installation)
 - [Configuration](#configuration)
   - [Global Variables](#global-variables)
 - [Component Variables](#component-variables)
@@ -15,6 +16,8 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [ECGroup Variables](#ecgroup-variables)
   - [Ansible Variables](#ansible-variables)
     - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
+- [How to Use](#how-to-use)
+  - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
 - [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
 - [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
   - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
@@ -25,143 +28,60 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
 - [Securely Accessing Instances](#securely-accessing-instances)
 - [Production Backend](#production-backend)
 - [Tier-0](#tier-0)
-- [Prerequisites](#prerequisites)
-- [How to Use](#how-to-use)
-  - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
 - [Important Note on Placement Group Deletion](#important-note-on-placement-group-deletion)
 - [Outputs](#outputs)
 - [Modules](#modules)
 
-## Configuration
+## Installation
 
-Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier for the user, we have supplied an `example_terraform.tfvars.rename` file with all of the possible values. Just rename that file to `terraform.tfvars` and edit it to indicate what you would like to configure. The global and module variables are explained in detail below.
+Before running this Terraform configuration, please ensure the following one-time setup tasks are complete for the target AWS account.
 
-### Global Variables
+* **Clone AWS Terraform Project**: Clone the project before anything else. Find a place on your local system, cd to that directory and then clone the code.
 
-These variables apply to the overall deployment:
+  ```bash
+  mkdir -p ~/Terraform-Projects **This is an example**
+  git clone https://github.com/hammerspace-solutions/Terraform-AWS.git
+  ```
 
-* `region`: AWS region for all resources (Default: "us-west-2").
-* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
-* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
-* `assign_public_ip`: If `true`, assigns a public IP address to all created EC2 instances. If `false`, only a private IP will be assigned.
-* `vpc_id`: VPC ID for all resources.
-* `subnet_id`: Subnet ID for resources.
-* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
-* `key_name`: SSH key pair name.
-* `tags`: Common tags for all resources (Default: `{}`).
-* `project_name`: Project name for tagging and resource naming.
-* `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
-* `allow_root`: Allow root access to SSH (Default: `false`).
-* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
-* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
-* `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
-* `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
+* **Install Tools**: You must have [Terraform](https://developer.hashicorp.com/terraform/downloads) and the [AWS CLI](https://aws.amazon.com/cli/) installed and configured on your local machine.
+* **AWS Marketplace Subscription**: This configuration uses partner AMIs (e.g., for Hammerspace) which require a subscription in the AWS Marketplace. If you encounter an `OptInRequired` error during `terraform apply`, the error message will contain a specific URL. You must visit this URL, sign in to your AWS account, and accept the terms to subscribe to the product. This only needs to be done once per AWS account for each product.
+* **Create secret keys in IAM**: You will need to use IAM to create a access key and secret access key for your account. Once that is created, then you will need to place them into a credentials file.
 
----
+  ```bash
+  mkdir -p ~/.aws
+  cd ~/.aws
+  ```
+* **Create credentials file** - Using your preferred text editor, create a credentials file in the .aws directory. In that file, you will place the access key and secret access keys.
 
-## Component Variables
+  ```bash
+  vim credentials
+  i
+  [default]
+  aws_access_key_id = INSERT-ACCESS-KEY-HERE
+  aws_secret_access_key = INSERT-SECRET-ACCESS-KEY-HERE
+  [esc]
+  :wq!
+  ```
 
-### Client Variables
+* **Create config file** - You will need to create a config file in the .aws directory that specifies your default region.
 
-These variables configure the client instances and are prefixed with `clients_` in your `terraform.tfvars` file.
+  ```bash
+  vim config
+  i
+  [default]
+  region = us-east-1
+  [esc]
+  :wq!
+  ```
 
-* `clients_instance_count`: Number of client instances.
-* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
-* `clients_tier0_type`: Tier0 RAID config for clients. (raid-0, raid-5, raid-6) (Default: "raid-0")
-* `clients_ami`: AMI for client instances.
-* `clients_instance_type`: Instance type for clients.
-* `clients_boot_volume_size`: Root volume size (GB) for clients (Default: 100).
-* `clients_boot_volume_type`: Root volume type for clients (Default: "gp2").
-* `clients_ebs_count`: Number of extra EBS volumes per client (Default: 0).
-* `clients_ebs_size`: Size of each EBS volume (GB) for clients (Default: 1000).
-* `clients_ebs_type`: Type of EBS volume for clients (Default: "gp3").
-* `clients_ebs_throughput`: Throughput for gp3 EBS volumes for clients (MB/s).
-* `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for clients.
-* `clients_target_user`: Default system user for client EC2s (Default: "ubuntu").
+* **Create terraform.tfvars** - You need to create a terraform.tfvars file that contains the variables needed to configure and instantiate your environment. We have included a sample file **example_terraform.tfvars.rename** that you can copy and edit.
 
----
+  ```bash
+  cp example_terraform.tfvars.rename terraform.tfvars
+  vim terraform.tfvars
+  ```
+* **Edit terraform.tfvars** - Look at the [Configuration](#configuration) section below and make your changes for your environment. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
 
-### Storage Server Variables
-
-These variables configure the storage server instances and are prefixed with `storage_` in your `terraform.tfvars` file.
-
-* `storage_instance_count`: Number of storage instances (Default: 0).
-* `storage_ami`: (Required) AMI for storage instances.
-* `storage_instance_type`: Instance type for storage.
-* `storage_boot_volume_size`: Root volume size (GB) for storage (Default: 100).
-* `storage_boot_volume_type`: Root volume type for storage (Default: "gp2").
-* `storage_ebs_count`: Number of extra EBS volumes per storage (Default: 0).
-* `storage_ebs_size`: Size of each EBS volume (GB) for storage (Default: 1000).
-* `storage_ebs_type`: Type of EBS volume for storage (Default: "gp3").
-* `storage_ebs_throughput`: Throughput for gp3 EBS volumes for storage (MB/s).
-* `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for storage.
-* `storage_target_user`: Default system user for storage EC2s (Default: "ubuntu").
-* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
-
----
-
-### Hammerspace Variables
-
-These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
-
-* **`iam_profile_name`**: The name of an existing IAM Instance Profile to attach to Hammerspace instances. If left blank, a new one will be created.
-* **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
-* **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
-* `hammerspace_ami`: AMI ID for Hammerspace instances.
-* `hammerspace_iam_admin_group_id`: IAM admin group ID for SSH access.
-* `hammerspace_anvil_count`: Number of Anvil instances to deploy (0=none, 1=standalone, 2=HA) (Default: 0).
-* `hammerspace_sa_anvil_destruction`: A safety switch to allow the destruction of a standalone Anvil. Must be set to true for 'terraform destroy' to succeed.
-* `hammerspace_anvil_instance_type`: Instance type for Anvil metadata server (Default: "m5zn.12xlarge").
-* `hammerspace_dsx_instance_type`: Instance type for DSX nodes (Default: "m5.xlarge").
-* `hammerspace_dsx_count`: Number of DSX instances (Default: 1).
-* `hammerspace_anvil_meta_disk_size`: Metadata disk size in GB for Anvil (Default: 1000).
-* `hammerspace_anvil_meta_disk_type`: Type of EBS volume for Anvil metadata disk (Default: "gp3").
-* `hammerspace_anvil_meta_disk_throughput`: Throughput for gp3 EBS volumes for the Anvil metadata disk (MiB/s).
-* `hammerspace_anvil_meta_disk_iops`: IOPS for gp3/io1/io2 EBS volumes for the Anvil metadata disk.
-* `hammerspace_dsx_ebs_size`: Size of each EBS Data volume per DSX node in GB (Default: 200).
-* `hammerspace_dsx_ebs_type`: Type of each EBS Data volume for DSX (Default: "gp3").
-* `hammerspace_dsx_ebs_iops`: IOPS for each EBS Data volume for DSX.
-* `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX (MiB/s).
-* `hammerspace_dsx_ebs_count`: Number of data EBS volumes to attach to each DSX instance (Default: 1).
-* `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage volumes (Default: true).
-
----
-
-### ECGroup Variables
-
-These variables configure the ECGroup storage cluster and are prefixed with `ecgroup_` in your `terraform.tfvars` file.
-
-* `ecgroup_instance_type`: EC2 instance type for the cluster nodes (Default: "m6i.16xlarge").
-* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16) (Default: 4).
-* `ecgroup_boot_volume_size`: Root volume size (GB) for each node (Default: 100).
-* `ecgroup_boot_volume_type`: Root volume type for each node (Default: "gp2").
-* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB (Default: 4096).
-* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node (Default: "io2").
-* `ecgroup_metadata_volume_throughput`: Throughput for metadata EBS volumes.
-* `ecgroup_metadata_volume_iops`: IOPS for the metadata EBS volumes.
-* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node (Default: 4).
-* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB) (Default: 4096).
-* `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
-* `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
-* `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
-
----
-
-### Ansible Variables
-
-These variables configure the Ansible controller instance and its playbook. Prefixes are `ansible_` where applicable.
-
-* `ansible_instance_count`: Number of Ansible instances (Default: 1).
-* `ansible_ami`: (Required) AMI for Ansible instances.
-* `ansible_instance_type`: Instance type for Ansible (Default: "m5n.8xlarge").
-* `ansible_boot_volume_size`: Root volume size (GB) (Default: 100).
-* `ansible_boot_volume_type`: Root volume type (Default: "gp2").
-* `ansible_target_user`: Default system user for Ansible EC2 (Default: "ubuntu").
-* `ansible_ssh_public_key`: OpenSSH public key for the Ansible controller (e.g., `ssh-ed25519 AAA...`).
-* `ansible_private_key_secret_arn`: AWS Secrets Manager ARN holding the Ansible controller's private SSH key.
-* `ansible_controller_cidr`: CIDR allowed to SSH to target instances (used as a fallback if security group-based SSH is not possible).
-* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
-* `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
 #### Generating and Storing SSH Keys for Ansible
 
@@ -209,7 +129,7 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 
 - Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
 
-4. **IAM Permissions**:
+#### IAM Permissions
 
   - If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, ensure it includes the following permissions for the Ansible instance:
 
@@ -268,13 +188,172 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 
 - If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
 
-5. **Security Best Practices**:
+#### Security Best Practices
 
 - Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
 - Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
 - Use a strong, unique key pair for each deployment to avoid reuse risks.
 
 This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
+
+## Configuration
+
+Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier for the user, we have supplied an `example_terraform.tfvars.rename` file with all of the possible values. Just rename that file to `terraform.tfvars` and edit it to indicate what you would like to configure. The global and module variables are explained in detail below.
+
+### Global Variables
+
+These variables apply to the overall deployment:
+
+* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
+* `capacity_reservation_expiration`: The time before capacity reservations are expired. (Default: `"5m"`).
+* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
+* `assign_public_ip`: If `true`, assigns a public IP address to the Ansible instance. If `false`, only a private IP will be assigned.
+* `iam_profile_name`**: The name of an existing IAM Instance Profile to attach to instance(s). If left blank, a new one will be created.
+* `region`: AWS region for all resources (Default: "us-west-2").
+* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
+* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
+* `vpc_id`: VPC ID for all resources.
+* `subnet_id`: Subnet ID for resources.
+* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
+* `key_name`: SSH key pair name.
+* `tags`: Common tags for all resources (Default: `{}`).
+* `project_name`: Project name for tagging and resource naming.
+* `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
+* `allow_root`: Allow root access to SSH (Default: `false`).
+* `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
+* `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
+
+---
+
+## Component Variables
+
+### Client Variables
+
+These variables configure the client instances and are prefixed with `clients_` in your `terraform.tfvars` file.
+
+* `clients_instance_count`: Number of client instances.
+* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
+* `clients_tier0_type`: Tier0 RAID config for clients. (raid-0, raid-5, raid-6) (Default: "raid-0")
+* `clients_ami`: AMI for client instances.
+* `clients_instance_type`: Instance type for clients.
+* `clients_boot_volume_size`: Root volume size (GB) for clients (Default: 100).
+* `clients_boot_volume_type`: Root volume type for clients (Default: "gp2").
+* `clients_ebs_count`: Number of extra EBS volumes per client (Default: 0).
+* `clients_ebs_size`: Size of each EBS volume (GB) for clients (Default: 1000).
+* `clients_ebs_type`: Type of EBS volume for clients (Default: "gp3").
+* `clients_ebs_throughput`: Throughput for gp3 EBS volumes for clients (MB/s).
+* `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for clients.
+* `clients_target_user`: Default system user for client EC2s (Default: "ubuntu").
+
+---
+
+### Storage Server Variables
+
+These variables configure the storage server instances and are prefixed with `storage_` in your `terraform.tfvars` file.
+
+* `storage_instance_count`: Number of storage instances (Default: 0).
+* `storage_ami`: (Required) AMI for storage instances.
+* `storage_instance_type`: Instance type for storage.
+* `storage_boot_volume_size`: Root volume size (GB) for storage (Default: 100).
+* `storage_boot_volume_type`: Root volume type for storage (Default: "gp2").
+* `storage_ebs_count`: Number of extra EBS volumes per storage (Default: 0).
+* `storage_ebs_size`: Size of each EBS volume (GB) for storage (Default: 1000).
+* `storage_ebs_type`: Type of EBS volume for storage (Default: "gp3").
+* `storage_ebs_throughput`: Throughput for gp3 EBS volumes for storage (MB/s).
+* `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for storage.
+* `storage_target_user`: Default system user for storage EC2s (Default: "ubuntu").
+* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
+
+---
+
+### Hammerspace Variables
+
+These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
+
+* **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
+* **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
+* `hammerspace_ami`: AMI ID for Hammerspace instances.
+* `hammerspace_iam_admin_group_id`: IAM admin group ID for SSH access.
+* `hammerspace_anvil_count`: Number of Anvil instances to deploy (0=none, 1=standalone, 2=HA) (Default: 0).
+* `hammerspace_sa_anvil_destruction`: A safety switch to allow the destruction of a standalone Anvil. Must be set to true for 'terraform destroy' to succeed.
+* `hammerspace_anvil_instance_type`: Instance type for Anvil metadata server (Default: "m5zn.12xlarge").
+* `hammerspace_dsx_instance_type`: Instance type for DSX nodes (Default: "m5.xlarge").
+* `hammerspace_dsx_count`: Number of DSX instances (Default: 1).
+* `hammerspace_anvil_meta_disk_size`: Metadata disk size in GB for Anvil (Default: 1000).
+* `hammerspace_anvil_meta_disk_type`: Type of EBS volume for Anvil metadata disk (Default: "gp3").
+* `hammerspace_anvil_meta_disk_throughput`: Throughput for gp3 EBS volumes for the Anvil metadata disk (MiB/s).
+* `hammerspace_anvil_meta_disk_iops`: IOPS for gp3/io1/io2 EBS volumes for the Anvil metadata disk.
+* `hammerspace_dsx_ebs_size`: Size of each EBS Data volume per DSX node in GB (Default: 200).
+* `hammerspace_dsx_ebs_type`: Type of each EBS Data volume for DSX (Default: "gp3").
+* `hammerspace_dsx_ebs_iops`: IOPS for each EBS Data volume for DSX.
+* `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX (MiB/s).
+* `hammerspace_dsx_ebs_count`: Number of data EBS volumes to attach to each DSX instance (Default: 1).
+* `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage volumes (Default: true).
+
+---
+
+### ECGroup Variables
+
+These variables configure the ECGroup storage cluster and are prefixed with `ecgroup_` in your `terraform.tfvars` file.
+
+* `ecgroup_instance_type`: EC2 instance type for the cluster nodes (Default: "m6i.16xlarge").
+* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16) (Default: 4).
+* `ecgroup_boot_volume_size`: Root volume size (GB) for each node (Default: 100).
+* `ecgroup_boot_volume_type`: Root volume type for each node (Default: "gp2").
+* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB (Default: 4096).
+* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node (Default: "io2").
+* `ecgroup_metadata_volume_throughput`: Throughput for metadata EBS volumes.
+* `ecgroup_metadata_volume_iops`: IOPS for the metadata EBS volumes.
+* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node (Default: 4).
+* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB) (Default: 4096).
+* `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
+* `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
+* `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
+
+---
+
+### Ansible Variables
+
+These variables configure the Ansible controller instance and its playbook. Prefixes are `ansible_` where applicable.
+
+* `ansible_instance_count`: Number of Ansible instances (Default: 1).
+* `ansible_ami`: (Required) AMI for Ansible instances.
+* `ansible_instance_type`: Instance type for Ansible (Default: "m5n.8xlarge").
+* `ansible_boot_volume_size`: Root volume size (GB) (Default: 100).
+* `ansible_boot_volume_type`: Root volume type (Default: "gp2").
+* `ansible_target_user`: Default system user for Ansible EC2 (Default: "ubuntu").
+* `ansible_ssh_public_key`: OpenSSH public key for the Ansible controller (e.g., `ssh-ed25519 AAA...`).
+* `ansible_private_key_secret_arn`: AWS Secrets Manager ARN holding the Ansible controller's private SSH key.
+* `ansible_controller_cidr`: CIDR allowed to SSH to target instances (used as a fallback if security group-based SSH is not possible).
+* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
+* `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
+
+
+---
+
+## How to Use
+
+1.  **Initialize**: `terraform init`
+2.  **Verify**: `terraform validate`
+3.  **Plan**: `terraform plan`
+4.  **Apply**: `terraform apply`
+
+### Local Development Setup (AWS Profile)
+To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
+
+1.  **Create an override file**: In the root directory of the project, create a new file named `local_override.tf`.
+2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
+
+    ```terraform
+    # Terraform-AWS/local_override.tf
+    # This file is for local development overrides and should not be committed.
+
+    provider "aws" {
+      profile = "your-profile-name"
+    }
+    ```
+When you run Terraform locally, it will automatically merge this file with `main.tf`, using your profile. The CI/CD system will not have this file and will correctly fall back to using the credentials stored in its environment secrets.
+
 
 ---
 ## Infrastructure Guardrails and Validation
@@ -486,38 +565,6 @@ In order for Tier-0 to work within an EC2 instance, you must first choose an ins
 
 > [!WARNING]
 > Since local NVMe storage is ephemeral, you should *never* stop an instance through the AWS console. Doing this will result in the loss of the Tier-0 array upon restart of the instance. You may reboot an instance at any time as this doesn't affect the status of the Tier-0 array.
-
-## Prerequisites
-
-Before running this Terraform configuration, please ensure the following one-time setup tasks are complete for the target AWS account.
-
-* **Install Tools**: You must have [Terraform](https://developer.hashicorp.com/terraform/downloads) and the [AWS CLI](https://aws.amazon.com/cli/) installed and configured on your local machine.
-* **AWS Marketplace Subscription**: This configuration uses partner AMIs (e.g., for Hammerspace) which require a subscription in the AWS Marketplace. If you encounter an `OptInRequired` error during `terraform apply`, the error message will contain a specific URL. You must visit this URL, sign in to your AWS account, and accept the terms to subscribe to the product. This only needs to be done once per AWS account for each product.
-
----
-
-## How to Use
-
-1.  **Initialize**: `terraform init`
-2.  **Configure**: Create a `terraform.tfvars` file to set your desired variables. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
-3.  **Plan**: `terraform plan`
-4.  **Apply**: `terraform apply`
-
-### Local Development Setup (AWS Profile)
-To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
-
-1.  **Create an override file**: In the root directory of the project, create a new file named `local_override.tf`.
-2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
-
-    ```terraform
-    # Terraform-AWS/local_override.tf
-    # This file is for local development overrides and should not be committed.
-
-    provider "aws" {
-      profile = "your-profile-name"
-    }
-    ```
-When you run Terraform locally, it will automatically merge this file with `main.tf`, using your profile. The CI/CD system will not have this file and will correctly fall back to using the credentials stored in its environment secrets.
 
 ---
 

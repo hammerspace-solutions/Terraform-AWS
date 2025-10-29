@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ansible Job: Manage Volume Group
+# Ansible Job: Add Volume Group(s) for ECGroups
 #
 # This script creates the volume group if missing or updates it to include new node locations.
 # It is idempotent and only updates if necessary.
@@ -20,7 +20,7 @@ fi
 source "$ANSIBLE_LIB_PATH"
 
 # --- Main Logic ---
-echo "--- Starting Manage Volume Group Job ---"
+echo "--- Starting AddVolume Group Job for ECGroup(s) ---"
 
 # 1. Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
@@ -32,23 +32,23 @@ fi
 
 hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+ecgroup_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+ecgroup_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
 
 # Debug: Echo parsed vars
 echo "Parsed hs_username: $hs_username"
 echo "Parsed hs_password: $hs_password"
-echo "Parsed volume_group_name: $volume_group_name"
-echo "Parsed share_name: $share_name"
+echo "Parsed ecgroup_vg_name: $ecgroup_vg_name"
+echo "Parsed ecgroup_share_name: $ecgroup_share_name"
 
 # Set variables for later use
 
 HS_USERNAME=$hs_username
 HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$volume_group_name
-HS_SHARE=$share_name
+HS_VOLUME_GROUP=$ecgroup_vg_name
+HS_SHARE=$ecgroup_share_name
 
-# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
+# 3. Parse hammerspace and ecgroup_servers with names (assuming inventory has IP node_name="name")
 
 all_hammerspace=""
 flag="0"  # Initialize flag for hammerspace parsing
@@ -63,13 +63,13 @@ while read -r line; do
   fi
 done < "$INVENTORY_FILE"
 
-all_storage_servers=""
+all_ecgroup_servers=""
 storage_map=() # Array of "IP:name"
 flag="0"  # Initialize flag for storage_servers parsing
 while read -r line; do
-  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+  if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="1"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="0"
   fi
   if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
@@ -77,21 +77,21 @@ while read -r line; do
     # Note: This assumes inventory lines have node_name="..." format
     # If not, you'll need to adjust how you get the node name
     name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
-    all_storage_servers+="$ip"$'\n'
+    all_ecgroup_servers+="$ip"$'\n'
     storage_map+=("$ip:$name")
   fi
 done < "$INVENTORY_FILE"
 
 all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
-all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
+all_ecgroup_servers=$(echo "$all_ecgroup_servers" | grep -v '^$' | sort -u || true)
 
 # Debug: Log parsed IPs
 
 echo "Parsed hammerspace: $all_hammerspace"
-echo "Parsed storage_servers: $all_storage_servers"
+echo "Parsed ecgroup_servers: $all_ecgroup_servers"
 
-if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
-  echo "No storage_servers or hammerspace found in inventory. Exiting."
+if [ -z "$all_ecgroup_servers" ] || [ -z "$all_hammerspace" ]; then
+  echo "No ECGroup Cluster or Hammerspace Anvil found in inventory. Exiting."
   exit 0
 fi
 
@@ -102,12 +102,15 @@ current_nodes=()
 for entry in "${storage_map[@]}"; do
   name=$(echo "$entry" | cut -d: -f2-)
   current_nodes+=("$name")
+  break
 done
 current_nodes_str=$(printf "%s\n" "${current_nodes[@]}" | sort | tr '\n' ',')
+echo "--- current_nodes_str: $current_nodes_str"
 
 # Check state
 touch "$STATE_FILE"
 saved_nodes_str=$(cat "$STATE_FILE" | tr '\n' ',' || echo "")
+echo "--- saved_nodes_str: $saved_nodes_str"
 
 if [ "$current_nodes_str" == "$saved_nodes_str" ]; then
   echo "Volume group already up to date with current nodes. Exiting."
@@ -121,8 +124,10 @@ vg_node_locations="["
 for entry in "${storage_map[@]}"; do
   name=$(echo "$entry" | cut -d: -f2-)
   vg_node_locations+="{ \"_type\": \"NODE_LOCATION\", \"node\": { \"_type\": \"NODE\", \"name\": \"$name\" } },"
+  break
 done
 vg_node_locations="${vg_node_locations%,}]"
+echo "--- vg_node_locations: $vg_node_locations"
 
 # Playbook for create/update VG
 tmp_playbook=$(mktemp)

@@ -4,8 +4,10 @@
 [all:vars]
 hs_username = admin
 hs_password = ${hs_password}
-volume_group_name = ${volume_group_name}
-share_name = ${share_name}
+storage_vg_name = ${storage_vg_name}
+storage_share_name = ${storage_share_name}
+ecgroup_vg_name = ${ecgroup_vg_name}
+ecgroup_share_name = ${ecgroup_share_name}
 ecgroup_metadata_array = ${ecgroup_metadata_array}
 ecgroup_storage_array = ${ecgroup_storage_array}
 

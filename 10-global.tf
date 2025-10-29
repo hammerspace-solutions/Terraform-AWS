@@ -117,6 +117,12 @@ variable "capacity_reservation_create_timeout" {
   default     = "5m"
 }
 
+variable "capacity_reservation_expiration" {
+  description = "The amount of time (in minutes) before a capacity reservation is expired"
+  type	      = string
+  default     = "10m"
+}
+
 variable "placement_group_name" {
   description = "Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used."
   type        = string

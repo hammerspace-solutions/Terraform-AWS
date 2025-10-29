@@ -24,7 +24,7 @@ if have_cmd apt-get; then
   sudo apt-get -y update
   sudo apt-get -y upgrade
   try sudo apt-get install -y python3
-  try sudo apt-get install -y python3-pip git bc nfs-common screen net-tools fio xfsprogs curl jq unzip
+  try sudo apt-get install -y python3-pip git bc nfs-common screen net-tools fio xfsprogs curl jq unzip ansible
   try sudo DEBIAN_FRONTEND=noninteractive apt-get install -y emacs
   curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
   try unzip /tmp/awscliv2.zip

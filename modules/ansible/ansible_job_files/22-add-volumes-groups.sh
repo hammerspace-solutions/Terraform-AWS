@@ -1,16 +1,16 @@
 #!/bin/bash
 #
-# Ansible Job: Add Storage Nodes
+# Ansible Job: Manage Volume Group
 #
-# This script adds missing storage nodes (type OTHER) to the Hammerspace system using the API.
-# It is idempotent and only adds new nodes based on the inventory.
+# This script creates the volume group if missing or updates it to include new node locations.
+# It is idempotent and only updates if necessary.
 
 set -euo pipefail
 
 # --- Configuration ---
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
-STATE_FILE="/var/run/ansible_jobs_status/added_storage_nodes.txt"
+STATE_FILE="/var/run/ansible_jobs_status/volume_group_state.txt" # Track current nodes in VG
 
 # --- Source the function library ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
@@ -20,7 +20,7 @@ fi
 source "$ANSIBLE_LIB_PATH"
 
 # --- Main Logic ---
-echo "--- Starting Add Storage Nodes Job ---"
+echo "--- Starting Manage Volume Group Job ---"
 
 # 1. Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
@@ -97,52 +97,49 @@ fi
 
 data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
 
-all_hosts=$(echo -e "$all_storage_servers" | sort -u)
-
-# 4. Identify new hosts (storage_servers not in state)
-
-touch "$STATE_FILE"
-new_hosts=()
-for host in $all_hosts; do
-  if ! grep -q -F -x "$host" "$STATE_FILE"; then
-    new_hosts+=("$host")
-  fi
+# Build current node names from storage_map
+current_nodes=()
+for entry in "${storage_map[@]}"; do
+  name=$(echo "$entry" | cut -d: -f2-)
+  current_nodes+=("$name")
 done
+current_nodes_str=$(printf "%s\n" "${current_nodes[@]}" | sort | tr '\n' ',')
 
-# If new hosts, run addition
+# Check state
+touch "$STATE_FILE"
+saved_nodes_str=$(cat "$STATE_FILE" | tr '\n' ',' || echo "")
 
-if [ ${#new_hosts[@]} -gt 0 ]; then
-  echo "Found ${#new_hosts[@]} new storage servers: ${new_hosts[*]}. Adding them."
+if [ "$current_nodes_str" == "$saved_nodes_str" ]; then
+  echo "Volume group already up to date with current nodes. Exiting."
+  exit 0
+fi
 
-  # 5. Build storages list from map (assume body for each: name from node_name, type OTHER)
-  
-  storages_json="["
+echo "Volume group needs update for nodes: ${current_nodes[*]}"
 
-  for entry in "${storage_map[@]}"; do
-    ip=$(echo "$entry" | cut -d: -f1)
-    name=$(echo "$entry" | cut -d: -f2-)
-    if echo "${new_hosts[*]}" | grep -q "$ip"; then
-      storages_json+="{ \"name\": \"$name\", \"_type\": \"NODE\", \"nodeType\": \"OTHER\", \"mgmtIpAddress\": {\"address\": \"$ip\"}},"
-    fi
-  done
-  storages_json="${storages_json%,}]"
+# Build vg_node_locations
+vg_node_locations="["
+for entry in "${storage_map[@]}"; do
+  name=$(echo "$entry" | cut -d: -f2-)
+  vg_node_locations+="{ \"_type\": \"NODE_LOCATION\", \"node\": { \"_type\": \"NODE\", \"name\": \"$name\" } },"
+done
+vg_node_locations="${vg_node_locations%,}]"
 
-  # 6. Combined playbook for adding nodes
-  
-  tmp_playbook=$(mktemp)
-  cat > "$tmp_playbook" <<EOF
+# Playbook for create/update VG
+tmp_playbook=$(mktemp)
+cat > "$tmp_playbook" <<EOF
 - hosts: localhost
   gather_facts: false
   vars:
     hs_username: "$HS_USERNAME"
     hs_password: "$HS_PASSWORD"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
-    storages: $storages_json
+    volume_group_name: "$HS_VOLUME_GROUP"
+    vg_node_locations: $vg_node_locations
 
   tasks:
-    - name: Get all nodes (with retries)
+    - name: Get all volume groups
       uri:
-        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes"
+        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
         method: GET
         user: "{{ hs_username }}"
         password: "{{ hs_password }}"
@@ -152,45 +149,78 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
         status_code: 200
         body_format: json
         timeout: 30
-      register: nodes_response
-      until: nodes_response.status == 200
-      retries: 60
-      delay: 30
-
-    - name: Extract existing node names
-      set_fact:
-        existing_node_names: "{{ nodes_response.json | map(attribute='name') | list }}"
-
-    - name: Add storage system if not present
-      uri:
-        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes"
-        user: "{{ hs_username }}"
-        password: "{{ hs_password }}"
-        method: POST
-        body: '{{ storage }}'
-        force_basic_auth: yes
-        status_code: 202
-        body_format: json
-        validate_certs: no
-        timeout: 30
-      loop: "{{ storages }}"
-      loop_control:
-        loop_var: storage
-      when: storage.name not in existing_node_names and storage.nodeType == "OTHER"
-      register: node_add
-      until: node_add.status == 202
+      register: volume_groups_response
+      until: volume_groups_response.status == 200
       retries: 30
       delay: 10
 
-    - name: Pause for consistency
-      pause:
-        seconds: 10
+    - name: Set fact for VG exists
+      set_fact:
+        vg_exists: "{{ volume_group_name in (volume_groups_response.json | map(attribute='name') | list) }}"
 
-    - name: Wait until all expected OTHER nodes are present
-      vars:
-        expected_other_nodes: "{{ storages | map(attribute='name') | list | sort }}"
+    - name: Create volume group if missing
       uri:
-        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/nodes"
+        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
+        method: POST
+        body: >-
+          {{
+            {
+              "name": volume_group_name,
+              "_type": "VOLUME_GROUP",
+              "expressions": [
+                {
+                  "operator": "IN",
+                  "locations": vg_node_locations
+                }
+              ]
+            }
+          }}
+        user: "{{ hs_username }}"
+        password: "{{ hs_password }}"
+        force_basic_auth: true
+        status_code: 200
+        body_format: json
+        validate_certs: false
+        timeout: 30
+      when: not vg_exists
+      register: vg_create
+      until: vg_create.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Update volume group if exists (assume PUT for update)
+      uri:
+        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups/{{ volume_group_name }}"
+        method: PUT
+        body: >-
+          {{
+            {
+              "name": volume_group_name,
+              "_type": "VOLUME_GROUP",
+              "expressions": [
+                {
+                  "operator": "IN",
+                  "locations": vg_node_locations
+                }
+              ]
+            }
+          }}
+        user: "{{ hs_username }}"
+        password: "{{ hs_password }}"
+        force_basic_auth: true
+        status_code: 200
+        body_format: json
+        validate_certs: false
+        timeout: 30
+      when: vg_exists
+      register: vg_update
+      until: vg_update.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Wait until volume group contains all nodes
+      uri:
+        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
         method: GET
         user: "{{ hs_username }}"
         password: "{{ hs_password }}"
@@ -200,35 +230,32 @@ if [ ${#new_hosts[@]} -gt 0 ]; then
         status_code: 200
         body_format: json
         timeout: 30
-      register: node_list_check
+      register: volume_groups_updated
       until: >-
         (
-          node_list_check.json
-          | selectattr('nodeType', 'equalto', 'OTHER')
-          | selectattr('nodeState', 'equalto', 'MANAGED')
-          | selectattr('hwComponentState', 'equalto', 'OK')
-          | map(attribute='name')
+          volume_groups_updated.json
+          | selectattr('name', 'equalto', volume_group_name)
+          | map(attribute='expressions')
+          | map('first')
+          | map(attribute='locations')
+          | map('map', attribute='node')
+          | map('map', attribute='name')
           | list
+          | first
           | sort
-        ) == expected_other_nodes
+        ) == (vg_node_locations | map(attribute='node') | map(attribute='name') | list | sort)
       retries: 30
       delay: 10
 EOF
 
-  echo "Running Ansible playbook to add storage nodes..."
-  ansible-playbook "$tmp_playbook" 
+  echo "Running Ansible playbook to manage volume group..."
+  ansible-playbook "$tmp_playbook"
 
-  # 7. Update state file with new hosts
-  echo "Playbook finished. Updating state file with new storage servers..."
-  for host in "${new_hosts[@]}"; do
-    echo "$host" >> "$STATE_FILE"
-  done
+  # Update state
+  printf "%s\n" "${current_nodes[@]}" > "$STATE_FILE"
 
-  # 8. Clean up
+  # Clean up
   rm -f "$tmp_playbook"
 
-else
-  echo "No new storage servers detected. Exiting."
-fi
-
-echo "--- Add Storage Nodes Job Complete ---"
+  echo "--- Manage Volume Group Job Complete ---"
+  
