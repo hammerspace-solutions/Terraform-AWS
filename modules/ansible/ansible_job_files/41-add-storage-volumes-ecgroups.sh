@@ -189,8 +189,7 @@ cat > "$tmp_playbook" <<EOF
                       "ip": {
                         "address": "{{ ip }}",
                         "prefixLength": 32
-                      },
-                      "nodeNum": {{ loop.index0 }}
+                      }
                     }{% if not loop.last %},{% endif %}
                     {% endfor %}
                   ]{% endif %}
