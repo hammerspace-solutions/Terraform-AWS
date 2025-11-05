@@ -52,6 +52,13 @@ custom_ami_owner_ids  	  	     = ["919243021404", "679593333241"]
 placement_group_name		     = "Terraform-Group"
 placement_group_strategy	     = "cluster"
 
+# Variables to configure ansible for creating volume groups, shares, etc
+
+storage_vg_name		 	     = ["fubar", "snafu"]
+storage_share_name		     = ["abcdef", "uvwxyz"]
+ecgroup_vg_name			     = "ecgroup_vg"
+ecgroup_share_name		     = "ecgroup_share"
+
 # Global variables
 #
 # Change your project_name, the key_name, and the vpc and subnet id's
