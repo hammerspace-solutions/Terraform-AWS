@@ -16,6 +16,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [ECGroup Variables](#ecgroup-variables)
   - [Ansible Variables](#ansible-variables)
     - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
+  - [Ansible Configuration Variables](#ansible-configuration-variables)
 - [How to Use](#how-to-use)
   - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
 - [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
@@ -219,7 +220,6 @@ These variables apply to the overall deployment:
 * `tags`: Common tags for all resources (Default: `{}`).
 * `project_name`: Project name for tagging and resource naming.
 * `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
-* `allow_root`: Allow root access to SSH (Default: `false`).
 * `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
 * `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
 
@@ -314,7 +314,10 @@ These variables configure the ECGroup storage cluster and are prefixed with `ecg
 
 ### Ansible Variables
 
-These variables configure the Ansible controller instance and its playbook. Prefixes are `ansible_` where applicable.
+These variables configure the Ansible controller instance. Prefixes are `ansible_` where applicable.
+
+> [!WARNING]
+> These variables are only needed for the ansible controller. They do not configure what Ansible does after instantiation. That is in the next section.
 
 * `ansible_instance_count`: Number of Ansible instances (Default: 1).
 * `ansible_ami`: (Required) AMI for Ansible instances.
@@ -325,10 +328,48 @@ These variables configure the Ansible controller instance and its playbook. Pref
 * `ansible_ssh_public_key`: OpenSSH public key for the Ansible controller (e.g., `ssh-ed25519 AAA...`).
 * `ansible_private_key_secret_arn`: AWS Secrets Manager ARN holding the Ansible controller's private SSH key.
 * `ansible_controller_cidr`: CIDR allowed to SSH to target instances (used as a fallback if security group-based SSH is not possible).
-* `volume_group_name`: The name of the volume group for Hammerspace storage, used by the Ansible playbook (Default: "vg-auto").
-* `share_name`: (Required) The name of the share to be created on the storage, used by the Ansible playbook.
 
+### Ansible Configuration Variables
 
+These variables are used by the Ansible Controller to configure services within the Hammerspace environment. Things like adding storage servers, add volumes, configuring volume groups, and adding shares are all covered here.
+Because of the complexity of trying to satisfy the majority of configurations, the ansible configuration is a json variable of the format:
+
+```json
+config_ansible = {
+  allow_root = true
+  ecgroup_volume_group = "xyz"
+  ecgroup_share_name = "123"
+  volume_groups = {
+    group_1 = {
+      volumes = ["1","2","3","4"]
+      share   = "group_1_share"
+    }
+    group_2 = {
+      add_groups = ["group_1"]
+      volumes    = ["5","6","7","8"]
+      share      = "group_2_share"
+    }
+    group_3 = {
+      add_groups = ["group_1", "group_2"]
+      volumes    = ["9","10","11","12"]
+      share      = "group_3_share"
+    }
+  }
+}
+
+```
+
+* `allow_root`: Whether ansible will configure the clients so that they can ssh to each other without a password. This is sometimes useful for benchmarking and testing. This will only apply to the **root** user.
+* `ecgroup_volume_group`: (Optional) The volume group name that will be created if ECGroups exist. 
+* `ecgroup_share_name`: (Optional): The share name that will be created if ECGroups exist.
+* `volume_groups`: (Optional): This is a structure that contains one or more volume group structures
+* `group_1`: This is the **name** of the volume group. Obviously, group_1 is just an example.
+* `volumes`: This is a list of indexes that correlate to the storage servers. In this example, storage server "1", "2", "3", and "4" will be placed in the volume group.
+* `share`: The name of the share to create. This share will only reference the volume group called "group_1".
+* `add_groups`: (Optional): This is a list of previously created volume groups to add to this volume group.
+
+> [!NOTE]
+> Volume Groups and Shares are only created if you have configured **storage** and **hammerspace** in the deploy_components variable.
 ---
 
 ## How to Use
@@ -416,10 +457,16 @@ The `capacity_reservation_create_timeout` you set applies to this **entire waiti
 
 ### Important Warning on Capacity Reservation Billing
 
-> **Warning:** On-Demand Capacity Reservations begin to incur charges at the standard On-Demand rate as soon as they are successfully created, **whether you are running an instance in them or not.**
+> [!WARNING]
+> On-Demand Capacity Reservations begin to incur charges at the standard On-Demand rate as soon as they are successfully created, **whether you are running an instance in them or not.**
 >
-> In order to avoid unnecessary charges, Capacity Reservations will automatically expire 10 minutes after creation. The sole purpose of the Capacity Reservation is to make sure that resources
-> are available so that Terraform doesn't hang during the `terraform apply` because those resources are unavailable in your availability zone. 
+> In order to avoid unnecessary charges, there is a variable called `capacity_reservation_expiration` that must be tuned. By default, it is set to 5 minutes. The sole purpose of the Capacity Reservation is to make sure that resources
+> are available so that Terraform doesn't hang during the `terraform apply` because those resources are unavailable in your availability zone.
+>
+> Another important point is that once a capacity reservation expires, then any changes to terraform that you wish to make to increase clients or storage will fail. This is because terraform will attempt to recreate the capacity reservations
+> and that will terminate the existing running instances in order to recreate them with the additions. In most case, this will not be what you want.
+>
+> If, however, you are still within the capacity reservation when you increase the clients or storage, then just that addition will occur.
 
 ---
 
