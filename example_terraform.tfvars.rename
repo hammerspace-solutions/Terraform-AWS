@@ -52,6 +52,34 @@ custom_ami_owner_ids  	  	     = ["919243021404", "679593333241"]
 placement_group_name		     = "Terraform-Group"
 placement_group_strategy	     = "cluster"
 
+# Structure to configure volume groups, shares within the Anvil. This is passed
+# to Ansible and the ansible playbook will add the necessary services
+#
+# If you wish to not configure the anvil for storage volumes, etc, then just make
+# the "config_ansible = null"
+
+config_ansible = {
+  allow_root = true
+  ecgroup_volume_group = "xyz"
+  ecgroup_share_name = "123"
+  volume_groups = {
+    group_1 = {
+      volumes = ["1","2","3","4"]
+      share   = "group_1_share"
+    }
+    group_2 = {
+      add_groups = ["group_1"]
+      volumes    = ["5","6","7","8"]
+      share      = "group_2_share"
+    }
+    group_3 = {
+      add_groups = ["group_1", "group_2"]
+      volumes    = ["9","10","11","12"]
+      share      = "group_3_share"
+    }
+  }
+}
+
 # Global variables
 #
 # Change your project_name, the key_name, and the vpc and subnet id's

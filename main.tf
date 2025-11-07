@@ -542,10 +542,7 @@ module "ansible" {
   # Pass the volume group and share names so that they can be automatically
   # created in an Anvil
 
-  storage_vg_name = var.storage_vg_name
-  storage_share_name = var.storage_share_name
-  ecgroup_vg_name = var.ecgroup_vg_name
-  ecgroup_share_name = var.ecgroup_share_name
+  config_ansible = var.config_ansible
 
   # Pass the ecgroup_metadata information if ECGroups were deployed
 

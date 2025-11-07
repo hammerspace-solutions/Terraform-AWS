@@ -4,10 +4,9 @@
 [all:vars]
 hs_username = admin
 hs_password = ${hs_password}
-storage_vg_name = ${storage_vg_name}
-storage_share_name = ${storage_share_name}
-ecgroup_vg_name = ${ecgroup_vg_name}
-ecgroup_share_name = ${ecgroup_share_name}
+%{ if config_ansible != null ~}
+config_ansible = ${jsonencode(config_ansible)}
+%{ endif ~}
 ecgroup_metadata_array = ${ecgroup_metadata_array}
 ecgroup_storage_array = ${ecgroup_storage_array}
 

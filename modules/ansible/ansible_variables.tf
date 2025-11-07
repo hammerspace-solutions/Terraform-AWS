@@ -164,28 +164,20 @@ variable "ansible_controller_cidr" {
   default     = null
 }
 
-variable "storage_vg_name" {
-  description = "Name of the volume group for Hammerspace configuration"
-  type        = string
-  default     = "storage-vg"  # Fallback if not provided
-}
-
-variable "storage_share_name" {
-  description = "Name of the share for Hammerspace configuration"
-  type        = string
-  default     = "storage-share"  # Fallback if not provided
-}
-
-variable "ecgroup_vg_name" {
-  description = "Name of the volume group for Hammerspace configuration"
-  type        = string
-  default     = "ecgroup-vg"  # Fallback if not provided
-}
-
-variable "ecgroup_share_name" {
-  description = "Name of the share for Hammerspace configuration"
-  type        = string
-  default     = "ecgroup-share"  # Fallback if not provided
+variable "config_ansible" {
+  description = "Nested structure to configure shares / volume groups in Ansible"
+  type = object({
+    allow_root			= bool
+    ecgroup_volume_group	= optional(string)
+    ecgroup_share_name		= optional(string)
+    volume_groups		= map(object({
+      volumes			= list(string)
+      add_groups		= optional(list(string), [])
+      share			= string
+    }))
+  })
+  default			= null
+  nullable			= true
 }
 
 # Variables for dealing with ECGroup metadata and storage arrays

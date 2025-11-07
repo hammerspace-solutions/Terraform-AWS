@@ -2,10 +2,12 @@
 #
 # Ansible Job: Distribute SSH Keys to All Nodes
 #
-# This script distributes the Ansible controller's public key to all client, storage_server, and
-# ecgroup nodes' root user.
-# It also collects and distributes all public keys for full mesh root SSH across all nodes, and
-# updates known_hosts on all nodes for passwordless access. It is idempotent but updates all nodes on changes.
+# This script distributes the Ansible controller's public key to all client, storage_server,
+# and ecgroup nodes' root user.
+#
+# It also collects and distributes all public keys for full mesh root SSH across all nodes,
+# and updates known_hosts on all nodes for passwordless access. It is idempotent but updates
+# all nodes on changes.
 
 set -euo pipefail
 
@@ -20,30 +22,65 @@ if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
   echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
   exit 1
 fi
+# shellcheck source=/dev/null
 source "$ANSIBLE_LIB_PATH"
 
-# --- Main Logic ---
+# --- Helpers ---
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "FATAL: required command '$1' is not installed or not in PATH" >&2
+    exit 1
+  }
+}
+
+# Extract a single var line value from [all:vars]
+ini_get_var() {
+  local key="$1" file="$2"
+  awk '
+    /^\[all:vars\]$/ {flag=1; next}
+    /^\[.*\]$/       {flag=0}
+    flag && $0 ~ "^'"$key"' = " { sub(/.*= /, ""); print; exit }
+  ' "$file"
+}
+
 echo "--- Starting SSH Key Distribution Job ---"
 
-# 1. Verify inventory file exists
+# 1) Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
   echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
   exit 1
 fi
 
-# 2. Parse [all:vars] for additional variables (if needed)
-hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-volume_group_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /volume_group_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+# 2) Require jq and parse config_ansible.allow_root gate
+need_cmd jq
 
-# Debug: Log parsed vars
-echo "Parsed hs_username: $hs_username"
-echo "Parsed hs_password: $hs_password"
-echo "Parsed volume_group_name: $volume_group_name"
-echo "Parsed share_name: $share_name"
+config_ansible_json="$(ini_get_var 'config_ansible' "$INVENTORY_FILE" || true)"
+if [ -z "${config_ansible_json:-}" ]; then
+  echo "INFO: No 'config_ansible' found in inventory [all:vars]; skipping SSH key distribution."
+  exit 0
+fi
 
-# 3. Find all client, storage server, and ecgroup IPs from the inventory
+# Validate JSON and check allow_root
+if ! echo "$config_ansible_json" | jq -e . >/dev/null 2>&1; then
+  echo "INFO: 'config_ansible' is not valid JSON; skipping SSH key distribution."
+  exit 0
+fi
+
+allow_root_val="$(echo "$config_ansible_json" | jq -r 'select(has("allow_root")) | .allow_root')" || true
+if [ -z "${allow_root_val:-}" ] || [ "$allow_root_val" != "true" ]; then
+  echo "INFO: allow_root is missing or not true; skipping SSH key distribution."
+  exit 0
+fi
+
+# 3) Parse optional creds (only for logging symmetry; not used below)
+hs_username="$(ini_get_var 'hs_username' "$INVENTORY_FILE" || true)"
+hs_password="$(ini_get_var 'hs_password' "$INVENTORY_FILE" || true)"
+
+echo "Parsed hs_username: ${hs_username:-<unset>}"
+echo "Parsed hs_password: ${hs_password:-<unset>}"
+echo "Gate check passed: allow_root == true"
+
+# 4) Find all client, storage server, and ecgroup IPs from the inventory
 all_clients=""
 clients_map=() # Array of "IP:name"
 flag="0"
@@ -128,7 +165,7 @@ if [ -z "$all_hosts" ]; then
     exit 0
 fi
 
-# 4. Pre-scan host keys for all nodes
+# 5) Pre-scan host keys for all nodes
 echo "Pre-scanning SSH host keys for all nodes..."
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
@@ -140,7 +177,8 @@ for host in $all_hosts; do
 done
 chmod 600 /root/.ssh/known_hosts
 
-# 5. Identify new hosts (not in state file)
+# 6) Identify new hosts (not in state file)
+mkdir -p "$(dirname "$STATE_FILE")"
 touch "$STATE_FILE"
 new_hosts=()
 for host in $all_hosts; do
@@ -153,7 +191,7 @@ done
 if [ ${#new_hosts[@]} -gt 0 ]; then
     echo "Found ${#new_hosts[@]} new hosts: ${new_hosts[*]}. Updating all nodes for full mesh."
 
-    # 6. Create a temporary inventory with per-group SSH settings
+    # 7) Create a temporary inventory with per-group SSH settings
     tmp_inventory=$(mktemp)
     cat > "$tmp_inventory" <<EOF
 [clients]
@@ -171,9 +209,9 @@ storage_servers
 ecgroup_nodes
 EOF
 
-    # 7. Combined playbook for gathering and distributing keys
+    # 8) Combined playbook for gathering and distributing keys
     tmp_playbook=$(mktemp)
-    cat > "$tmp_playbook" <<EOF
+    cat > "$tmp_playbook" <<'EOF'
 - hosts: all_nodes
   gather_facts: yes
   become: yes
@@ -186,6 +224,7 @@ EOF
         - /root/.ssh/id_rsa
         - /root/.ssh/id_rsa.pub
       when: "'ecgroup_nodes' in group_names"
+
     - name: Generate SSH key pair for root if not exists
       ansible.builtin.user:
         name: root
@@ -197,6 +236,7 @@ EOF
       delay: 5
       until: ssh_key is not failed
       ignore_errors: yes
+
     - name: Fetch public key
       ansible.builtin.slurp:
         src: /root/.ssh/id_rsa.pub
@@ -206,6 +246,7 @@ EOF
       delay: 5
       until: public_key is not failed
       ignore_errors: yes
+
     - name: Set fact for public key
       ansible.builtin.set_fact:
         node_public_key: "{{ public_key.content | b64decode }}"
@@ -216,7 +257,7 @@ EOF
   gather_facts: yes
   become: yes
   vars:
-    controller_public_key_src: "${CONTROLLER_KEY_PATH}.pub"
+    controller_public_key_src: "/etc/ansible/keys/ansible.pub"
     all_node_public_keys: "{{ hostvars | json_query('*.node_public_key') | select('defined') | list }}"
 
   tasks:
@@ -227,10 +268,10 @@ EOF
         owner: root
         group: root
         mode: '0700'
+      register: result
       retries: 3
       delay: 5
       until: result is not failed
-      register: result
       ignore_errors: yes
 
     - name: Check if authorized_keys is immutable
@@ -250,10 +291,10 @@ EOF
         user: root
         state: present
         key: "{{ lookup('file', controller_public_key_src) }}"
+      register: result
       retries: 3
       delay: 5
       until: result is not failed
-      register: result
       ignore_errors: yes
       failed_when: result is failed and result.msg is not search('already exists')
 
@@ -263,10 +304,10 @@ EOF
         state: present
         key: "{{ item }}"
       loop: "{{ all_node_public_keys }}"
+      register: result
       retries: 3
       delay: 5
       until: result is not failed
-      register: result
       ignore_errors: yes
       failed_when: result is failed and result.msg is not search('already exists')
 
@@ -298,7 +339,7 @@ EOF
     echo "Running Ansible playbook to distribute SSH keys and update known_hosts..."
     ansible-playbook -i "$tmp_inventory" -e "ansible_connection=ssh ansible_ssh_private_key_file=$CONTROLLER_KEY_PATH ansible_ssh_extra_args='-o StrictHostKeyChecking=no'" --user root "$tmp_playbook"
 
-    # 8. Update state file with all new hosts
+    # 9) Update state file with all hosts
     echo "Playbook finished. Updating state file with all hosts..."
     for host in $all_hosts; do
         if ! grep -q -F -x "$host" "$STATE_FILE"; then
@@ -306,7 +347,7 @@ EOF
         fi
     done
 
-    # 9. Clean up temporary files
+    # 10) Clean up temporary files
     rm -f "$tmp_inventory" "$tmp_playbook"
 
 else

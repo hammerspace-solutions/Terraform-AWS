@@ -1,9 +1,14 @@
 #!/bin/bash
 #
-# Ansible Job: Create Share
+# Ansible Job: Create ECGroup Share
 #
-# This script creates the share if not existing.
-# It is idempotent.
+# Reads config_ansible.{ecgroup_share_name, ecgroup_volume_group} from inventory.ini
+# and creates the share if missing (idempotent via STATE_FILE).
+#
+# Behavior:
+#   - Requires: jq
+#   - If config_ansible missing/invalid OR ecgroup_share_name empty OR ecgroup_volume_group empty: exit 0 (no-op)
+#
 
 set -euo pipefail
 
@@ -17,69 +22,84 @@ if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
   echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
   exit 1
 fi
+# shellcheck source=/dev/null
 source "$ANSIBLE_LIB_PATH"
 
-# --- Main Logic ---
-echo "--- Starting Create Share(s) Job ---"
+echo "--- Starting Create ECGroup Share Job ---"
 
-# 1. Verify inventory file exists
+# 1) Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
   echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
   exit 1
 fi
 
-# 2. Get the username, password, volume group, and share name from the inventroy
+# --- Helpers ---
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "FATAL: required command '$1' is not installed or not in PATH" >&2
+    exit 1
+  }
+}
 
-hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-ecgroup_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-ecgroup_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+# Extract a single var value from [all:vars]
+ini_get_var() {
+  local key="$1" file="$2"
+  awk '
+    /^\[all:vars\]$/ {flag=1; next}
+    /^\[.*\]$/       {flag=0}
+    flag && $0 ~ "^'"$key"' = " { sub(/.*= /, ""); print; exit }
+  ' "$file"
+}
 
-# Debug: Echo parsed vars
-echo "Parsed hs_username: $hs_username"
-echo "Parsed hs_password: $hs_password"
-echo "Parsed ecgroup_vg_name: $ecgroup_vg_name"
-echo "Parsed ecgroup_share_name: $ecgroup_share_name"
+need_cmd jq
 
-# Set variables for later use
+# 2) Parse credentials + config_ansible (gate)
+hs_username="$(ini_get_var 'hs_username' "$INVENTORY_FILE" || true)"
+hs_password="$(ini_get_var 'hs_password' "$INVENTORY_FILE" || true)"
+config_ansible_json="$(ini_get_var 'config_ansible' "$INVENTORY_FILE" || true)"
 
-HS_USERNAME=$hs_username
-HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$ecgroup_vg_name
-HS_SHARE_NAME=$ecgroup_share_name
+if [ -z "${config_ansible_json:-}" ]; then
+  echo "INFO: No 'config_ansible' in inventory [all:vars]; skipping share creation."
+  exit 0
+fi
+if ! echo "$config_ansible_json" | jq -e . >/dev/null 2>&1; then
+  echo "INFO: 'config_ansible' is not valid JSON; skipping share creation."
+  exit 0
+fi
 
-SHARE_BODY='{'
-SHARE_BODY+='"name": "'$HS_SHARE_NAME'",'
-SHARE_BODY+='"path": "/'$HS_SHARE_NAME'",'
-SHARE_BODY+='"maxShareSize": "0",'
-SHARE_BODY+='"alertThreshold": "90",'
-SHARE_BODY+='"maxShareSizeType": "TB",'
-SHARE_BODY+='"smbAliases": [],'
-SHARE_BODY+='"exportOptions": [{"subnet": "'*'", "rootSquash": "false", "accessPermissions": "RW"}],'
-SHARE_BODY+='"shareSnapshots": [],'
-SHARE_BODY+='"shareObjectives": [{"objective": {"name": "no-atime"}, "applicability": "TRUE"},'
-SHARE_BODY+='{"objective": {"name": "confine-to-'$HS_VOLUME_GROUP'"}, "applicability": "TRUE"}],'
-SHARE_BODY+='"smbBrowsable": "true", "shareSizeLimit": "0"'
-SHARE_BODY+='}'
+HS_SHARE_NAME="$(echo "$config_ansible_json" | jq -r '.ecgroup_share_name // ""')"
+HS_VOLUME_GROUP="$(echo "$config_ansible_json" | jq -r '.ecgroup_volume_group // ""')"
 
-# 3. Parse hammerspace and ECGroup Cluter with names (assuming inventory has IP node_name="name")
+if [ -z "$HS_SHARE_NAME" ] || [ "$HS_SHARE_NAME" = "null" ]; then
+  echo "INFO: config_ansible.ecgroup_share_name not set; skipping share creation."
+  exit 0
+fi
+if [ -z "$HS_VOLUME_GROUP" ] || [ "$HS_VOLUME_GROUP" = "null" ]; then
+  echo "INFO: config_ansible.ecgroup_volume_group not set; skipping share creation (confine objective requires VG)."
+  exit 0
+fi
 
+echo "Parsed hs_username: ${hs_username:-<unset>}"
+echo "Parsed hs_password: ${hs_password:-<unset>}"
+echo "Using ECGroup share name: $HS_SHARE_NAME"
+echo "Using ECGroup volume group: $HS_VOLUME_GROUP"
+
+# 3) Parse hammerspace (mgmt IP) and ensure ECGroup nodes exist (for sanity)
 all_hammerspace=""
-flag="0"  # Initialize flag for hammerspace parsing
+flag="0"
 while read -r line; do
   if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
-    flag="hammerspace"
+    flag="1"
   elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
     flag="0"
   fi
-  if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+  if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     all_hammerspace+="$line"$'\n'
   fi
 done < "$INVENTORY_FILE"
 
 all_ecgroup_servers=""
-storage_map=() # Array of "IP:name"
-flag="0"  # Initialize flag for ECGroup servers parsing
+flag="0"
 while read -r line; do
   if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
     flag="1"
@@ -88,18 +108,12 @@ while read -r line; do
   fi
   if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     ip=$(echo "$line" | awk '{print $1}')
-    # Note: This assumes inventory lines have node_name="..." format
-    # If not, you'll need to adjust how you get the node name
-    name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
     all_ecgroup_servers+="$ip"$'\n'
-    storage_map+=("$ip:$name")
   fi
 done < "$INVENTORY_FILE"
 
-all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
-all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
-
-# Debug: Log parsed IPs
+all_hammerspace="$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)"
+all_ecgroup_servers="$(echo "$all_ecgroup_servers" | grep -v '^$' | sort -u || true)"
 
 echo "Parsed hammerspace: $all_hammerspace"
 echo "Parsed ecgroup_servers: $all_ecgroup_servers"
@@ -109,22 +123,45 @@ if [ -z "$all_ecgroup_servers" ] || [ -z "$all_hammerspace" ]; then
   exit 0
 fi
 
-data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
+data_cluster_mgmt_ip="$(echo "$all_hammerspace" | head -1)"
 
+# 4) Idempotence: skip if share already created
+mkdir -p "$(dirname "$STATE_FILE")"
+touch "$STATE_FILE"
 if grep -q -F -x "$HS_SHARE_NAME" "$STATE_FILE"; then
   echo "Share $HS_SHARE_NAME already created. Exiting."
   exit 0
 fi
 
-# Playbook for create share
-tmp_playbook=$(mktemp)
+# 5) Build share JSON body safely with jq
+SHARE_BODY="$(jq -n --arg name "$HS_SHARE_NAME" --arg vg "$HS_VOLUME_GROUP" '
+{
+  name: $name,
+  path: ("/" + $name),
+  maxShareSize: "0",
+  alertThreshold: "90",
+  maxShareSizeType: "TB",
+  smbAliases: [],
+  exportOptions: [{subnet:"*", rootSquash:"false", accessPermissions:"RW"}],
+  shareSnapshots: [],
+  shareObjectives: [
+    {objective:{name:"no-atime"}, applicability:"TRUE"},
+    {objective:{name:("confine-to-" + $vg)}, applicability:"TRUE"}
+  ],
+  smbBrowsable: "true",
+  shareSizeLimit: "0"
+}
+')"
+
+# 6) One-off playbook to create share
+tmp_playbook="$(mktemp)"
 cat > "$tmp_playbook" <<EOF
 ---
 - hosts: localhost
   gather_facts: false
   vars:
-    hs_username: "$HS_USERNAME"
-    hs_password: "$HS_PASSWORD"
+    hs_username: "$hs_username"
+    hs_password: "$hs_password"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
     share_name: "$HS_SHARE_NAME"
     share: $SHARE_BODY
@@ -187,14 +224,11 @@ cat > "$tmp_playbook" <<EOF
       when: share_create.status == 202
 EOF
 
-  echo "Running Ansible playbook to create share..."
-  ansible-playbook "$tmp_playbook"
+echo "Running Ansible playbook to create ECGroup share '$HS_SHARE_NAME'..."
+ansible-playbook "$tmp_playbook"
 
-  # Update state
-  echo "$HS_SHARE_NAME" >> "$STATE_FILE"
+# 7) Update state and cleanup
+echo "$HS_SHARE_NAME" >> "$STATE_FILE"
+rm -f "$tmp_playbook"
 
-  # Clean up
-  rm -f "$tmp_playbook"
-
-  echo "--- Create Share Job Complete ---"
-  
+echo "--- Create ECGroup Share Job Complete ---"
