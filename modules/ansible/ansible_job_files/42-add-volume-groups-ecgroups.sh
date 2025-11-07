@@ -1,144 +1,163 @@
 #!/bin/bash
 #
-# Ansible Job: Add Volume Group(s) for ECGroups
+# Ansible Job: Add Volume Group for ECGroup
 #
-# This script creates the volume group if missing or updates it to include new node locations.
-# It is idempotent and only updates if necessary.
+# Creates/updates a Hammerspace Volume Group for all ECGroup nodes based on:
+#   config_ansible.ecgroup_volume_group: <string>  # VG name to create/update
+#   config_ansible.ecgroup_share_name:  <string>   # optional (not used here)
+#
+# Behavior:
+#   - Requires: jq
+#   - If config_ansible is missing/invalid OR ecgroup_volume_group unset: exit 0 (no-op)
+#   - Includes ALL hosts listed under [ecgroup_nodes] in inventory.ini
+#   - Idempotence per VG via a state file
+#
 
 set -euo pipefail
 
 # --- Configuration ---
 ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
-STATE_FILE="/var/run/ansible_jobs_status/volume_group_state.txt" # Track current nodes in VG
+STATE_DIR="/var/run/ansible_jobs_status/ecgroup_vg_states"   # one file per VG
 
 # --- Source the function library ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
   echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
   exit 1
 fi
+# shellcheck source=/dev/null
 source "$ANSIBLE_LIB_PATH"
 
-# --- Main Logic ---
-echo "--- Starting AddVolume Group Job for ECGroup(s) ---"
+echo "--- Starting Add Volume Group Job for ECGroup ---"
 
-# 1. Verify inventory file exists
+# 1) Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
   echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
   exit 1
 fi
 
-# 2. Get the username, password, volume group, and share name from the inventroy
+# --- Helpers ---
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "FATAL: required command '$1' is not installed or not in PATH" >&2
+    exit 1
+  }
+}
 
-hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-ecgroup_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-ecgroup_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /ecgroup_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+# Extract a single var value from [all:vars]
+ini_get_var() {
+  local key="$1" file="$2"
+  awk '
+    /^\[all:vars\]$/ {flag=1; next}
+    /^\[.*\]$/       {flag=0}
+    flag && $0 ~ "^'"$key"' = " { sub(/.*= /, ""); print; exit }
+  ' "$file"
+}
 
-# Debug: Echo parsed vars
-echo "Parsed hs_username: $hs_username"
-echo "Parsed hs_password: $hs_password"
-echo "Parsed ecgroup_vg_name: $ecgroup_vg_name"
-echo "Parsed ecgroup_share_name: $ecgroup_share_name"
+need_cmd jq
 
-# Set variables for later use
+# 2) Parse creds + config_ansible (gate)
+hs_username="$(ini_get_var 'hs_username' "$INVENTORY_FILE" || true)"
+hs_password="$(ini_get_var 'hs_password' "$INVENTORY_FILE" || true)"
+config_ansible_json="$(ini_get_var 'config_ansible' "$INVENTORY_FILE" || true)"
 
-HS_USERNAME=$hs_username
-HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$ecgroup_vg_name
-HS_SHARE=$ecgroup_share_name
+if [ -z "${config_ansible_json:-}" ]; then
+  echo "INFO: No 'config_ansible' found in inventory [all:vars]; skipping ECGroup VG."
+  exit 0
+fi
+if ! echo "$config_ansible_json" | jq -e . >/dev/null 2>&1; then
+  echo "INFO: 'config_ansible' is not valid JSON; skipping ECGroup VG."
+  exit 0
+fi
 
-# 3. Parse hammerspace and ecgroup_servers with names (assuming inventory has IP node_name="name")
+# Pull VG name; must be non-empty to proceed
+ecgroup_vg_name="$(echo "$config_ansible_json" | jq -r '.ecgroup_volume_group // ""')"
+if [ -z "$ecgroup_vg_name" ] || [ "$ecgroup_vg_name" = "null" ]; then
+  echo "INFO: 'ecgroup_volume_group' not set in config_ansible; nothing to do. Exiting."
+  exit 0
+fi
 
+ecgroup_share_name="$(echo "$config_ansible_json" | jq -r '.ecgroup_share_name // ""')"
+echo "Using ECGroup VG name: $ecgroup_vg_name"
+[ -n "$ecgroup_share_name" ] && echo "ECGroup share name (unused here): $ecgroup_share_name"
+
+# 3) Parse hammerspace and ecgroup_nodes (include ALL ecgroup nodes)
 all_hammerspace=""
-flag="0"  # Initialize flag for hammerspace parsing
+flag="0"
 while read -r line; do
-  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
-    flag="hammerspace"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
-    flag="0"
-  fi
-  if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then flag="1"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then flag="0"
+  elif [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     all_hammerspace+="$line"$'\n'
   fi
 done < "$INVENTORY_FILE"
 
-all_ecgroup_servers=""
-storage_map=() # Array of "IP:name"
-flag="0"  # Initialize flag for storage_servers parsing
+ec_map=()   # "IP:node_name"
+flag="0"
 while read -r line; do
-  if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
-    flag="1"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[ecgroup_nodes\]$ ]]; then 
-    flag="0"
-  fi
-  if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+  if [[ "$line" =~ ^\[ecgroup_nodes\]$ ]]; then flag="1"
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[ecgroup_nodes\]$ ]]; then flag="0"
+  elif [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     ip=$(echo "$line" | awk '{print $1}')
-    # Note: This assumes inventory lines have node_name="..." format
-    # If not, you'll need to adjust how you get the node name
     name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
-    all_ecgroup_servers+="$ip"$'\n'
-    storage_map+=("$ip:$name")
+    ec_map+=("$ip:$name")
   fi
 done < "$INVENTORY_FILE"
 
-all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
-all_ecgroup_servers=$(echo "$all_ecgroup_servers" | grep -v '^$' | sort -u || true)
+hs_disp=$(echo "$all_hammerspace" | grep -v '^$' | tr '\n' ' ' || true)
+ec_names_disp=$(printf "%s\n" "${ec_map[@]}" | cut -d: -f2- | tr '\n' ' ')
 
-# Debug: Log parsed IPs
+echo "Parsed hammerspace: $hs_disp"
+echo "Parsed ecgroup_nodes (names): $ec_names_disp"
 
-echo "Parsed hammerspace: $all_hammerspace"
-echo "Parsed ecgroup_servers: $all_ecgroup_servers"
-
-if [ -z "$all_ecgroup_servers" ] || [ -z "$all_hammerspace" ]; then
-  echo "No ECGroup Cluster or Hammerspace Anvil found in inventory. Exiting."
+if [ -z "$hs_disp" ] || [ "${#ec_map[@]}" -eq 0 ]; then
+  echo "No ECGroup nodes or Hammerspace Anvil found in inventory. Exiting."
   exit 0
 fi
 
-data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
+data_cluster_mgmt_ip="$(echo "$all_hammerspace" | head -1)"
 
-# Build current node names from storage_map
-current_nodes=()
-for entry in "${storage_map[@]}"; do
-  name=$(echo "$entry" | cut -d: -f2-)
-  current_nodes+=("$name")
-  break
+# 4) Build nodes list (ALL ecgroup node names; ordered unique)
+declare -A seen=()
+nodes_for_vg=()
+for entry in "${ec_map[@]}"; do
+  name="${entry#*:}"
+  if [[ -z "${seen[$name]+x}" ]]; then
+    nodes_for_vg+=("$name")
+    seen["$name"]=1
+  fi
 done
-current_nodes_str=$(printf "%s\n" "${current_nodes[@]}" | sort | tr '\n' ',')
-echo "--- current_nodes_str: $current_nodes_str"
 
-# Check state
-touch "$STATE_FILE"
-saved_nodes_str=$(cat "$STATE_FILE" | tr '\n' ',' || echo "")
-echo "--- saved_nodes_str: $saved_nodes_str"
+echo "ECGroup VG '$ecgroup_vg_name' will include nodes: ${nodes_for_vg[*]}"
 
-if [ "$current_nodes_str" == "$saved_nodes_str" ]; then
-  echo "Volume group already up to date with current nodes. Exiting."
+# 5) Idempotence check (per VG)
+mkdir -p "$STATE_DIR"
+state_file="$STATE_DIR/${ecgroup_vg_name}.txt"
+touch "$state_file"
+current_sorted="$(printf "%s\n" "${nodes_for_vg[@]}" | sort | tr '\n' ',')"
+saved_sorted="$(sort "$state_file" 2>/dev/null | tr '\n' ',' || true)"
+
+if [ "$current_sorted" = "$saved_sorted" ]; then
+  echo "VG '$ecgroup_vg_name' already up to date. Exiting."
   exit 0
 fi
 
-echo "Volume group needs update for nodes: ${current_nodes[*]}"
+# 6) Build vg_node_locations JSON from node names
+vg_node_locations="$(printf "%s\n" "${nodes_for_vg[@]}" | jq -R -s '
+  split("\n") | map(select(length>0)) |
+  map({ "_type":"NODE_LOCATION", "node": {"_type": "NODE", "name": . }})
+')"
 
-# Build vg_node_locations
-vg_node_locations="["
-for entry in "${storage_map[@]}"; do
-  name=$(echo "$entry" | cut -d: -f2-)
-  vg_node_locations+="{ \"_type\": \"NODE_LOCATION\", \"node\": { \"_type\": \"NODE\", \"name\": \"$name\" } },"
-  break
-done
-vg_node_locations="${vg_node_locations%,}]"
-echo "--- vg_node_locations: $vg_node_locations"
-
-# Playbook for create/update VG
-tmp_playbook=$(mktemp)
+# 7) One-off playbook to create/update VG
+tmp_playbook="$(mktemp)"
 cat > "$tmp_playbook" <<EOF
 - hosts: localhost
   gather_facts: false
   vars:
-    hs_username: "$HS_USERNAME"
-    hs_password: "$HS_PASSWORD"
+    hs_username: "$hs_username"
+    hs_password: "$hs_password"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
-    volume_group_name: "$HS_VOLUME_GROUP"
+    volume_group_name: "$ecgroup_vg_name"
     vg_node_locations: $vg_node_locations
 
   tasks:
@@ -193,7 +212,7 @@ cat > "$tmp_playbook" <<EOF
       retries: 30
       delay: 10
 
-    - name: Update volume group if exists (assume PUT for update)
+    - name: Update volume group if exists
       uri:
         url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups/{{ volume_group_name }}"
         method: PUT
@@ -222,45 +241,13 @@ cat > "$tmp_playbook" <<EOF
       until: vg_update.status == 200
       retries: 30
       delay: 10
-
-    - name: Wait until volume group contains all nodes
-      uri:
-        url: "https://{{ data_cluster_mgmt_ip }}:8443/mgmt/v1.2/rest/volume-groups"
-        method: GET
-        user: "{{ hs_username }}"
-        password: "{{ hs_password }}"
-        force_basic_auth: true
-        validate_certs: false
-        return_content: true
-        status_code: 200
-        body_format: json
-        timeout: 30
-      register: volume_groups_updated
-      until: >-
-        (
-          volume_groups_updated.json
-          | selectattr('name', 'equalto', volume_group_name)
-          | map(attribute='expressions')
-          | map('first')
-          | map(attribute='locations')
-          | map('map', attribute='node')
-          | map('map', attribute='name')
-          | list
-          | first
-          | sort
-        ) == (vg_node_locations | map(attribute='node') | map(attribute='name') | list | sort)
-      retries: 30
-      delay: 10
 EOF
 
-  echo "Running Ansible playbook to manage volume group..."
-  ansible-playbook "$tmp_playbook"
+echo "Running Ansible playbook to manage ECGroup VG '$ecgroup_vg_name'..."
+ansible-playbook "$tmp_playbook"
 
-  # Update state
-  printf "%s\n" "${current_nodes[@]}" > "$STATE_FILE"
+# 8) Update state and cleanup
+printf "%s\n" "${nodes_for_vg[@]}" | sort > "$state_file"
+rm -f "$tmp_playbook"
 
-  # Clean up
-  rm -f "$tmp_playbook"
-
-  echo "--- Manage Volume Group Job Complete ---"
-  
+echo "--- Manage ECGroup Volume Group Job Complete ---"

@@ -47,10 +47,7 @@ resource "local_file" "ansible_inventory" {
     ecgroup_nodes   = local.ecgroup_nodes
     hammerspace_nodes = local.hammerspace_nodes
     hs_password	    = local.hs_password
-    storage_vg_name = var.storage_vg_name
-    storage_share_name      = var.storage_share_name
-    ecgroup_vg_name = var.ecgroup_vg_name
-    ecgroup_share_name      = var.ecgroup_share_name 
+    config_ansible  = var.config_ansible
     ecgroup_metadata_array = local.ecgroup_metadata_array
     ecgroup_storage_array = local.ecgroup_storage_array
   })

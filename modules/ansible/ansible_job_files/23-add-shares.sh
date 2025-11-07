@@ -1,9 +1,11 @@
 #!/bin/bash
 #
-# Ansible Job: Create Share
+# Ansible Job: Create Share(s)
 #
-# This script creates the share if not existing.
-# It is idempotent.
+# Requires: jq
+# Behavior: If inventory lacks config_ansible, log and exit 0 (no-op).
+# Idempotence: tracked via STATE_FILE (one line per created share name).
+#
 
 set -euo pipefail
 
@@ -12,64 +14,67 @@ ANSIBLE_LIB_PATH="/usr/local/lib/ansible_functions.sh"
 INVENTORY_FILE="/var/ansible/trigger/inventory.ini"
 STATE_FILE="/var/run/ansible_jobs_status/created_shares.txt"
 
-# --- Source the function library ---
+# --- Source the function library (if required by your env) ---
 if [ ! -f "$ANSIBLE_LIB_PATH" ]; then
   echo "FATAL: Function library not found at $ANSIBLE_LIB_PATH" >&2
   exit 1
 fi
+# shellcheck source=/dev/null
 source "$ANSIBLE_LIB_PATH"
 
-# --- Main Logic ---
 echo "--- Starting Create Share(s) Job ---"
 
-# 1. Verify inventory file exists
+# 1) Verify inventory file exists
 if [ ! -f "$INVENTORY_FILE" ]; then
   echo "ERROR: Inventory file $INVENTORY_FILE not found." >&2
   exit 1
 fi
 
-# 2. Get the username, password, volume group, and share name from the inventroy
+# --- Utilities ---
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "FATAL: required command '$1' is not installed or not in PATH" >&2
+    exit 1
+  }
+}
 
-hs_username=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_username = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-hs_password=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /hs_password = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-storage_vg_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_vg_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
-storage_share_name=$(awk '/^\[all:vars\]$/{flag=1; next} /^\[.*\]$/{flag=0} flag && /storage_share_name = / {sub(/.*= /, ""); print}' "$INVENTORY_FILE")
+# Extract a single var line value from [all:vars]
+ini_get_var() {
+  local key="$1" file="$2"
+  awk '
+    /^\[all:vars\]$/ {flag=1; next}
+    /^\[.*\]$/       {flag=0}
+    flag && $0 ~ "^'"$key"' = " { sub(/.*= /, ""); print; exit }
+  ' "$file"
+}
 
-# Debug: Echo parsed vars
+# Ensure jq exists
+need_cmd jq
+
+# 2) Parse needed vars from inventory
+hs_username="$(ini_get_var 'hs_username' "$INVENTORY_FILE")"
+hs_password="$(ini_get_var 'hs_password' "$INVENTORY_FILE")"
+config_ansible_json="$(ini_get_var 'config_ansible' "$INVENTORY_FILE" || true)"
+
+# If no config_ansible, exit 0 (no-op)
+if [ -z "${config_ansible_json:-}" ]; then
+  echo "INFO: No 'config_ansible' defined in inventory [all:vars]; skipping share creation."
+  exit 0
+fi
+
 echo "Parsed hs_username: $hs_username"
 echo "Parsed hs_password: $hs_password"
-echo "Parsed storage_vg_name: $storage_vg_name"
-echo "Parsed storage_share_name: $storage_share_name"
+echo "Found config_ansible JSON (length: ${#config_ansible_json})"
 
-# Set variables for later use
+# 3) Parse hammerspace and storage_servers sections
 
-HS_USERNAME=$hs_username
-HS_PASSWORD=$hs_password
-HS_VOLUME_GROUP=$storage_vg_name
-HS_SHARE_NAME=$storage_share_name
-
-SHARE_BODY='{'
-SHARE_BODY+='"name": "'$HS_SHARE_NAME'",'
-SHARE_BODY+='"path": "/'$HS_SHARE_NAME'",'
-SHARE_BODY+='"maxShareSize": "0",'
-SHARE_BODY+='"alertThreshold": "90",'
-SHARE_BODY+='"maxShareSizeType": "TB",'
-SHARE_BODY+='"smbAliases": [],'
-SHARE_BODY+='"exportOptions": [{"subnet": "'*'", "rootSquash": "false", "accessPermissions": "RW"}],'
-SHARE_BODY+='"shareSnapshots": [],'
-SHARE_BODY+='"shareObjectives": [{"objective": {"name": "no-atime"}, "applicability": "TRUE"},'
-SHARE_BODY+='{"objective": {"name": "confine-to-'$HS_VOLUME_GROUP'"}, "applicability": "TRUE"}],'
-SHARE_BODY+='"smbBrowsable": "true", "shareSizeLimit": "0"'
-SHARE_BODY+='}'
-
-# 3. Parse hammerspace and storage_servers with names (assuming inventory has IP node_name="name")
-
+# --- hammerspace ---
 all_hammerspace=""
-flag="0"  # Initialize flag for hammerspace parsing
+flag="0"
 while read -r line; do
-  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then 
+  if [[ "$line" =~ ^\[hammerspace\]$ ]]; then
     flag="hammerspace"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then 
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[hammerspace\]$ ]]; then
     flag="0"
   fi
   if [ "$flag" = "hammerspace" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
@@ -77,19 +82,18 @@ while read -r line; do
   fi
 done < "$INVENTORY_FILE"
 
+# --- storage_servers ---
 all_storage_servers=""
 storage_map=() # Array of "IP:name"
-flag="0"  # Initialize flag for storage_servers parsing
+flag="0"
 while read -r line; do
-  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then 
+  if [[ "$line" =~ ^\[storage_servers\]$ ]]; then
     flag="1"
-  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then 
+  elif [[ "$line" =~ ^\[ && ! "$line" =~ ^\[storage_servers\]$ ]]; then
     flag="0"
   fi
   if [ "$flag" = "1" ] && [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     ip=$(echo "$line" | awk '{print $1}')
-    # Note: This assumes inventory lines have node_name="..." format
-    # If not, you'll need to adjust how you get the node name
     name=$(echo "$line" | grep -oP 'node_name="\K[^"]+' || echo "${ip//./-}")
     all_storage_servers+="$ip"$'\n'
     storage_map+=("$ip:$name")
@@ -99,10 +103,10 @@ done < "$INVENTORY_FILE"
 all_hammerspace=$(echo "$all_hammerspace" | grep -v '^$' | sort -u || true)
 all_storage_servers=$(echo "$all_storage_servers" | grep -v '^$' | sort -u || true)
 
-# Debug: Log parsed IPs
-
-echo "Parsed hammerspace: $all_hammerspace"
-echo "Parsed storage_servers: $all_storage_servers"
+echo "Parsed hammerspace:"
+echo "$all_hammerspace"
+echo "Parsed storage_servers:"
+echo "$all_storage_servers"
 
 if [ -z "$all_storage_servers" ] || [ -z "$all_hammerspace" ]; then
   echo "No storage_servers or hammerspace found in inventory. Exiting."
@@ -111,20 +115,67 @@ fi
 
 data_cluster_mgmt_ip=$(echo "$all_hammerspace" | head -1)
 
-if grep -q -F -x "$HS_SHARE_NAME" "$STATE_FILE"; then
-  echo "Share $HS_SHARE_NAME already created. Exiting."
+# 4) Helper to build share JSON body (confine-to-<vg>)
+build_share_body() {
+  local share_name="$1" vg="$2"
+  jq -n --arg name "$share_name" --arg vg "$vg" '
+  {
+    name: $name,
+    path: ("/" + $name),
+    maxShareSize: "0",
+    alertThreshold: "90",
+    maxShareSizeType: "TB",
+    smbAliases: [],
+    exportOptions: [{subnet:"*", rootSquash:"false", accessPermissions:"RW"}],
+    shareSnapshots: [],
+    shareObjectives: [
+      {objective:{name:"no-atime"}, applicability:"TRUE"},
+      {objective:{name:("confine-to-" + $vg)}, applicability:"TRUE"}
+    ],
+    smbBrowsable: "true",
+    shareSizeLimit: "0"
+  }'
+}
+
+# 5) Determine target pairs "<share_name>::<vg_target>" from config_ansible
+declare -a PAIRS=()
+while IFS= read -r key; do
+  share_name="$(jq -r --arg k "$key" '.volume_groups[$k].share // ($k + "_share")' <<<"$config_ansible_json")"
+  vg_target="$(jq -r  --arg k "$key" '(.volume_groups[$k].volume_group // $k)' <<<"$config_ansible_json")"
+  PAIRS+=("${share_name}::${vg_target}")
+done < <(jq -r '(.volume_groups // {}) | keys[]' <<<"$config_ansible_json")
+
+if [ "${#PAIRS[@]}" -eq 0 ]; then
+  echo "INFO: config_ansible.volume_groups is empty; nothing to create. Exiting."
   exit 0
 fi
 
-# Playbook for create share
-tmp_playbook=$(mktemp)
-cat > "$tmp_playbook" <<EOF
+# 6) Ensure state file exists
+mkdir -p "$(dirname "$STATE_FILE")"
+touch "$STATE_FILE"
+
+# 7) For each pair, create share if missing (idempotent)
+for pair in "${PAIRS[@]}"; do
+  HS_SHARE_NAME="${pair%%::*}"
+  HS_VOLUME_GROUP="${pair##*::}"
+
+  if grep -q -F -x "$HS_SHARE_NAME" "$STATE_FILE"; then
+    echo "Share $HS_SHARE_NAME already created. Skipping."
+    continue
+  fi
+
+  echo "Creating share '$HS_SHARE_NAME' confined to VG '$HS_VOLUME_GROUP' ..."
+
+  SHARE_BODY="$(build_share_body "$HS_SHARE_NAME" "$HS_VOLUME_GROUP")"
+
+  tmp_playbook="$(mktemp)"
+  cat > "$tmp_playbook" <<EOF
 ---
 - hosts: localhost
   gather_facts: false
   vars:
-    hs_username: "$HS_USERNAME"
-    hs_password: "$HS_PASSWORD"
+    hs_username: "$hs_username"
+    hs_password: "$hs_password"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
     share_name: "$HS_SHARE_NAME"
     share: $SHARE_BODY
@@ -187,7 +238,7 @@ cat > "$tmp_playbook" <<EOF
       when: share_create.status == 202
 EOF
 
-  echo "Running Ansible playbook to create share..."
+  echo "Running Ansible playbook to create share '$HS_SHARE_NAME'..."
   ansible-playbook "$tmp_playbook"
 
   # Update state
@@ -195,6 +246,6 @@ EOF
 
   # Clean up
   rm -f "$tmp_playbook"
+done
 
-  echo "--- Create Share Job Complete ---"
-  
+echo "--- Create Share Job Complete ---"
