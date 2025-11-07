@@ -60,6 +60,8 @@ placement_group_strategy	     = "cluster"
 
 config_ansible = {
   allow_root = true
+  ecgroup_volume_group = "xyz"
+  ecgroup_share_name = "123"
   volume_groups = {
     group_1 = {
       volumes = ["1","2","3","4"]
