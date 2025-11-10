@@ -86,5 +86,5 @@ variable "ansible_private_key_secret_arn" {
 variable "ansible_controller_cidr" {
   description = "CIDR allowed to SSH to targets (fallback)"
   type	      = string
-  default     = null
+  default     = "0.0.0.0/0"
 }
