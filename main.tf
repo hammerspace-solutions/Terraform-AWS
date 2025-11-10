@@ -320,7 +320,6 @@ locals {
     tags              = var.tags
     project_name      = var.project_name
     ssh_keys_dir      = var.ssh_keys_dir
-    allow_root        = var.allow_root
     placement_group_name = (
       var.placement_group_name != ""
       ? one(aws_placement_group.this[*].name)
@@ -629,7 +628,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count  = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.4"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.5"
 
   common_config                 = local.common_config
   assign_public_ip              = var.assign_public_ip
@@ -667,7 +666,7 @@ module "hammerspace" {
 
 module "ecgroup" {
   count  = local.deploy_ecgroup ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.6"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-ecgroups.git?ref=v1.0.9"
 
   common_config           = local.common_config
   capacity_reservation_id = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? one(aws_ec2_capacity_reservation.ecgroup_node[*].id) : null
