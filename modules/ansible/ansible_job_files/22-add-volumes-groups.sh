@@ -126,12 +126,10 @@ nodes_from_indexes() {
   local -A seen=()
   local out=()
   for idx in "${idxs[@]}"; do
-    # accept "1", "2", ...
     if [[ ! "$idx" =~ ^[0-9]+$ ]]; then
       echo "WARNING: volume index '$idx' is not numeric; skipping." >&2
       continue
     fi
-    # Convert to 0-based
     local zero=$((idx - 1))
     if (( zero < 0 || zero >= ${#storage_map[@]} )); then
       echo "WARNING: volume index '$idx' out of range (1..${#storage_map[@]}); skipping." >&2
@@ -146,12 +144,19 @@ nodes_from_indexes() {
   printf "%s\n" "${out[@]}"
 }
 
-# Build JSON array for vg_node_locations from a list of node names (stdin)
-vg_locations_json_from_stdin() {
-  # shellcheck disable=SC2016
+# Build JSON array for NODE_LOCATIONs from a list of node names (stdin)
+vg_locations_nodes_json_from_stdin() {
   jq -R -s '
     split("\n") | map(select(length>0)) |
     map({ "_type":"NODE_LOCATION", "node": {"_type": "NODE", "name": . }})
+  '
+}
+
+# Build JSON array for VOLUME_GROUP references from a list (stdin) of group names
+vg_locations_groups_json_from_stdin() {
+  jq -R -s '
+    split("\n") | map(select(length>0)) |
+    map({ "_type":"VOLUME_GROUP", "name": . })
   '
 }
 
@@ -163,37 +168,48 @@ changed_any=0
 while IFS= read -r group_key; do
   # Determine VG name
   vg_name=$(echo "$config_ansible_json" | jq -r --arg k "$group_key" '(.volume_groups[$k].volume_group // $k)')
+
   # Extract volumes (list of strings/numbers)
   mapfile -t vol_indexes < <(echo "$config_ansible_json" | jq -r --arg k "$group_key" '
       (.volume_groups[$k].volumes // [])[] | tostring
   ')
-  if [ "${#vol_indexes[@]}" -eq 0 ]; then
-    echo "INFO: Group '$group_key' has no 'volumes'; skipping."
+
+  # Extract add_groups (list of strings)
+  mapfile -t add_groups < <(echo "$config_ansible_json" | jq -r --arg k "$group_key" '
+      (.volume_groups[$k].add_groups // [])[]?
+  ')
+
+  if [ "${#vol_indexes[@]}" -eq 0 ] && [ "${#add_groups[@]}" -eq 0 ]; then
+    echo "INFO: Group '$group_key' has no 'volumes' and no 'add_groups'; skipping."
     continue
   fi
 
   # Map indexes -> node names (ordered, unique)
   mapfile -t nodes_for_vg < <(nodes_from_indexes "${vol_indexes[@]}")
-  if [ "${#nodes_for_vg[@]}" -eq 0 ]; then
-    echo "INFO: Group '$group_key' -> VG '$vg_name' produced no valid nodes; skipping."
-    continue
-  fi
+  # Build NODE_LOCATION JSON (may be empty [])
+  vg_node_locations="$(printf "%s\n" "${nodes_for_vg[@]}" | vg_locations_nodes_json_from_stdin)"
+  # Build VOLUME_GROUP references JSON (may be empty [])
+  vg_group_refs="$(printf "%s\n" "${add_groups[@]}" | vg_locations_groups_json_from_stdin)"
 
-  # Build current state string (sorted for stable compare)
-  current_nodes_sorted="$(printf "%s\n" "${nodes_for_vg[@]}" | sort | tr '\n' ',')"
+  # Combine to final "locations" array: nodes + group refs
+  vg_locations="$(jq -c --argjson a "$vg_node_locations" --argjson b "$vg_group_refs" -n '$a + $b')"
+
+  # For state comparison, we include both node names and add_groups (sorted)
+  current_items_sorted="$(
+    { printf "%s\n" "${nodes_for_vg[@]}"; printf "%s\n" "${add_groups[@]}"; } \
+      | grep -v '^$' | sort | tr '\n' ','
+  )"
+
   state_file="$STATE_DIR/${vg_name}.txt"
   touch "$state_file"
-  saved_nodes_sorted="$(sort "$state_file" 2>/dev/null | tr '\n' ',' || true)"
+  saved_items_sorted="$(sort "$state_file" 2>/dev/null | tr '\n' ',' || true)"
 
-  if [ "$current_nodes_sorted" = "$saved_nodes_sorted" ]; then
+  if [ "$current_items_sorted" = "$saved_items_sorted" ]; then
     echo "VG '$vg_name' already up to date. Skipping."
     continue
   fi
 
-  echo "VG '$vg_name' needs update. Nodes: ${nodes_for_vg[*]}"
-
-  # Build vg_node_locations JSON
-  vg_node_locations="$(printf "%s\n" "${nodes_for_vg[@]}" | vg_locations_json_from_stdin)"
+  echo "VG '$vg_name' needs update. Nodes: ${nodes_for_vg[*]}  AddGroups: ${add_groups[*]:-<none>}"
 
   # One-off playbook to create/update VG
   tmp_playbook="$(mktemp)"
@@ -205,7 +221,7 @@ while IFS= read -r group_key; do
     hs_password: "$hs_password"
     data_cluster_mgmt_ip: "$data_cluster_mgmt_ip"
     volume_group_name: "$vg_name"
-    vg_node_locations: $vg_node_locations
+    vg_locations: $vg_locations
 
   tasks:
     - name: Get all volume groups
@@ -241,7 +257,7 @@ while IFS= read -r group_key; do
               "expressions": [
                 {
                   "operator": "IN",
-                  "locations": vg_node_locations
+                  "locations": vg_locations
                 }
               ]
             }
@@ -271,7 +287,7 @@ while IFS= read -r group_key; do
               "expressions": [
                 {
                   "operator": "IN",
-                  "locations": vg_node_locations
+                  "locations": vg_locations
                 }
               ]
             }
@@ -294,7 +310,7 @@ EOF
   ansible-playbook "$tmp_playbook"
 
   # Update per-VG state (unsorted, one name per line)
-  printf "%s\n" "${nodes_for_vg[@]}" | sort > "$state_file"
+  { printf "%s\n" "${nodes_for_vg[@]}"; printf "%s\n" "${add_groups[@]}"; } | sort > "$state_file"
 
   # Cleanup
   rm -f "$tmp_playbook"
