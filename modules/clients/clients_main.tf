@@ -87,7 +87,6 @@ locals {
     SSH_KEYS          = join("\n", local.ssh_public_keys),
     TIER0             = var.tier0,
     TIER0_TYPE        = var.tier0_type, 
-    ALLOW_ROOT        = var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-client"
@@ -108,6 +107,7 @@ resource "aws_security_group" "client" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    description = "Ingress for Clients for any protocol"
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
@@ -115,7 +115,8 @@ resource "aws_security_group" "client" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Egress from Clients for any protocol"
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
   tags = merge(local.common_tags, {

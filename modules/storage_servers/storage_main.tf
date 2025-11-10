@@ -88,7 +88,6 @@ locals {
     TARGET_HOME = "/home/${var.target_user}",
     EBS_COUNT   = var.ebs_count + local.nvme_count,
     RAID_LEVEL  = var.raid_level,
-    ALLOW_ROOT	= var.common_config.allow_root
   })
 
   resource_prefix = "${var.common_config.project_name}-storage"
@@ -109,6 +108,7 @@ resource "aws_security_group" "storage" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    description = "Allow ingress to Storage Server for any protocol"
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
@@ -116,7 +116,8 @@ resource "aws_security_group" "storage" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow egress from Storage Server for any protocol"
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
   tags = merge(local.common_tags, {

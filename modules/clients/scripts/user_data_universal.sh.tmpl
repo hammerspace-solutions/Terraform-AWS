@@ -56,7 +56,6 @@ try sudo pip3 install boto3 botocore
 TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 SSH_KEYS='${SSH_KEYS}'
-ALLOW_ROOT='${ALLOW_ROOT}'
 TIER0='${TIER0}'
 TIER0_TYPE='${TIER0_TYPE}'
 
@@ -66,7 +65,6 @@ echo "[bootstrap] --- Input variables"
 echo "[bootstrap] TARGET_USER=$${TARGET_USER}"
 echo "[bootstrap] TARGET_HOME=$${TARGET_HOME}"
 echo "[bootstrap] SSH_KEYS=$${SSH_KEYS}"
-echo "[bootstrap] ALLOW_ROOT=$${ALLOW_ROOT}"
 echo "[bootstrap] TIER0=$${TIER0}"
 echo "[bootstrap] TIER0_TYPE=$${TIER0_TYPE}"
 
@@ -101,7 +99,7 @@ fi
 
 # Optional root keys
 
-if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+if [ -n "$${SSH_KEYS}" ]; then
   echo "[bootstrap] ---- Update SSH_KEYS into root directory"
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
   if [ -f /root/.ssh/authorized_keys ]; then

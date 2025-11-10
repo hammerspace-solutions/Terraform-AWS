@@ -138,7 +138,6 @@ TARGET_USER='${TARGET_USER}'
 TARGET_HOME='${TARGET_HOME}'
 EBS_COUNT='${EBS_COUNT}'
 RAID_LEVEL='${RAID_LEVEL}'  # "raid-0" | "raid-5" | "raid-6"
-ALLOW_ROOT='${ALLOW_ROOT}'
 
 # Strict mode (after SSM install to allow fallbacks)
 set -euo pipefail
@@ -162,7 +161,7 @@ fi
 
 # Optional root keys
 
-if [ -n "$${SSH_KEYS}" ] && [ "$${ALLOW_ROOT}" = "true" ]; then
+if [ -n "$${SSH_KEYS}" ]; then
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
   if [ -f /root/.ssh/authorized_keys ]; then
       echo "Remove no-port-forwarding from root authorized_keys"
