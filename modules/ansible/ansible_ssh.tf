@@ -71,8 +71,8 @@ resource "aws_security_group_rule" "ssh_sg_egress_all" {
   to_port           = 0
   protocol          = "-1"
   security_group_id = aws_security_group.allow_ssh_from_ansible.id
-  cidr_blocks       = ["0.0.0.0/0"]
-  ipv6_cidr_blocks  = ["::/0"]
+  description       = "Egress for Ansible controller for SSH"
+  cidr_blocks       = [var.ansible_controller_cidr]
 }
 
 # ---- How to attach to your target instances (or pass into modules) ----

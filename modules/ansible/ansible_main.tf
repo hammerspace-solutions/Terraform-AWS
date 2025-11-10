@@ -131,30 +131,30 @@ resource "aws_security_group" "ansible" {
   vpc_id      = var.common_config.vpc_id
 
   ingress {
-    description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
+    description = "Ingress for Ansible for SSH protocol"
     cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
   ingress {
-    description = "ICMP (ping) - temp for testing"
     from_port   = -1
     to_port     = -1
     protocol    = "icmp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Ingress for Ansible for ICMP protocol"
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
   # You should not allow access to ansible services from the internet.
   # This is for testing and should be modified to fit your needs.
 
   egress {
-    description = "ALL"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Egress for Ansible for all protocols"
+    cidr_blocks = var.common_config.allowed_source_cidr_blocks
   }
 
   tags = merge(
