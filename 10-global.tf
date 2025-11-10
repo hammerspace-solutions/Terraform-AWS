@@ -142,7 +142,7 @@ variable "placement_group_strategy" {
 variable "iam_admin_group_name" {
   description = "IAM admin group name for SSH access (can be existing group name or blank to create new)"
   type        = string
-  default     = null
+  default     = ""
 }
 
 variable "iam_profile_name" {

@@ -89,7 +89,6 @@ key_name   			     = "Some-PEM-Key"
 vpc_id     			     = "vpc-e3b5890"
 subnet_id  			     = "subnet-0d8a5034456df"
 region				     = "us-west-2"
-allow_root			     = false
 
 # This is the allowed ingress cidr blocks. These will be added to the vpc cidr automatically
 # upon instantiation.
