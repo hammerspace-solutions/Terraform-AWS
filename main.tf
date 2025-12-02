@@ -32,24 +32,333 @@ provider "aws" {
 }
 
 # -----------------------------------------------------------------------------
-# Pre-flight Validation for Networking
+# Availability Zone guardrail
+# -----------------------------------------------------------------------------
+# Make sure that they don't specify an availability zone if they want to use
+# a pre-existing vpc_id
 # -----------------------------------------------------------------------------
 
-data "aws_vpc" "validation" {
-  id = var.vpc_id
+data "aws_availability_zones" "available" {
+  state = "available"
 }
 
-data "aws_subnet" "private_subnet" {
-  id = var.subnet_id
+check "az_config_guard" {
+  assert {
+    condition = (
+      # Case 1: Using existing VPC → AZs must NOT be specified
+      (local.use_existing_vpc &&
+        var.subnet_1_az == null &&
+        var.subnet_2_az == null
+      )
+      ||
+      # Case 2: Creating VPC → AZs must be non-empty and valid for this region
+      (!local.use_existing_vpc &&
+        var.subnet_1_az != null &&
+        var.subnet_2_az != null &&
+        contains(data.aws_availability_zones.available.names, var.subnet_1_az) &&
+        contains(data.aws_availability_zones.available.names, var.subnet_2_az)
+      )
+    )
+
+    error_message = <<-EOT
+      Invalid Availability Zone configuration:
+
+      - When using an existing VPC (vpc_id is set):
+        * subnet_1_az and subnet_2_az must be null.
+      - When creating a new VPC (vpc_id is null):
+        * subnet_1_az and subnet_2_az must be non-empty
+        * each must be a valid availability zone in region ${var.region}
+    EOT
+  }
 }
 
-# Define the public subnet data source. It will only be instantiated (count = 1)
-# if var.public_subnet_id is not null. Otherwise, it will be an empty list (count = 0).
+# -----------------------------------------------------------------------------
+# Network configuration guardrail
+# -----------------------------------------------------------------------------
+# Rules (enforced via variables.tf validation):
+# - Exactly one of vpc_id or vpc_cidr is set
+# - For each subnet (private/public 1/2), either *_id or *_cidr is set, not both
+# - If vpc_id is set, no subnet CIDRS are allowed.
+# - If vpc_id is null, vpc_cidr + all four subnet CIDRs must be set, and all *_id null
+# -----------------------------------------------------------------------------
 
-data "aws_subnet" "public_subnet_data" {
-  count = var.public_subnet_id != "" ? 1 : 0
-  id    = var.public_subnet_id
+check "network_config_guard" {
+  assert {
+    condition = (
+      # 1) Exactly one of vpc_id / vpc_cidr must be set
+      (
+        (var.vpc_id != null && var.vpc_cidr == null) ||
+        (var.vpc_id == null && var.vpc_cidr != null)
+      )
+      &&
+      # 2) If vpc_id is set, NO subnet CIDRs may be set
+      (
+        var.vpc_id == null ||
+        (
+          var.private_subnet_1_cidr == null &&
+          var.private_subnet_2_cidr == null &&
+          var.public_subnet_1_cidr == null &&
+          var.public_subnet_2_cidr == null
+        )
+      )
+      &&
+      # 3) For each subnet, you cannot set both ID and CIDR
+      !(
+        (var.private_subnet_1_id != null && var.private_subnet_1_cidr != null) ||
+        (var.private_subnet_2_id != null && var.private_subnet_2_cidr != null) ||
+        (var.public_subnet_1_id != null && var.public_subnet_1_cidr != null) ||
+        (var.public_subnet_2_id != null && var.public_subnet_2_cidr != null) ||
+        # alias conflict: private_subnet_id vs private_subnet_1_id/CIDR
+        (var.private_subnet_id != null && var.private_subnet_1_id != null) ||
+        (var.private_subnet_id != null && var.private_subnet_1_cidr != null) ||
+        (var.public_subnet_id != null && var.public_subnet_1_id != null) ||
+        (var.public_subnet_id != null && var.public_subnet_1_cidr != null)
+      )
+      &&
+      # 4) If vpc_id is null (we're creating the VPC):
+      #    - vpc_cidr must be set
+      #    - All four subnet CIDRs must be set
+      #    - No subnet IDs may be set
+      (
+        var.vpc_id != null ||
+        (
+          var.vpc_cidr != null &&
+          var.private_subnet_1_cidr != null &&
+          var.private_subnet_2_cidr != null &&
+          var.public_subnet_1_cidr != null &&
+          var.public_subnet_2_cidr != null &&
+          var.private_subnet_1_id == null &&
+          var.private_subnet_2_id == null &&
+          var.public_subnet_1_id == null &&
+          var.public_subnet_2_id == null
+        )
+      )
+    )
+
+    error_message = <<-EOT
+      Invalid VPC/subnet configuration:
+
+      - You must set exactly ONE of vpc_id or vpc_cidr.
+      - If vpc_id is set:
+        * vpc_cidr must be null
+        * all *_cidr subnet variables must be null
+      - For each subnet (private/public, 1/2):
+        * you may set either *_id or *_cidr, but not both
+      - If vpc_id is null (you are creating the VPC):
+        * vpc_cidr must be set
+        * all four subnet CIDRs must be set
+        * all subnet *_id variables must be null
+    EOT
+  }
 }
+
+# -----------------------------------------------------------------------------
+# Network creation / resolution (VPC + subnets)
+# -----------------------------------------------------------------------------
+# Rules (enforced via variables.tf validation):
+# - Exactly one of vpc_id or vpc_cidr is set
+# - For each subnet (private/public 1/2), either *_id or *_cidr is set, not both
+# - If vpc_id is set, no subnet CIDRS are allowed.
+# - If vpc_id is null, vpc_cidr + all four subnet CIDRs must be set, and all *_id null
+# -----------------------------------------------------------------------------
+
+locals {
+  use_existing_vpc = var.vpc_id != null
+}
+
+# Create VPC only if one if not provided
+
+resource "aws_vpc" "main" {
+  count      = local.use_existing_vpc ? 0 : 1
+  cidr_block = var.vpc_cidr
+
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = merge(var.tags, { Name = "${var.project_name}-vpc" })
+}
+
+# Lookup existing VPC only if vpc_id is provided
+
+data "aws_vpc" "existing" {
+  count = local.use_existing_vpc ? 1 : 0
+  id    = var.vpc_id
+}
+
+locals {
+  vpc_id_effective   = local.use_existing_vpc ? var.vpc_id : aws_vpc.main[0].id
+  vpc_cidr_effective = local.use_existing_vpc ? data.aws_vpc.existing[0].cidr_block : var.vpc_cidr
+}
+
+# ---------------------------
+# Subnets (create or reuse)
+# ---------------------------
+
+# Private subnet 1
+
+resource "aws_subnet" "private_1" {
+  count = var.private_subnet_1_id == null ? 1 : 0
+
+  vpc_id                  = local.vpc_id_effective
+  cidr_block              = var.private_subnet_1_cidr
+  availability_zone       = var.subnet_1_az
+  map_public_ip_on_launch = false
+  tags                    = merge(var.tags, { Name = "${var.project_name}-private-1" })
+}
+
+# Private subnet 2
+
+resource "aws_subnet" "private_2" {
+  count = var.private_subnet_2_id == null ? 1 : 0
+
+  vpc_id                  = local.vpc_id_effective
+  cidr_block              = var.private_subnet_2_cidr
+  availability_zone       = var.subnet_2_az
+  map_public_ip_on_launch = false
+  tags                    = merge(var.tags, { Name = "${var.project_name}-private-2" })
+}
+
+# Public subnet 1
+
+resource "aws_subnet" "public_1" {
+  count = var.public_subnet_1_id == null ? 1 : 0
+
+  vpc_id                  = local.vpc_id_effective
+  cidr_block              = var.public_subnet_1_cidr
+  availability_zone       = var.subnet_1_az
+  map_public_ip_on_launch = false
+  tags                    = merge(var.tags, { Name = "${var.project_name}-public-1" })
+}
+
+# Public subnet 2
+
+resource "aws_subnet" "public_2" {
+  count = var.public_subnet_2_id == null ? 1 : 0
+
+  vpc_id                  = local.vpc_id_effective
+  cidr_block              = var.public_subnet_2_cidr
+  availability_zone       = var.subnet_2_az
+  map_public_ip_on_launch = false
+  tags                    = merge(var.tags, { Name = "${var.project_name}-public-2" })
+}
+
+locals {
+  private_subnet_1_id_effective = coalesce(
+    var.private_subnet_1_id,
+    var.private_subnet_id,
+    try(aws_subnet.private_1[0].id, null),
+  )
+
+  private_subnet_2_id_effective = coalesce(
+    var.private_subnet_2_id,
+    try(aws_subnet.private_2[0].id, null),
+  )
+
+  public_subnet_1_id_effective = coalesce(
+    var.public_subnet_1_id,
+    var.public_subnet_id,
+    try(aws_subnet.public_1[0].id, null),
+  )
+
+  public_subnet_2_id_effective = coalesce(
+    var.public_subnet_2_id,
+    try(aws_subnet.public_2[0].id, null),
+  )
+}
+
+# We pick private_subnet_1 as the "primary" AZ for capacity reservations, etc.
+
+data "aws_subnet" "private_primary" {
+  id = local.private_subnet_1_id_effective
+}
+
+# -----------------------------------------------------------------------------
+# (Optional) Network infrastructure when we CREATE the VPC
+#   - If vpc_id is provided, we assume the existing network already has IGW/NAT/etc.
+# -----------------------------------------------------------------------------
+
+# Internet Gateway
+
+resource "aws_internet_gateway" "this" {
+  count  = local.use_existing_vpc ? 0 : 1
+  vpc_id = local.vpc_id_effective
+
+  tags = merge(var.tags, { Name = "${var.project_name}-igw" })
+}
+
+# NAT Gateway (in public subnet 1)
+
+resource "aws_eip" "nat" {
+  count  = local.use_existing_vpc ? 0 : 1
+  domain = "vpc"
+
+  tags = merge(var.tags, { Name = "${var.project_name}-nat-eip" })
+}
+
+resource "aws_nat_gateway" "this" {
+  count         = local.use_existing_vpc ? 0 : 1
+  allocation_id = aws_eip.nat[0].id
+  subnet_id     = aws_subnet.public_1[0].id
+
+  tags = merge(var.tags, { Name = "${var.project_name}-nat" })
+}
+
+# Public route table (IGW)
+
+resource "aws_route_table" "public" {
+  count  = local.use_existing_vpc ? 0 : 1
+  vpc_id = local.vpc_id_effective
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this[0].id
+  }
+
+  tags = merge(var.tags, { Name = "${var.project_name}-public-rt" })
+}
+
+resource "aws_route_table_association" "public_1" {
+  count          = local.use_existing_vpc ? 0 : 1
+  subnet_id      = aws_subnet.public_1[0].id
+  route_table_id = aws_route_table.public[0].id
+}
+
+resource "aws_route_table_association" "public_2" {
+  count          = local.use_existing_vpc ? 0 : 1
+  subnet_id      = aws_subnet.public_2[0].id
+  route_table_id = aws_route_table.public[0].id
+}
+
+# Private route table (NAT)
+
+resource "aws_route_table" "private" {
+  count  = local.use_existing_vpc ? 0 : 1
+  vpc_id = local.vpc_id_effective
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.this[0].id
+  }
+
+  tags = merge(var.tags, { Name = "${var.project_name}-private-rt" })
+}
+
+resource "aws_route_table_association" "private_1" {
+  count          = local.use_existing_vpc ? 0 : 1
+  subnet_id      = aws_subnet.private_1[0].id
+  route_table_id = aws_route_table.private[0].id
+}
+
+resource "aws_route_table_association" "private_2" {
+  count          = local.use_existing_vpc ? 0 : 1
+  subnet_id      = aws_subnet.private_2[0].id
+  route_table_id = aws_route_table.private[0].id
+}
+
+# -----------------------------------------------------------------------------
+# Pre-flight checks for AMI existence and instance types
+# (Networking checks that referenced var.vpc_id / var.subnet_id are removed)
+# -----------------------------------------------------------------------------
 
 # These group of checks make sure that the AMIs exist in the region
 # where you are trying to start them up. This only gets the data,
@@ -131,24 +440,6 @@ data "aws_ami" "storage_ami_check" {
 }
 
 # -----------------------------------------------------------------------------
-# Pre-flight check that the subnet is in the vpc
-# -----------------------------------------------------------------------------
-
-check "vpc_and_subnet_validation" {
-  assert {
-    condition     = data.aws_subnet.private_subnet.vpc_id == data.aws_vpc.validation.id
-    error_message = "Validation Error: The provided subnet (ID: ${var.subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."
-  }
-}
-
-check "public_subnet_validation" {
-  assert {
-    condition     = var.public_subnet_id == "" || (data.aws_subnet.public_subnet_data[0].vpc_id == data.aws_vpc.validation.id)
-    error_message = "Validation Error: The provided public_subnet_id (ID: ${var.public_subnet_id}) does not belong to the provided VPC (ID: ${var.vpc_id})."
-  }
-}
-
-# -----------------------------------------------------------------------------
 # Pre-flight checks for instance type existence.
 # -----------------------------------------------------------------------------
 
@@ -161,13 +452,13 @@ check "anvil_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.private_subnet.availability_zone]
+      values = [data.aws_subnet.private_primary.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.anvil_check.instance_types) > 0
-    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
+    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
   }
 }
 
@@ -180,13 +471,13 @@ check "dsx_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.private_subnet.availability_zone]
+      values = [data.aws_subnet.private_primary.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.dsx_check.instance_types) > 0
-    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
+    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
   }
 }
 
@@ -199,13 +490,13 @@ check "client_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.private_subnet.availability_zone]
+      values = [data.aws_subnet.private_primary.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.client_check.instance_types) > 0
-    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
+    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
   }
 }
 
@@ -218,13 +509,13 @@ check "storage_server_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.private_subnet.availability_zone]
+      values = [data.aws_subnet.private_primary.availability_zone]
     }
     location_type = "availability-zone"
   }
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.storage_check.instance_types) > 0
-    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
+    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
   }
 }
 
@@ -239,14 +530,14 @@ check "ecgroup_node_instance_type_is_available" {
     }
     filter {
       name   = "location"
-      values = [data.aws_subnet.private_subnet.availability_zone]
+      values = [data.aws_subnet.private_primary.availability_zone]
     }
     location_type = "availability-zone"
   }
 
   assert {
     condition     = length(data.aws_ec2_instance_type_offerings.ecgroup_node_check.instance_types) > 0
-    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_subnet.availability_zone})."
+    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
   }
 }
 
@@ -309,13 +600,18 @@ check "storage_ami_exists" {
 
 locals {
 
-  all_allowed_cidr_blocks = distinct(concat([data.aws_vpc.validation.cidr_block], var.allowed_source_cidr_blocks))
+  all_allowed_cidr_blocks = distinct(
+    concat(
+      [local.vpc_cidr_effective],
+      var.allowed_source_cidr_blocks,
+    )
+  )
 
   common_config = {
     region            = var.region
-    availability_zone = data.aws_subnet.private_subnet.availability_zone
-    vpc_id            = var.vpc_id
-    subnet_id         = var.subnet_id
+    availability_zone = data.aws_subnet.private_primary.availability_zone
+    vpc_id            = local.vpc_id_effective
+    subnet_id         = local.private_subnet_1_id_effective
     key_name          = var.key_name
     tags              = var.tags
     project_name      = var.project_name
@@ -370,7 +666,7 @@ resource "aws_ec2_capacity_reservation" "anvil" {
 
   instance_type     = var.hammerspace_anvil_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -387,7 +683,7 @@ resource "aws_ec2_capacity_reservation" "dsx" {
 
   instance_type     = var.hammerspace_dsx_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -404,7 +700,7 @@ resource "aws_ec2_capacity_reservation" "clients" {
 
   instance_type     = var.clients_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.clients_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -421,7 +717,7 @@ resource "aws_ec2_capacity_reservation" "storage" {
 
   instance_type     = var.storage_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.storage_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -440,7 +736,7 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
 
   instance_type     = var.ecgroup_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.ecgroup_node_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -459,7 +755,7 @@ resource "aws_ec2_capacity_reservation" "ansible" {
 
   instance_type     = var.ansible_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_subnet.availability_zone
+  availability_zone = data.aws_subnet.private_primary.availability_zone
   instance_count    = var.ansible_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -489,10 +785,10 @@ resource "aws_placement_group" "this" {
 module "iam_core" {
   source = "./modules/iam-core"
 
-  iam_profile_name          = var.iam_profile_name
-  common_config             = local.common_config
-  role_path                 = var.iam_role_path
-  extra_managed_policy_arns = var.iam_additional_policy_arns
+  iam_profile_name               = var.iam_profile_name
+  common_config                  = local.common_config
+  role_path                      = var.iam_role_path
+  extra_managed_policy_arns      = var.iam_additional_policy_arns
   ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
 
 }
@@ -505,7 +801,7 @@ module "ansible" {
 
   common_config           = local.common_config
   assign_public_ip        = var.assign_public_ip
-  public_subnet_id        = var.public_subnet_id
+  public_subnet_id        = local.public_subnet_1_id_effective
   capacity_reservation_id = local.deploy_ansible && var.ansible_instance_count > 0 ? one(aws_ec2_capacity_reservation.ansible[*].id) : null
 
   instance_count   = var.ansible_instance_count
@@ -531,7 +827,7 @@ module "ansible" {
 
   # Use public / private key for ansible communication
 
-  ansible_ssh_public_key = var.ansible_ssh_public_key
+  ansible_ssh_public_key         = var.ansible_ssh_public_key
   ansible_private_key_secret_arn = var.ansible_private_key_secret_arn
 
   # Security for ssh control
@@ -546,8 +842,8 @@ module "ansible" {
   # Pass the ecgroup_metadata information if ECGroups were deployed
 
   ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
-  ecgroup_storage_array = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
-  
+  ecgroup_storage_array  = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
+
   depends_on = [
     module.iam_core
   ]
@@ -582,9 +878,9 @@ module "clients" {
   iam_profile_group = var.iam_admin_group_name
 
   # Key and security group(s) needed for ansible configuration
-  
+
   ansible_key_name = module.ansible[0].ansible_key_name
-  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+  ansible_sg_id    = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace
@@ -617,9 +913,9 @@ module "storage_servers" {
   iam_profile_group = var.iam_admin_group_name
 
   # Key and security group(s) needed for ansible configuration
-  
+
   ansible_key_name = module.ansible[0].ansible_key_name
-  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+  ansible_sg_id    = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace
@@ -632,28 +928,28 @@ module "hammerspace" {
 
   common_config                 = local.common_config
   assign_public_ip              = var.assign_public_ip
-  public_subnet_id              = var.public_subnet_id
+  public_subnet_id              = local.public_subnet_1_id_effective
   anvil_capacity_reservation_id = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? one(aws_ec2_capacity_reservation.anvil[*].id) : null
   dsx_capacity_reservation_id   = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? one(aws_ec2_capacity_reservation.dsx[*].id) : null
 
-  ami                       = var.hammerspace_ami
-  anvil_security_group_id   = var.hammerspace_anvil_security_group_id
-  dsx_security_group_id     = var.hammerspace_dsx_security_group_id
-  anvil_count               = var.hammerspace_anvil_count
-  sa_anvil_destruction      = var.hammerspace_sa_anvil_destruction
-  anvil_type                = var.hammerspace_anvil_instance_type
-  anvil_meta_disk_size      = var.hammerspace_anvil_meta_disk_size
-  anvil_meta_disk_type      = var.hammerspace_anvil_meta_disk_type
-  anvil_meta_disk_iops      = var.hammerspace_anvil_meta_disk_iops
+  ami                        = var.hammerspace_ami
+  anvil_security_group_id    = var.hammerspace_anvil_security_group_id
+  dsx_security_group_id      = var.hammerspace_dsx_security_group_id
+  anvil_count                = var.hammerspace_anvil_count
+  sa_anvil_destruction       = var.hammerspace_sa_anvil_destruction
+  anvil_type                 = var.hammerspace_anvil_instance_type
+  anvil_meta_disk_size       = var.hammerspace_anvil_meta_disk_size
+  anvil_meta_disk_type       = var.hammerspace_anvil_meta_disk_type
+  anvil_meta_disk_iops       = var.hammerspace_anvil_meta_disk_iops
   anvil_meta_disk_throughput = var.hammerspace_anvil_meta_disk_throughput
-  dsx_count                 = var.hammerspace_dsx_count
-  dsx_type                  = var.hammerspace_dsx_instance_type
-  dsx_ebs_size              = var.hammerspace_dsx_ebs_size
-  dsx_ebs_type              = var.hammerspace_dsx_ebs_type
-  dsx_ebs_iops              = var.hammerspace_dsx_ebs_iops
-  dsx_ebs_throughput        = var.hammerspace_dsx_ebs_throughput
-  dsx_ebs_count             = var.hammerspace_dsx_ebs_count
-  dsx_add_vols              = var.hammerspace_dsx_add_vols
+  dsx_count                  = var.hammerspace_dsx_count
+  dsx_type                   = var.hammerspace_dsx_instance_type
+  dsx_ebs_size               = var.hammerspace_dsx_ebs_size
+  dsx_ebs_type               = var.hammerspace_dsx_ebs_type
+  dsx_ebs_iops               = var.hammerspace_dsx_ebs_iops
+  dsx_ebs_throughput         = var.hammerspace_dsx_ebs_throughput
+  dsx_ebs_count              = var.hammerspace_dsx_ebs_count
+  dsx_add_vols               = var.hammerspace_dsx_add_vols
 
   # IAM Roles
 
@@ -697,9 +993,9 @@ module "ecgroup" {
   iam_profile_group = var.iam_admin_group_name
 
   # Key and security group(s) needed for ansible configuration
-  
+
   ansible_key_name = module.ansible[0].ansible_key_name
-  ansible_sg_id = module.ansible[0].allow_ssh_from_ansible_sg_id
+  ansible_sg_id    = module.ansible[0].allow_ssh_from_ansible_sg_id
 
   depends_on = [
     module.hammerspace

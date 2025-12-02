@@ -32,16 +32,76 @@ variable "region" {
   default     = "us-west-2"
 }
 
+# Do we use an existing VPC or create a new one? The next two variables decide that
+# question
+
+variable "vpc_id" {
+  description = "VPC ID for all resources"
+  type        = string
+  default     = null
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR Block"
+  type        = string
+  default     = null
+}
+
+# When defining Security Groups, what are the allowed CIDR that can address our instances?
+# Define a list of those IP address ranges in this variable for locking down access to
+# your instances.
+
 variable "allowed_source_cidr_blocks" {
   description = "A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range)."
   type        = list(string)
   default     = []
 }
 
+# Alias for private and public subnet(s). In MOST cases, we will not address a specific
+# private subnet (either 1 or 2), but rather we want to address just private_subnet_id.
+#
+# The same is true for the public subnet...
+#
+# It is only with certain services like Amazon MQ or Aurora that we would want multiple
+# private subnets
+
+variable "private_subnet_id" {
+  description = "Convenience alias for the primary private subnet"
+  type        = string
+  default     = null
+}
+
 variable "public_subnet_id" {
+  description = "Convenience alias for the primary public subnet"
+  type        = string
+  default     = null
+}
+
+# Do we use an existing private or public subnet or create a new one. That question
+# is defined in the next couple of variables
+
+variable "private_subnet_1_id" {
+  description = "Private Subnet 1 ID for resources"
+  type        = string
+  default     = null
+}
+
+variable "private_subnet_2_id" {
+  description = "Private Subnet 2 ID for resources"
+  type        = string
+  default     = null
+}
+
+variable "public_subnet_1_id" {
   description = "The ID of the public subnet to use for instances requiring a public IP. Optional, but required if assign_public_ip is true."
   type        = string
-  default     = ""
+  default     = null
+}
+
+variable "public_subnet_2_id" {
+  description = "The ID of the public subnet to use for instances requiring a public IP. Optional, but required if assign_public_ip is true."
+  type        = string
+  default     = null
 }
 
 variable "assign_public_ip" {
@@ -50,20 +110,48 @@ variable "assign_public_ip" {
   default     = false
 }
 
+variable "private_subnet_1_cidr" {
+  description = "Private Subnet-1 CIDR Block"
+  type        = string
+  default     = null
+}
+
+variable "subnet_1_az" {
+  description = "Subnet-1 Availability Zone"
+  type        = string
+  default     = null
+}
+
+variable "private_subnet_2_cidr" {
+  description = "Private Subnet-2 CIDR Block"
+  type        = string
+  default     = null
+}
+
+variable "subnet_2_az" {
+  description = "Subnet-2 Availability Zone"
+  type        = string
+  default     = null
+}
+
+variable "public_subnet_1_cidr" {
+  description = "Public Subnet-1 CIDR"
+  type        = string
+  default     = null
+}
+
+variable "public_subnet_2_cidr" {
+  description = "Public Subnet-2 CIDR"
+  type        = string
+  default     = null
+}
+
+# Custom AMI's and their Owner ID's...
+
 variable "custom_ami_owner_ids" {
   description = "A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts."
   type        = list(string)
   default     = []
-}
-
-variable "vpc_id" {
-  description = "VPC ID for all resources"
-  type        = string
-}
-
-variable "subnet_id" {
-  description = "Subnet ID for resources"
-  type        = string
 }
 
 variable "key_name" {
@@ -84,6 +172,10 @@ variable "project_name" {
   validation {
     condition     = var.project_name != ""
     error_message = "Project must have a name"
+  }
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9_-]+$", var.project_name))
+    error_message = "Project name can only contain letters, numbers, hyphens, or underscores"
   }
 }
 
@@ -119,7 +211,7 @@ variable "capacity_reservation_create_timeout" {
 
 variable "capacity_reservation_expiration" {
   description = "The amount of time (in minutes) before a capacity reservation is expired"
-  type	      = string
+  type        = string
   default     = "10m"
 }
 
@@ -163,4 +255,11 @@ variable "iam_additional_policy_arns" {
   default     = []
 }
 
+# Create a DNS if requested
+
+variable "hosted_zone_name" {
+  description = "Route 53 Private Hosted Zone Name"
+  type        = string
+  default     = ""
+}
 
