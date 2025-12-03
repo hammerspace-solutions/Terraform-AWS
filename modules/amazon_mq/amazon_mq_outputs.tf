@@ -25,18 +25,6 @@
 
 # outputs.tf - Optional outputs for key ARNs/IDs after apply
 
-output "vpc_id" {
-  value = aws_vpc.main.id
-}
-
-output "private_subnet_ids" {
-  value = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-}
-
-output "public_subnet_ids" {
-  value = [aws_subnet.public_a.id, aws_subnet.public_b.id]
-}
-
 output "rabbitmq_broker_id" {
   description = "ID of the Amazon MQ RabbitMQ broker"
   value       = aws_mq_broker.rabbitmq.id
@@ -66,8 +54,4 @@ output "rabbitmq_console_url" {
 
 output "hosted_zone_id" {
   value = aws_route53_zone.private.id
-}
-
-output "test_ec2_id" {
-  value = length(aws_instance.test_ec2) > 0 ? aws_instance.test_ec2[0].id : null
 }

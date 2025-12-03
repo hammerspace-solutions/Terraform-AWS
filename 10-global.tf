@@ -197,9 +197,9 @@ variable "deploy_components" {
   default     = ["all"]
   validation {
     condition = alltrue([
-      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup"], c)
+      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup", "mq"], c)
     ])
-    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", \"ecgroup\" or \"hammerspace\"."
+    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", \"ecgroup\", \"hammerspace\" or \"mq (amazon mq)\"."
   }
 }
 

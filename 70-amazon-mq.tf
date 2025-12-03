@@ -46,28 +46,33 @@ variable "rabbitmq_admin_username" {
   description = "Initial admin username for Amazon MQ RabbitMQ"
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "rabbitmq_admin_password" {
   description = "Initial admin password for Amazon MQ RabbitMQ"
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "site_admin_username" {
   description = "Admin username for the administration user on the *site* RabbitMQ containers"
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "site_admin_password" {
   description = "Password for the admin user on the *site* RabbitMQ containers"
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "site_admin_password_hash" {
   description = "Precomputed RabbitMQ password hash for the site admin user (for definitions.json)"
   type        = string
   sensitive   = true
+  default     = null
 }

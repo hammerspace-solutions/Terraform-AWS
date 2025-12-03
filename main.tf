@@ -73,6 +73,36 @@ check "az_config_guard" {
 }
 
 # -----------------------------------------------------------------------------
+# Validate that amazon mq credentials are set when amazon mq is enabled
+# -----------------------------------------------------------------------------
+
+check "mq_credentials_when_enabled" {
+  assert {
+    condition = (
+      !local.deploy_mq ||
+      (
+        var.rabbitmq_admin_username  != null &&
+        var.rabbitmq_admin_password  != null &&
+        var.site_admin_username      != null &&
+        var.site_admin_password      != null &&
+        var.site_admin_password_hash != null
+      )
+    )
+
+    error_message = <<-EOT
+      When deploying Amazon MQ (deploy_components includes "mq" or "all"),
+      you must set all of the following variables:
+
+        - rabbitmq_admin_username
+        - rabbitmq_admin_password
+        - site_admin_username
+        - site_admin_password
+        - site_admin_password_hash
+    EOT
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Network configuration guardrail
 # -----------------------------------------------------------------------------
 # Rules (enforced via variables.tf validation):
@@ -628,6 +658,7 @@ locals {
   deploy_storage     = contains(var.deploy_components, "all") || contains(var.deploy_components, "storage")
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
+  deploy_mq	     = contains(var.deploy_components, "all") || contains(var.deploy_components, "mq")
   deploy_ansible     = var.ansible_instance_count > 0
 
   all_ssh_nodes = concat(
@@ -844,6 +875,31 @@ module "ansible" {
   ecgroup_metadata_array = local.deploy_ecgroup ? one(module.ecgroup[*].metadata_array) : ""
   ecgroup_storage_array  = local.deploy_ecgroup ? one(module.ecgroup[*].storage_array) : ""
 
+  depends_on = [
+    module.iam_core
+  ]
+}
+
+# Deploy the Amazon MQ module is desired
+
+module "amazon_mq" {
+  count  = local.deploy_mq ? 1 : 0
+  source = "./modules/amazon_mq"
+
+  project_name	   = var.project_name
+  region	   = var.region
+  vpc_id	   = local.vpc_id_effective
+  subnet_1_id	   = local.private_subnet_1_id_effective
+  subnet_2_id	   = local.private_subnet_2_id_effective
+  instance_type    = var.rabbitmq_instance_type
+  engine_version   = var.rabbitmq_engine_version
+  admin_username   = var.rabbitmq_admin_username
+  admin_password   = var.rabbitmq_admin_password
+  site_username	   = var.site_admin_username
+  site_password	   = var.site_admin_password
+  site_password_hash = var.site_admin_password_hash
+  tags		   = var.tags
+  
   depends_on = [
     module.iam_core
   ]

@@ -30,65 +30,102 @@ output "terraform_project_version" {
 
 output "client_instances" {
   description = "Client instance details (non-sensitive)."
-  value       = module.clients[*].instance_details
+  value       = local.deploy_clients ? module.clients[*].instance_details : null
 }
 
 output "storage_instances" {
   description = "Storage instance details (non-sensitive)."
-  value       = module.storage_servers[*].instance_details
+  value       = local.deploy_storage ? module.storage_servers[*].instance_details : null
 }
 
 output "hammerspace_anvil" {
   description = "Hammerspace Anvil details"
-  value       = module.hammerspace[*].anvil_instances
+  value       = local.deploy_hammerspace ? module.hammerspace[*].anvil_instances : null
   sensitive   = true
 }
 
 output "hammerspace_dsx" {
   description = "Hammerspace DSX details"
   sensitive   = false
-  value       = module.hammerspace[*].dsx_instances
+  value       = local.deploy_hammerspace ? module.hammerspace[*].dsx_instances : null
 }
 
 output "hammerspace_mgmt_ip" {
   description = "Hammerspace Mgmt IP"
-  value       = module.hammerspace[*].management_ip
+  value       = local.deploy_hammerspace ? module.hammerspace[*].management_ip : null
 }
 
 output "hammerspace_mgmt_url" {
   description = "Hammerspace Mgmt URL"
-  value       = module.hammerspace[*].management_url
+  value       = local.deploy_hammerspace ? module.hammerspace[*].management_url : null
 }
 
 output "hammerspace_dsx_private_ips" {
   description = "A list of private IP addresses for the Hammerspace DSX instances."
-  value       = module.hammerspace[*].dsx_private_ips
+  value       = local.deploy_hammerspace ? module.hammerspace[*].dsx_private_ips : null
 }
 
 output "hammerspace_ha_lb" {
   description = "The DNS name of the HA Anvil load balancer. This is only used for public IP"
-  value       = one(module.hammerspace[*].anvil_ha_load_balancer_dns_name)
+  value       = local.deploy_hammerspace ? one(module.hammerspace[*].anvil_ha_load_balancer_dns_name) : null
 }
 
 output "ecgroup_nodes" {
   description = "ECGroup node details"
   sensitive   = false
-  value       = module.ecgroup[*].nodes
+  value       = local.deploy_ecgroup ? module.ecgroup[*].nodes : null
 }
 
 output "ecgroup_metadata_array" {
   description = "ECGroup metadata array"
-  sensitive   = false
-  value       = module.ecgroup[*].metadata_array
+  sensitive   = true
+  value       = local.deploy_ecgroup ? module.ecgroup[*].metadata_array : null
 }
 
 output "ecgroup_storage_array" {
   description = "ECGroup storage array"
   sensitive   = false
-  value       = module.ecgroup[*].storage_array
+  value       = local.deploy_ecgroup ? module.ecgroup[*].storage_array : null
 }
 
 output "ansible_details" {
   description = "Ansible configuration details"
   value       = module.ansible[*].ansible_details
+}
+
+# -----------------------------------------------------------------------------
+# Amazon MQ / RabbitMQ outputs (from module "amazon_mq")
+# These will be null when MQ is not deployed (deploy_components excludes "mq")
+# -----------------------------------------------------------------------------
+
+output "rabbitmq_broker_id" {
+  description = "ID of the Amazon MQ RabbitMQ broker"
+  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_broker_id : null
+}
+
+output "rabbitmq_broker_arn" {
+  description = "ARN of the Amazon MQ RabbitMQ broker"
+  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_broker_arn : null
+}
+
+output "rabbitmq_security_group_id" {
+  description = "Security group ID attached to the RabbitMQ broker"
+  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_security_group_id : null
+}
+
+# Primary AMQPS endpoint (what your shovels will use)
+output "rabbitmq_amqps_endpoint" {
+  description = "Primary AMQPS endpoint for the RabbitMQ broker"
+  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_amqps_endpoint : null
+}
+
+# (Optional) Web console URL
+output "rabbitmq_console_url" {
+  description = "RabbitMQ management console URL"
+  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_console_url : null
+}
+
+output "rabbitmq_hosted_zone_id" {
+  description = "Route 53 private hosted zone ID created for RabbitMQ (if any)"
+  value       = local.deploy_mq ? module.amazon_mq[0].hosted_zone_id : null
 }

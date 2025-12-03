@@ -44,58 +44,12 @@ locals {
   central_amqps_host     = replace(local.central_amqps_endpoint, "amqps://", "")
 }
       
-# VPC
-
-resource "aws_vpc" "main" {
-  cidr_block              = var.vpc_cidr
-  enable_dns_support      = true
-  enable_dns_hostnames    = true
-
-  tags = merge(var.tags, { Name = "${var.project_name}-vpc" })
-}
-
-# Subnet 1
-
-resource "aws_subnet" "private_a" {
-  vpc_id                 = aws_vpc.main.id
-  cidr_block             = var.private_subnet_a_cidr
-  availability_zone      = var.subnet_a_az
-  map_public_ip_on_launch= false
-  tags                   = merge(var.tags, { Name = "${var.project_name}-private-a" })
-}
-
-# Subnet 2
-
-resource "aws_subnet" "private_b" {
-  vpc_id                 = aws_vpc.main.id
-  cidr_block             = var.private_subnet_b_cidr
-  availability_zone      = var.subnet_b_az
-  map_public_ip_on_launch= false
-  tags                   = merge(var.tags, { Name = "${var.project_name}-private-b" })
-}
-
-resource "aws_subnet" "public_a" {
-  vpc_id                 = aws_vpc.main.id
-  cidr_block             = var.public_subnet_a_cidr
-  availability_zone      = var.subnet_a_az
-  map_public_ip_on_launch= true
-  tags                   = merge(var.tags, { Name = "${var.project_name}-public-a" })
-}
-
-resource "aws_subnet" "public_b" {
-  vpc_id                 = aws_vpc.main.id
-  cidr_block             = var.public_subnet_b_cidr
-  availability_zone      = var.subnet_b_az
-  map_public_ip_on_launch= true
-  tags                   = merge(var.tags, { Name = "${var.project_name}-public-b" })
-}
-
 # Security Group for Amazon MQ RabbitMQ Broker
 
 resource "aws_security_group" "rabbitmq_sg" {
   name        = "${var.project_name}-rabbitmq-sg"
   description = "Security group for Amazon MQ RabbitMQ broker"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   # Ingress: AMQP over TLS (5671). For now open to all; tighten to site IPs/VPN later.
   ingress {
@@ -116,154 +70,15 @@ resource "aws_security_group" "rabbitmq_sg" {
   tags = merge(var.tags, { Name = "${var.project_name}-rabbitmq-sg" })
 }
 
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  tags   = merge(var.tags, { Name = "${var.project_name}-igw" })
-}
-
-resource "aws_route_table" "public_a" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-  tags = merge(var.tags, { Name = "${var.project_name}-rt-public-a" })
-}
-
-resource "aws_route_table_association" "public_a_assoc" {
-  subnet_id      = aws_subnet.public_a.id
-  route_table_id = aws_route_table.public_a.id
-}
-
-resource "aws_route_table" "public_b" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-  tags = merge(var.tags, { Name = "${var.project_name}-rt-public-b" })
-}
-
-resource "aws_route_table_association" "public_b_assoc" {
-  subnet_id      = aws_subnet.public_b.id
-  route_table_id = aws_route_table.public_b.id
-}
-
-resource "aws_eip" "nat_a" {
-  domain = "vpc"
-  tags   = merge(var.tags, { Name = "${var.project_name}-eip-nat-a" })
-}
-
-resource "aws_eip" "nat_b" {
-  domain = "vpc"
-  tags   = merge(var.tags, { Name = "${var.project_name}-eip-nat-b" })
-}
-
-resource "aws_nat_gateway" "a" {
-  allocation_id = aws_eip.nat_a.id
-  subnet_id     = aws_subnet.public_a.id
-  depends_on    = [aws_internet_gateway.main]
-  tags          = merge(var.tags, { Name = "${var.project_name}-natgw-a" })
-}
-
-resource "aws_nat_gateway" "b" {
-  allocation_id = aws_eip.nat_b.id
-  subnet_id     = aws_subnet.public_b.id
-  depends_on    = [aws_internet_gateway.main]
-  tags          = merge(var.tags, { Name = "${var.project_name}-natgw-b" })
-}
-
-resource "aws_route_table" "private_a" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.a.id
-  }
-  tags = merge(var.tags, { Name = "${var.project_name}-rt-private-a" })
-}
-
-resource "aws_route_table_association" "private_a_assoc" {
-  subnet_id      = aws_subnet.private_a.id
-  route_table_id = aws_route_table.private_a.id
-}
-
-resource "aws_route_table" "private_b" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.b.id
-  }
-  tags = merge(var.tags, { Name = "${var.project_name}-rt-private-b" })
-}
-
-resource "aws_route_table_association" "private_b_assoc" {
-  subnet_id      = aws_subnet.private_b.id
-  route_table_id = aws_route_table.private_b.id
-}
-
 # Optional Route 53 Private Hosted Zone
 
 resource "aws_route53_zone" "private" {
   name = var.hosted_zone_name
   vpc {
-    vpc_id = aws_vpc.main.id
+    vpc_id = var.vpc_id
   }
 
   tags = merge(var.tags, { Name = "${var.project_name}-dns" })
-}
-
-# The following is for adding SSM Role Permissions so that any test instance
-# can be created and we can talk to it with SSM. This is needed because all
-# test instances would be on a private network and we don't have a way to ssh
-# from outside of AWS due to a lack of VPN in anything but us-west-2.
-
-# IAM Role for SSM (with AmazonSSMManagedInstanceCore for EC2 Session Manager access)
-
-data "aws_iam_policy_document" "ssm_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "ssm_role" {
-  name               = "${var.project_name}-ssm-role"
-  assume_role_policy = data.aws_iam_policy_document.ssm_assume_role.json
-
-  tags = merge(var.tags, { Name = "${var.project_name}-ssm-role" })
-}
-
-resource "aws_iam_role_policy_attachment" "ssm_core" {
-  role       = aws_iam_role.ssm_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-# Instance Profile to attach to EC2 instances
-
-resource "aws_iam_instance_profile" "ssm_profile" {
-  name = "${var.project_name}-ssm-profile"
-  role = aws_iam_role.ssm_role.name
-}
-
-resource "aws_instance" "test_ec2" {
-  count = var.create_test_ec2 ? 1 : 0
-  
-  ami                  = "ami-0cae6d6fe6048ca2c" # AL2023 AMI for your region
-  instance_type        = "t3.micro"
-  subnet_id            = aws_subnet.private_a.id
-  iam_instance_profile = aws_iam_instance_profile.ssm_profile.name
-
-  tags = merge(var.tags, { Name = "${var.project_name}-test-ec2" })
-
-  root_block_device {
-    volume_size           = 50
-    volume_type           = "gp2"
-    delete_on_termination = true
-  }
 }
 
 # Amazon MQ RabbitMQ Broker (central site)
@@ -271,8 +86,8 @@ resource "aws_instance" "test_ec2" {
 resource "aws_mq_broker" "rabbitmq" {
   broker_name        = "${var.project_name}-rabbitmq"
   engine_type        = "RabbitMQ"
-  engine_version     = var.rabbitmq_engine_version
-  host_instance_type = var.rabbitmq_instance_type
+  engine_version     = var.engine_version
+  host_instance_type = var.instance_type
 
   # Multi-AZ RabbitMQ cluster across your two private subnets
   deployment_mode            = "CLUSTER_MULTI_AZ"
@@ -287,8 +102,8 @@ resource "aws_mq_broker" "rabbitmq" {
 
   # Initial admin user for RabbitMQ management + shovels
   user {
-    username       = var.rabbitmq_admin_username
-    password       = var.rabbitmq_admin_password
+    username       = var.admin_username
+    password       = var.admin_password
     console_access = true
   }
 
@@ -312,8 +127,8 @@ resource "null_resource" "configure_rabbitmq_sites" {
     command = <<EOT
 ${path.module}/scripts/configure_rabbitmq.sh \
   --base-url ${aws_mq_broker.rabbitmq.instances[0].console_url} \
-  --user ${var.rabbitmq_admin_username} \
-  --password '${var.rabbitmq_admin_password}' \
+  --user ${var.admin_username} \
+  --password '${var.admin_password}' \
   --config-b64 '${base64encode(jsonencode(each.value))}'
 EOT
   }
@@ -334,7 +149,7 @@ resource "local_file" "site_definitions" {
     users = [
       {
         name              = "admin"
-        password_hash     = var.site_admin_password_hash
+        password_hash     = var.site_password_hash
         hashing_algorithm = "rabbit_password_hashing_sha256"
         tags              = ["administrator"]
       }
@@ -396,10 +211,10 @@ resource "local_file" "site_definitions" {
         component = "shovel"
         name      = "telemetry_to_aws"
         value = {
-          "src-uri"          = "amqp://${urlencode(var.site_admin_username)}:${urlencode(var.site_admin_password)}@localhost:5672/%2F"
+          "src-uri"          = "amqp://${urlencode(var.site_username)}:${urlencode(var.site_password)}@localhost:5672/%2F"
           "src-queue"        = each.value.telemetry.queue
 
-          "dest-uri"         = "amqps://${urlencode(var.rabbitmq_admin_username)}:${urlencode(var.rabbitmq_admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
+          "dest-uri"         = "amqps://${urlencode(var.admin_username)}:${urlencode(var.admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
           "dest-exchange"    = each.value.telemetry.exchange
           "dest-exchange-key"= each.value.telemetry.routing_key
 
@@ -412,10 +227,10 @@ resource "local_file" "site_definitions" {
         component = "shovel"
         name      = "events_to_aws"
         value = {
-          "src-uri"          = "amqp://${urlencode(var.site_admin_username)}:${urlencode(var.site_admin_password)}@localhost:5672/%2F"
+          "src-uri"          = "amqp://${urlencode(var.site_username)}:${urlencode(var.site_password)}@localhost:5672/%2F"
           "src-queue"        = each.value.events.queue
 
-          "dest-uri"         = "amqps://${urlencode(var.rabbitmq_admin_username)}:${urlencode(var.rabbitmq_admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
+          "dest-uri"         = "amqps://${urlencode(var.admin_username)}:${urlencode(var.admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
           "dest-exchange"    = each.value.events.exchange
           "dest-exchange-key"= each.value.events.routing_key
 
@@ -428,10 +243,10 @@ resource "local_file" "site_definitions" {
         component = "shovel"
         name      = "performance_to_aws"
         value = {
-          "src-uri"          = "amqp://${urlencode(var.site_admin_username)}:${urlencode(var.site_admin_password)}@localhost:5672/%2F"
+          "src-uri"          = "amqp://${urlencode(var.site_username)}:${urlencode(var.site_password)}@localhost:5672/%2F"
           "src-queue"        = each.value.performance.queue
 
-          "dest-uri"         = "amqps://${urlencode(var.rabbitmq_admin_username)}:${urlencode(var.rabbitmq_admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
+          "dest-uri"         = "amqps://${urlencode(var.admin_username)}:${urlencode(var.admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
           "dest-exchange"    = each.value.performance.exchange
           "dest-exchange-key"= each.value.performance.routing_key
 
@@ -445,12 +260,12 @@ resource "local_file" "site_definitions" {
         name      = "commands_from_aws"
         value = {
           # Source is the central AWS broker, commands exchange in the site's vhost
-          "src-uri"          = "amqps://${urlencode(var.rabbitmq_admin_username)}:${urlencode(var.rabbitmq_admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
+          "src-uri"          = "amqps://${urlencode(var.admin_username)}:${urlencode(var.admin_password)}@${local.central_amqps_host}/${urlencode(each.value.vhost)}?verify=verify_none"
           "src-exchange"     = each.value.commands.exchange
           "src-exchange-key" = each.value.commands.routing_key
 
           # Destination is the local site broker, commands.from-aws queue on /
-          "dest-uri"         = "amqp://${urlencode(var.site_admin_username)}:${urlencode(var.site_admin_password)}@localhost:5672/%2F"
+          "dest-uri"         = "amqp://${urlencode(var.site_username)}:${urlencode(var.site_password)}@localhost:5672/%2F"
           "dest-queue"       = each.value.commands.queue
 
           "ack-mode"         = "on-confirm"
