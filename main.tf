@@ -163,6 +163,16 @@ check "network_config_guard" {
           var.public_subnet_2_id == null
         )
       )
+      &&
+      # 5) If using an existing VPC (vpc_id set), require at least one private subnet ID
+      (
+        var.vpc_id == null ||
+        (
+          # At least one of the private subnet IDs (or alias) must be set
+          var.private_subnet_id  != null ||
+          var.private_subnet_1_id != null
+        )
+      )
     )
 
     error_message = <<-EOT
@@ -210,14 +220,69 @@ resource "aws_vpc" "main" {
 
 # Lookup existing VPC only if vpc_id is provided
 
-data "aws_vpc" "existing" {
+data "aws_vpcs" "existing" {
   count = local.use_existing_vpc ? 1 : 0
-  id    = var.vpc_id
+
+  filter {
+    name = "vpc-id"
+    values = [var.vpc_id]
+  }
 }
 
+# Get the effective vpc id from either an existing or a newly created vpc
+
+data "aws_vpc" "existing" {
+  count = local.use_existing_vpc && length(data.aws_vpcs.existing[0].ids) == 1 ? 1 : 0
+  id    = data.aws_vpcs.existing[0].ids[0]
+}
+
+# Check if the VPC exists and print out an error message if not
+
+check "vpc_exists" {
+  assert {
+    condition = (
+      # If not using existing VPC, we don't care
+      !local.use_existing_vpc
+      ||
+      # If using existing VPC, we must have found exactly one
+      length(data.aws_vpcs.existing[0].ids) == 1
+    )
+
+    error_message = <<-EOT
+      Invalid VPC configuration:
+
+      - You set vpc_id = "${var.vpc_id}", but no matching VPC was found in region "${var.region}".
+      - Please double-check:
+          * The VPC ID is correct
+          * You are using the correct AWS region
+    EOT
+  }
+}
+
+# Get the effective vpc_id and vpc_cidr depending upon whether we use an existing vpc
+# or need to create one
+
 locals {
-  vpc_id_effective   = local.use_existing_vpc ? var.vpc_id : aws_vpc.main[0].id
-  vpc_cidr_effective = local.use_existing_vpc ? data.aws_vpc.existing[0].cidr_block : var.vpc_cidr
+  vpc_id_effective = local.use_existing_vpc ? var.vpc_id : aws_vpc.main[0].id
+
+  # If using existing VPC and it exists, get its CIDR; otherwise fall back to var.vpc_cidr (may be null)
+  
+  vpc_cidr_effective = (
+    local.use_existing_vpc && length(data.aws_vpcs.existing[0].ids) == 1
+      ? data.aws_vpc.existing[0].cidr_block
+      : var.vpc_cidr
+  )
+
+  # Build CIDR list without ever inserting a null
+  
+  base_allowed_cidrs = local.vpc_cidr_effective != null ? [local.vpc_cidr_effective] : []
+
+  all_allowed_cidr_blocks = distinct(
+    concat(
+      local.base_allowed_cidrs,
+      var.allowed_source_cidr_blocks,
+    )
+  )
 }
 
 # ---------------------------
@@ -227,7 +292,7 @@ locals {
 # Private subnet 1
 
 resource "aws_subnet" "private_1" {
-  count = var.private_subnet_1_id == null ? 1 : 0
+  count = local.use_existing_vpc ? 0 : 1
 
   vpc_id                  = local.vpc_id_effective
   cidr_block              = var.private_subnet_1_cidr
@@ -239,7 +304,7 @@ resource "aws_subnet" "private_1" {
 # Private subnet 2
 
 resource "aws_subnet" "private_2" {
-  count = var.private_subnet_2_id == null ? 1 : 0
+  count = local.use_existing_vpc ? 0 : 1
 
   vpc_id                  = local.vpc_id_effective
   cidr_block              = var.private_subnet_2_cidr
@@ -251,7 +316,7 @@ resource "aws_subnet" "private_2" {
 # Public subnet 1
 
 resource "aws_subnet" "public_1" {
-  count = var.public_subnet_1_id == null ? 1 : 0
+  count = local.use_existing_vpc ? 0 : 1
 
   vpc_id                  = local.vpc_id_effective
   cidr_block              = var.public_subnet_1_cidr
@@ -263,7 +328,7 @@ resource "aws_subnet" "public_1" {
 # Public subnet 2
 
 resource "aws_subnet" "public_2" {
-  count = var.public_subnet_2_id == null ? 1 : 0
+  count = local.use_existing_vpc ? 0 : 1
 
   vpc_id                  = local.vpc_id_effective
   cidr_block              = var.public_subnet_2_cidr
@@ -272,35 +337,98 @@ resource "aws_subnet" "public_2" {
   tags                    = merge(var.tags, { Name = "${var.project_name}-public-2" })
 }
 
+# The effective locals will pick the valid subnet id from either the created or
+# already existing subnet
+
 locals {
-  private_subnet_1_id_effective = coalesce(
-    var.private_subnet_1_id,
-    var.private_subnet_id,
-    try(aws_subnet.private_1[0].id, null),
+  # For private subnet 1:
+  # - If using existing VPC: take private_subnet_id alias if set, else private_subnet_1_id
+  # - If creating VPC: use the created subnet
+  private_subnet_1_id_effective = (
+    local.use_existing_vpc
+    ? (var.private_subnet_id != null ? var.private_subnet_id : var.private_subnet_1_id)
+    : aws_subnet.private_1[0].id
   )
 
-  private_subnet_2_id_effective = coalesce(
-    var.private_subnet_2_id,
-    try(aws_subnet.private_2[0].id, null),
+  # For private subnet 2:
+  # - If using existing VPC: just pass through whatever the user set (can be null)
+  # - If creating VPC: use the created subnet
+  private_subnet_2_id_effective = (
+    local.use_existing_vpc
+    ? var.private_subnet_2_id
+    : aws_subnet.private_2[0].id
   )
 
-  public_subnet_1_id_effective = coalesce(
-    var.public_subnet_1_id,
-    var.public_subnet_id,
-    try(aws_subnet.public_1[0].id, null),
+  # For public subnet 1:
+  public_subnet_1_id_effective = (
+    local.use_existing_vpc
+    ? (var.public_subnet_id != null ? var.public_subnet_id : var.public_subnet_1_id)
+    : aws_subnet.public_1[0].id
   )
 
-  public_subnet_2_id_effective = coalesce(
-    var.public_subnet_2_id,
-    try(aws_subnet.public_2[0].id, null),
+  # For public subnet 2:
+  public_subnet_2_id_effective = (
+    local.use_existing_vpc
+    ? var.public_subnet_2_id
+    : aws_subnet.public_2[0].id
   )
+}
+
+# First, try to find the "primary" private subnet in a non-fatal way
+data "aws_subnets" "private_primary" {
+  count = local.use_existing_vpc ? 1 : 0
+
+  filter {
+    name   = "subnet-id"
+    values = [local.private_subnet_1_id_effective]
+  }
+}
+
+check "private_primary_subnet_exists" {
+  assert {
+    condition = (
+      # If we're creating the VPC ourselves, the subnet will be created, so skip this.
+      !local.use_existing_vpc
+      ||
+      (
+        local.private_subnet_1_id_effective != null &&
+        length(data.aws_subnets.private_primary[0].ids) == 1
+      )
+    )
+
+    error_message = <<-EOT
+      Invalid subnet configuration:
+
+      - You set private_subnet_id/private_subnet_1_id = "${local.private_subnet_1_id_effective}",
+        but no matching subnet was found in region "${var.region}".
+      - Please double-check:
+          * The subnet ID is correct
+          * You are using the correct AWS region
+          * The subnet belongs to VPC "${var.vpc_id}"
+    EOT
+  }
 }
 
 # We pick private_subnet_1 as the "primary" AZ for capacity reservations, etc.
 
 data "aws_subnet" "private_primary" {
+  count = local.use_existing_vpc ? length(data.aws_subnets.private_primary[0].ids) : 0
   id = local.private_subnet_1_id_effective
 }
+
+# Get the primary availability zone
+
+locals {
+  primary_az = (
+    local.use_existing_vpc
+    ? (length(data.aws_subnet.private_primary) > 0
+      ? data.aws_subnet.private_primary[0].availability_zone
+      : null
+      )
+    : var.subnet_1_az
+  )
+}
+
 
 # -----------------------------------------------------------------------------
 # (Optional) Network infrastructure when we CREATE the VPC
@@ -473,101 +601,203 @@ data "aws_ami" "storage_ami_check" {
 # Pre-flight checks for instance type existence.
 # -----------------------------------------------------------------------------
 
+data "aws_ec2_instance_type_offerings" "anvil_check" {
+  # Only query AWS when we actually know the primary AZ
+  count = local.primary_az != null ? 1 : 0
+
+  provider = aws
+
+  filter {
+    name   = "instance-type"
+    values = [var.hammerspace_anvil_instance_type]
+  }
+
+  filter {
+    name   = "location"
+    values = [local.primary_az]
+  }
+
+  location_type = "availability-zone"
+}
+
 check "anvil_instance_type_is_available" {
-  data "aws_ec2_instance_type_offerings" "anvil_check" {
-    provider = aws
-    filter {
-      name   = "instance-type"
-      values = [var.hammerspace_anvil_instance_type]
-    }
-    filter {
-      name   = "location"
-      values = [data.aws_subnet.private_primary.availability_zone]
-    }
-    location_type = "availability-zone"
-  }
   assert {
-    condition     = length(data.aws_ec2_instance_type_offerings.anvil_check.instance_types) > 0
-    error_message = "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
+    condition = (
+      # If we don't know the AZ, skip this check (network checks will already fail)
+      local.primary_az == null
+      ||
+      # Otherwise, ensure the instance type is available in that AZ
+      sum([
+        for d in data.aws_ec2_instance_type_offerings.anvil_check :
+        length(d.instance_types)
+      ]) > 0
+    )
+
+    error_message = (
+      local.primary_az != null
+      ? "The specified Anvil instance type (${var.hammerspace_anvil_instance_type}) is not available in the selected Availability Zone (${local.primary_az})."
+      : "Unable to determine primary Availability Zone. Please verify your VPC and subnet configuration before checking instance type availability."
+    )
   }
+}
+
+data "aws_ec2_instance_type_offerings" "dsx_check" {
+  # Only query AWS when we actually know the primary AZ
+  count = local.primary_az != null ? 1 : 0
+
+  provider = aws
+
+  filter {
+    name   = "instance-type"
+    values = [var.hammerspace_dsx_instance_type]
+  }
+
+  filter {
+    name   = "location"
+    values = [local.primary_az]
+  }
+
+  location_type = "availability-zone"
 }
 
 check "dsx_instance_type_is_available" {
-  data "aws_ec2_instance_type_offerings" "dsx_check" {
-    provider = aws
-    filter {
-      name   = "instance-type"
-      values = [var.hammerspace_dsx_instance_type]
-    }
-    filter {
-      name   = "location"
-      values = [data.aws_subnet.private_primary.availability_zone]
-    }
-    location_type = "availability-zone"
-  }
   assert {
-    condition     = length(data.aws_ec2_instance_type_offerings.dsx_check.instance_types) > 0
-    error_message = "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
+    condition = (
+      # If we don't know the AZ, skip this check (network checks will already fail)
+      local.primary_az == null
+      ||
+      # Otherwise, ensure the instance type is available in that AZ
+      sum([
+        for d in data.aws_ec2_instance_type_offerings.dsx_check :
+        length(d.instance_types)
+      ]) > 0
+    )
+
+    error_message = (
+      local.primary_az != null
+      ? "The specified DSX instance type (${var.hammerspace_dsx_instance_type}) is not available in the selected Availability Zone (${local.primary_az})."
+      : "Unable to determine primary Availability Zone. Please verify your VPC and subnet configuration before checking instance type availability."
+    )
   }
+}
+
+data "aws_ec2_instance_type_offerings" "client_check" {
+  # Only query AWS when we actually know the primary AZ
+  count = local.primary_az != null ? 1 : 0
+
+  provider = aws
+
+  filter {
+    name   = "instance-type"
+    values = [var.clients_instance_type]
+  }
+
+  filter {
+    name   = "location"
+    values = [local.primary_az]
+  }
+
+  location_type = "availability-zone"
 }
 
 check "client_instance_type_is_available" {
-  data "aws_ec2_instance_type_offerings" "client_check" {
-    provider = aws
-    filter {
-      name   = "instance-type"
-      values = [var.clients_instance_type]
-    }
-    filter {
-      name   = "location"
-      values = [data.aws_subnet.private_primary.availability_zone]
-    }
-    location_type = "availability-zone"
-  }
   assert {
-    condition     = length(data.aws_ec2_instance_type_offerings.client_check.instance_types) > 0
-    error_message = "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
+    condition = (
+      # If we don't know the AZ, skip this check (network checks will already fail)
+      local.primary_az == null
+      ||
+      # Otherwise, ensure the instance type is available in that AZ
+      sum([
+        for d in data.aws_ec2_instance_type_offerings.client_check :
+        length(d.instance_types)
+      ]) > 0
+    )
+
+    error_message = (
+      local.primary_az != null
+      ? "The specified Client instance type (${var.clients_instance_type}) is not available in the selected Availability Zone (${local.primary_az})."
+      : "Unable to determine primary Availability Zone. Please verify your VPC and subnet configuration before checking instance type availability."
+    )
   }
 }
 
-check "storage_server_instance_type_is_available" {
-  data "aws_ec2_instance_type_offerings" "storage_check" {
-    provider = aws
-    filter {
-      name   = "instance-type"
-      values = [var.storage_instance_type]
-    }
-    filter {
-      name   = "location"
-      values = [data.aws_subnet.private_primary.availability_zone]
-    }
-    location_type = "availability-zone"
+data "aws_ec2_instance_type_offerings" "storage_check" {
+  # Only query AWS when we actually know the primary AZ
+  count = local.primary_az != null ? 1 : 0
+
+  provider = aws
+
+  filter {
+    name   = "instance-type"
+    values = [var.storage_instance_type]
   }
+
+  filter {
+    name   = "location"
+    values = [local.primary_az]
+  }
+
+  location_type = "availability-zone"
+}
+
+check "storage_instance_type_is_available" {
   assert {
-    condition     = length(data.aws_ec2_instance_type_offerings.storage_check.instance_types) > 0
-    error_message = "The specified Storage Server instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
+    condition = (
+      # If we don't know the AZ, skip this check (network checks will already fail)
+      local.primary_az == null
+      ||
+      # Otherwise, ensure the instance type is available in that AZ
+      sum([
+        for d in data.aws_ec2_instance_type_offerings.storage_check :
+        length(d.instance_types)
+      ]) > 0
+    )
+
+    error_message = (
+      local.primary_az != null
+      ? "The specified Storage instance type (${var.storage_instance_type}) is not available in the selected Availability Zone (${local.primary_az})."
+      : "Unable to determine primary Availability Zone. Please verify your VPC and subnet configuration before checking instance type availability."
+    )
   }
 }
 
-# ECGroup
+data "aws_ec2_instance_type_offerings" "ecgroup_check" {
+  # Only query AWS when we actually know the primary AZ
+  count = local.primary_az != null ? 1 : 0
 
-check "ecgroup_node_instance_type_is_available" {
-  data "aws_ec2_instance_type_offerings" "ecgroup_node_check" {
-    provider = aws
-    filter {
-      name   = "instance-type"
-      values = [var.ecgroup_instance_type]
-    }
-    filter {
-      name   = "location"
-      values = [data.aws_subnet.private_primary.availability_zone]
-    }
-    location_type = "availability-zone"
+  provider = aws
+
+  filter {
+    name   = "instance-type"
+    values = [var.ecgroup_instance_type]
   }
 
+  filter {
+    name   = "location"
+    values = [local.primary_az]
+  }
+
+  location_type = "availability-zone"
+}
+
+check "ecgroup_instance_type_is_available" {
   assert {
-    condition     = length(data.aws_ec2_instance_type_offerings.ecgroup_node_check.instance_types) > 0
-    error_message = "The specified ECGroup Node instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${data.aws_subnet.private_primary.availability_zone})."
+    condition = (
+      # If we don't know the AZ, skip this check (network checks will already fail)
+      local.primary_az == null
+      ||
+      # Otherwise, ensure the instance type is available in that AZ
+      sum([
+        for d in data.aws_ec2_instance_type_offerings.ecgroup_check :
+        length(d.instance_types)
+      ]) > 0
+    )
+
+    error_message = (
+      local.primary_az != null
+      ? "The specified ECGroup instance type (${var.ecgroup_instance_type}) is not available in the selected Availability Zone (${local.primary_az})."
+      : "Unable to determine primary Availability Zone. Please verify your VPC and subnet configuration before checking instance type availability."
+    )
   }
 }
 
@@ -578,9 +808,12 @@ check "ecgroup_node_instance_type_is_available" {
 check "ansible_ami_exists" {
   assert {
     condition = !local.deploy_ansible || (
-      length(data.aws_ami.ansible_ami_check) > 0 &&
-      data.aws_ami.ansible_ami_check[0].id != ""
+      # sum over all instances (0 or 1) and ensure at least one ID was returned
+      sum([
+        for d in data.aws_ami.ansible_ami_check : length(d.ids)
+      ]) > 0
     )
+
     error_message = "Validation Error: The specified ansible_ami (ID: ${var.ansible_ami}) was not found in the region ${var.region}."
   }
 }
@@ -630,16 +863,9 @@ check "storage_ami_exists" {
 
 locals {
 
-  all_allowed_cidr_blocks = distinct(
-    concat(
-      [local.vpc_cidr_effective],
-      var.allowed_source_cidr_blocks,
-    )
-  )
-
   common_config = {
     region            = var.region
-    availability_zone = data.aws_subnet.private_primary.availability_zone
+    availability_zone = local.primary_az
     vpc_id            = local.vpc_id_effective
     subnet_id         = local.private_subnet_1_id_effective
     key_name          = var.key_name
@@ -693,11 +919,11 @@ locals {
 # -----------------------------------------------------------------------------
 
 resource "aws_ec2_capacity_reservation" "anvil" {
-  count = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 ? 1 : 0
+  count = local.deploy_hammerspace && var.hammerspace_anvil_count > 0 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.hammerspace_anvil_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.hammerspace_anvil_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -710,11 +936,11 @@ resource "aws_ec2_capacity_reservation" "anvil" {
 }
 
 resource "aws_ec2_capacity_reservation" "dsx" {
-  count = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 ? 1 : 0
+  count = local.deploy_hammerspace && var.hammerspace_dsx_count > 0 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.hammerspace_dsx_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.hammerspace_dsx_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -727,11 +953,11 @@ resource "aws_ec2_capacity_reservation" "dsx" {
 }
 
 resource "aws_ec2_capacity_reservation" "clients" {
-  count = local.deploy_clients && var.clients_instance_count > 0 ? 1 : 0
+  count = local.deploy_clients && var.clients_instance_count > 0 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.clients_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.clients_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -744,11 +970,11 @@ resource "aws_ec2_capacity_reservation" "clients" {
 }
 
 resource "aws_ec2_capacity_reservation" "storage" {
-  count = local.deploy_storage && var.storage_instance_count > 0 ? 1 : 0
+  count = local.deploy_storage && var.storage_instance_count > 0 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.storage_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.storage_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -763,11 +989,11 @@ resource "aws_ec2_capacity_reservation" "storage" {
 # ECGroup
 
 resource "aws_ec2_capacity_reservation" "ecgroup_node" {
-  count = local.deploy_ecgroup && var.ecgroup_node_count > 3 ? 1 : 0
+  count = local.deploy_ecgroup && var.ecgroup_node_count > 3 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.ecgroup_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.ecgroup_node_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -782,11 +1008,11 @@ resource "aws_ec2_capacity_reservation" "ecgroup_node" {
 # Ansible
 
 resource "aws_ec2_capacity_reservation" "ansible" {
-  count = local.deploy_ansible && var.ansible_instance_count > 0 ? 1 : 0
+  count = local.deploy_ansible && var.ansible_instance_count > 0 && local.primary_az != null ? 1 : 0
 
   instance_type     = var.ansible_instance_type
   instance_platform = "Linux/UNIX"
-  availability_zone = data.aws_subnet.private_primary.availability_zone
+  availability_zone = local.primary_az
   instance_count    = var.ansible_instance_count
   tenancy           = "default"
   end_date_type     = "limited"
@@ -980,7 +1206,7 @@ module "storage_servers" {
 
 module "hammerspace" {
   count  = local.deploy_hammerspace ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.5"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-hammerspace.git?ref=v1.0.6"
 
   common_config                 = local.common_config
   assign_public_ip              = var.assign_public_ip
