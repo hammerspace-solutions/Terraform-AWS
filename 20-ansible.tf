@@ -75,16 +75,16 @@ variable "ansible_target_user" {
 
 variable "ansible_ssh_public_key" {
   description = "OpenSSH public key for controller"
-  type	      = string
+  type        = string
 }
 
 variable "ansible_private_key_secret_arn" {
   description = "Secrets Manager ARN holding the controller private key"
-  type	      = string
+  type        = string
 }
 
 variable "ansible_controller_cidr" {
   description = "CIDR allowed to SSH to targets (fallback)"
-  type	      = string
+  type        = string
   default     = "0.0.0.0/0"
 }

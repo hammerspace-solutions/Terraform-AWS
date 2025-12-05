@@ -59,9 +59,9 @@ variable "config_ansible" {
           for vg in values(var.config_ansible.volume_groups) :
           alltrue([
             for v in vg.volumes :
-              can(tonumber(v))                                  # numeric string
-              && tonumber(v) >= 1                               # 1-based index
-              && tonumber(v) <= var.storage_instance_count      # within bounds
+            can(tonumber(v))                             # numeric string
+            && tonumber(v) >= 1                          # 1-based index
+            && tonumber(v) <= var.storage_instance_count # within bounds
           ])
         ])
       )
