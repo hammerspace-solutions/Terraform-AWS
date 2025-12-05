@@ -28,49 +28,49 @@
 
 # RabbitMQ (Amazon MQ) settings
 
-variable "rabbitmq_engine_version" {
+variable "amazonmq_engine_version" {
   description = "RabbitMQ engine version for Amazon MQ"
   type        = string
   # Check AWS docs/console for latest supported; 3.13 as an example
   default = "3.13"
 }
 
-variable "rabbitmq_instance_type" {
+variable "amazonmq_instance_type" {
   description = "Amazon MQ RabbitMQ broker instance type"
   type        = string
   # mq.m5 family is typical for RabbitMQ
   default = "mq.m5.large"
 }
 
-variable "rabbitmq_admin_username" {
+variable "amazonmq_admin_username" {
   description = "Initial admin username for Amazon MQ RabbitMQ"
   type        = string
   sensitive   = true
   default     = null
 }
 
-variable "rabbitmq_admin_password" {
+variable "amazonmq_admin_password" {
   description = "Initial admin password for Amazon MQ RabbitMQ"
   type        = string
   sensitive   = true
   default     = null
 }
 
-variable "site_admin_username" {
+variable "amazonmq_site_admin_username" {
   description = "Admin username for the administration user on the *site* RabbitMQ containers"
   type        = string
   sensitive   = true
   default     = null
 }
 
-variable "site_admin_password" {
+variable "amazonmq_site_admin_password" {
   description = "Password for the admin user on the *site* RabbitMQ containers"
   type        = string
   sensitive   = true
   default     = null
 }
 
-variable "site_admin_password_hash" {
+variable "amazonmq_site_admin_password_hash" {
   description = "Precomputed RabbitMQ password hash for the site admin user (for definitions.json)"
   type        = string
   sensitive   = true

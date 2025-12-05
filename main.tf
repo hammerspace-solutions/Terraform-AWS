@@ -81,11 +81,11 @@ check "mq_credentials_when_enabled" {
     condition = (
       !local.deploy_mq ||
       (
-        var.rabbitmq_admin_username  != null &&
-        var.rabbitmq_admin_password  != null &&
-        var.site_admin_username      != null &&
-        var.site_admin_password      != null &&
-        var.site_admin_password_hash != null
+        var.amazonmq_admin_username  != null &&
+        var.amazonmq_admin_password  != null &&
+        var.amazonmq_site_admin_username      != null &&
+        var.amazonmq_site_admin_password      != null &&
+        var.amazonmq_site_admin_password_hash != null
       )
     )
 
@@ -93,11 +93,11 @@ check "mq_credentials_when_enabled" {
       When deploying Amazon MQ (deploy_components includes "mq" or "all"),
       you must set all of the following variables:
 
-        - rabbitmq_admin_username
-        - rabbitmq_admin_password
-        - site_admin_username
-        - site_admin_password
-        - site_admin_password_hash
+        - amazonmq_admin_username
+        - amazonmq_admin_password
+        - amazonmq_site_admin_username
+        - amazonmq_site_admin_password
+        - amazonmq_site_admin_password_hash
     EOT
   }
 }
@@ -251,7 +251,7 @@ check "vpc_exists" {
     error_message = <<-EOT
       Invalid VPC configuration:
 
-      - You set vpc_id = "${var.vpc_id}", but no matching VPC was found in region "${var.region}".
+      - You set vpc_id = "${var.vpc_id != null ? var.vpc_id : "<unset>"}", but no matching VPC was found in region "${var.region}".
       - Please double-check:
           * The VPC ID is correct
           * You are using the correct AWS region
@@ -399,12 +399,12 @@ check "private_primary_subnet_exists" {
     error_message = <<-EOT
       Invalid subnet configuration:
 
-      - You set private_subnet_id/private_subnet_1_id = "${local.private_subnet_1_id_effective}",
+      - You set private_subnet_id/private_subnet_1_id = "${local.private_subnet_1_id_effective != null ? local.private_subnet_1_id_effective : "<unset>"}",
         but no matching subnet was found in region "${var.region}".
       - Please double-check:
           * The subnet ID is correct
           * You are using the correct AWS region
-          * The subnet belongs to VPC "${var.vpc_id}"
+          * The subnet belongs to VPC "${var.vpc_id != null ? var.vpc_id : "<unset>"}"
     EOT
   }
 }
@@ -801,64 +801,6 @@ check "ecgroup_instance_type_is_available" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# Pre-flight checks for AMI existence.
-# -----------------------------------------------------------------------------
-
-check "ansible_ami_exists" {
-  assert {
-    condition = !local.deploy_ansible || (
-      # sum over all instances (0 or 1) and ensure at least one ID was returned
-      sum([
-        for d in data.aws_ami.ansible_ami_check : length(d.ids)
-      ]) > 0
-    )
-
-    error_message = "Validation Error: The specified ansible_ami (ID: ${var.ansible_ami}) was not found in the region ${var.region}."
-  }
-}
-
-check "client_ami_exists" {
-  assert {
-    condition = !local.deploy_clients || (
-      length(data.aws_ami.client_ami_check) > 0 &&
-      data.aws_ami.client_ami_check[0].id != ""
-    )
-    error_message = "Validation Error: The specified clients_ami (ID: ${var.clients_ami}) was not found in the region ${var.region}."
-  }
-}
-
-check "ecgroup_node_ami_exists" {
-  assert {
-    condition = !local.deploy_ecgroup || (
-      local.select_ecgroup_ami_for_region != null &&
-      length(data.aws_ami.ecgroup_node_ami_check) > 0 &&
-      data.aws_ami.ecgroup_node_ami_check[0].id != ""
-    )
-    error_message = "EC-Group not available for the specified region (${var.region})."
-  }
-}
-
-check "hammerspace_ami_exists" {
-  assert {
-    condition = !local.deploy_hammerspace || (
-      length(data.aws_ami.hammerspace_ami_check) > 0 &&
-      data.aws_ami.hammerspace_ami_check[0].id != ""
-    )
-    error_message = "Validation Error: The specified hammerspace_ami (ID: ${var.hammerspace_ami}) was not found in the region ${var.region}."
-  }
-}
-
-check "storage_ami_exists" {
-  assert {
-    condition = !local.deploy_storage || (
-      length(data.aws_ami.storage_ami_check) > 0 &&
-      data.aws_ami.storage_ami_check[0].id != ""
-    )
-    error_message = "Validation Error: The specified storage_ami (ID: ${var.storage_ami}) was not found in the region ${var.region}."
-  }
-}
-
 # Determine which components to deploy and create a common configuration object
 
 locals {
@@ -1110,20 +1052,21 @@ module "ansible" {
 
 module "amazon_mq" {
   count  = local.deploy_mq ? 1 : 0
-  source = "./modules/amazon_mq"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-amazon-mq.git?ref=v1.0.0"
 
   project_name	   = var.project_name
   region	   = var.region
   vpc_id	   = local.vpc_id_effective
   subnet_1_id	   = local.private_subnet_1_id_effective
   subnet_2_id	   = local.private_subnet_2_id_effective
-  instance_type    = var.rabbitmq_instance_type
-  engine_version   = var.rabbitmq_engine_version
-  admin_username   = var.rabbitmq_admin_username
-  admin_password   = var.rabbitmq_admin_password
-  site_username	   = var.site_admin_username
-  site_password	   = var.site_admin_password
-  site_password_hash = var.site_admin_password_hash
+  instance_type    = var.amazonmq_instance_type
+  engine_version   = var.amazonmq_engine_version
+  admin_username   = var.amazonmq_admin_username
+  admin_password   = var.amazonmq_admin_password
+  site_username	   = var.amazonmq_site_admin_username
+  site_password	   = var.amazonmq_site_admin_password
+  site_password_hash = var.amazonmq_site_admin_password_hash
+  hosted_zone_name = var.hosted_zone_name
   tags		   = var.tags
   
   depends_on = [

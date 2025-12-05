@@ -98,34 +98,37 @@ output "ansible_details" {
 # These will be null when MQ is not deployed (deploy_components excludes "mq")
 # -----------------------------------------------------------------------------
 
-output "rabbitmq_broker_id" {
+output "amazonemq_broker_id" {
   description = "ID of the Amazon MQ RabbitMQ broker"
-  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_broker_id : null
+  value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_broker_id : null
+  sensitive   = true
 }
 
-output "rabbitmq_broker_arn" {
+output "amazonmq_broker_arn" {
   description = "ARN of the Amazon MQ RabbitMQ broker"
-  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_broker_arn : null
+  value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_broker_arn : null
+  sensitive   = true
 }
 
-output "rabbitmq_security_group_id" {
+output "amazonmq_security_group_id" {
   description = "Security group ID attached to the RabbitMQ broker"
-  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_security_group_id : null
+  value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_security_group_id : null
+  sensitive   = true
 }
 
 # Primary AMQPS endpoint (what your shovels will use)
-output "rabbitmq_amqps_endpoint" {
+output "amazonmq_amqps_endpoint" {
   description = "Primary AMQPS endpoint for the RabbitMQ broker"
-  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_amqps_endpoint : null
+  value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_amqps_endpoint : null
 }
 
 # (Optional) Web console URL
-output "rabbitmq_console_url" {
+output "amazonmq_console_url" {
   description = "RabbitMQ management console URL"
-  value       = local.deploy_mq ? module.amazon_mq[0].rabbitmq_console_url : null
+  value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_console_url : null
 }
 
-output "rabbitmq_hosted_zone_id" {
+output "amazonmq_hosted_zone_id" {
   description = "Route 53 private hosted zone ID created for RabbitMQ (if any)"
   value       = local.deploy_mq ? module.amazon_mq[0].hosted_zone_id : null
 }
