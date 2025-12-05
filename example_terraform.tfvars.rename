@@ -5,7 +5,7 @@ capacity_reservation_create_timeout  = "3m"
 
 # Expiration time (in minutes) for capacity reservations.
 
-capacity_reservation_expiration = "10m"
+capacity_reservation_expiration      = "10m"
 
 # Which components to deploy
 #
@@ -14,16 +14,6 @@ capacity_reservation_expiration = "10m"
 # both of those
 
 deploy_components		     = ["all"]
-
-# Set this variable is you want public ip addresses for each of the instances.
-# Otherwise, only private ip addresses will be assigned.
-#
-# You must ALSO use a separate public subnet that routes to the internet. Just
-# assigning a public IP doesn't always work unless you are very good with
-# setting up a NAT gateway...
-
-assign_public_ip  	     	     = false
-# public_subnet_id		     = "subnet-somepublic"
 
 # If you do not have permissions in your AWS environment to create roles
 # and permissions, then enter the name of a predefined role with appropriate
@@ -34,8 +24,8 @@ assign_public_ip  	     	     = false
 
 # Store the public and private key for Ansible
 
-ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-east-1:919243021404:secret:ansible-controller-private-key-EXAMPLE"
-ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIe/LNfPiKvDPeNIIJmKO/JEdzNmPowIZ9L2EXAMPLE Ansible Controller Key"
+ansible_private_key_secret_arn       = "arn:aws:secretsmanager:us-east-1:919243021404:secret:ansible-controller-private-key-EXAMPLE"
+ansible_ssh_public_key               = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIe/LNfPiKvDPeNIIJmKO/JEdzNmPowIZ9L2EXAMPLE Ansible Controller Key"
 
 # Custom AMI owner ID's
 # This is a list of the owners of any custom AMI's. Since Hammerspace is a custom AMI,
@@ -85,10 +75,44 @@ config_ansible = {
 # Change your project_name, the key_name, and the vpc and subnet id's
 
 project_name		             = "AWS-Project"
-key_name   			     = "Some-PEM-Key"
-vpc_id     			     = "vpc-e3b5890"
-subnet_id  			     = "subnet-0d8a5034456df"
 region				     = "us-west-2"
+key_name   			     = "Some-PEM-Key"
+
+# There are now two ways to use VPC / Subnet(s). You can either use existing
+# or create your own.
+
+# If you wish to use your own, then uncomment these and fill them in
+
+# vpc_id     			     = "vpc-e3b5890"
+# subnet_id  			     = "subnet-0d8a5034456df"
+# public_subnet_id		     = "subnet-somepublic"
+
+# If you wish to create your own VPC / Subnet(s), then uncomment these
+# and fill in the cidr for the vpc / subnet(s). Even if you don't use the
+# public subnet(s), currently YOU MUST create them. Just set the variable
+# "assign_public_ip" to false
+#
+# Finally, this will create subnet(s) in two availability zones. This is
+# also REQUIRED in this version even if you only use one of them. In fact,
+# the default will be to utilize private_subnet_1 for almost everything
+# (with some minor differences)
+
+vpc_cidr				= "10.10.0.0/16"
+private_subnet_1_cidr			= "10.10.1.0/24"
+private_subnet_2_cidr			= "10.10.2.0/24"
+public_subnet_1_cidr			= "10.10.3.0/24"
+public_subnet_2_cidr			= "10.10.4.0/24"
+subnet_1_az				= "us-east-1a"
+subnet_2_az				= "us-east-1b"
+
+# Set this variable is you want public ip addresses for each of the instances.
+# Otherwise, only private ip addresses will be assigned.
+#
+# You must ALSO use a separate public subnet that routes to the internet. Just
+# assigning a public IP doesn't always work unless you are very good with
+# setting up a NAT gateway...
+
+assign_public_ip  	     	     = false
 
 # This is the allowed ingress cidr blocks. These will be added to the vpc cidr automatically
 # upon instantiation.
@@ -218,3 +242,13 @@ storage_ebs_type  		     = "gp3"
 storage_ebs_iops  		     = 9000
 storage_ebs_throughput	 	     = 1000
 
+# Amazon MQ Service
+
+hosted_zone_name		     = "houston.internal" # DNS needed for Amazon MQ
+amazonmq_engine_version		     = "4.2"
+amazonmq_instance_type		     = "mq.m7g.large"
+amazonmq_admin_username		     = "admin"
+amazonmq_admin_password		     = "Pl3as3F1ll1n"
+amazonmq_site_admin_username	     = "admin"
+amazonmq_site_admin_password	     = "Pl3as3F1ll1n"
+amazonmq_site_admin_password_hash    = "This is a hash created by rabbitmq"
