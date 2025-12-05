@@ -14,6 +14,7 @@ Guard-rails have been added to make sure that the deployments are as easy as pos
   - [Storage Server Variables](#storage-server-variables)
   - [Hammerspace Variables](#hammerspace-variables)
   - [ECGroup Variables](#ecgroup-variables)
+  - [Amazon MQ Variables](#amazonmq-variables)
   - [Ansible Variables](#ansible-variables)
     - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
   - [Ansible Configuration Variables](#ansible-configuration-variables)
@@ -207,7 +208,7 @@ These variables apply to the overall deployment:
 
 * `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
 * `capacity_reservation_expiration`: The time before capacity reservations are expired. (Default: `"5m"`).
-* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "ansible".
+* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "mq", "ansible".
 * `assign_public_ip`: If `true`, assigns a public IP address to the Ansible instance. If `false`, only a private IP will be assigned.
 * `iam_profile_name`**: The name of an existing IAM Instance Profile to attach to instance(s). If left blank, a new one will be created.
 * `region`: AWS region for all resources (Default: "us-west-2").
@@ -309,6 +310,20 @@ These variables configure the ECGroup storage cluster and are prefixed with `ecg
 * `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
 * `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
 * `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
+
+---
+
+### AmazonMQ Variables
+
+These variables configure the Amazon MQ cluster and are prefixed with `amazonmq` in your `terraform.tfvars` file.
+
+* `amazonmq_engine_version`: RabbitMQ version for Amazon MQ (Default: "3.11").
+* `amazonmq_instance_type`: Amazon MQ RabbitMQ broker instance type (Default: "mq.m5.large").
+* `amazonmq_admin_username`: Initial admin username for Amazon MQ RabbitMQ.
+* `amazonmq_admin_password`: Initial admin password for Amazon MQ RabbitMQ.
+* `amazonmq_site_admin_username`: Admin username for the administration user on the *site* RabbitMQ containers.
+* `amazonmq_site_admin_password`: Password for the admin user on the *site* RabbitMQ containers.
+* `amazonmq_site_admin_password_hash`: Precomputed RabbitMQ password hash for the site admin user (for definitions.json).
 
 ---
 
