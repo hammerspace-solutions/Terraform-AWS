@@ -83,9 +83,9 @@ key_name   			     = "Some-PEM-Key"
 
 # If you wish to use your own, then uncomment these and fill them in
 
-# vpc_id     			     = "vpc-e3b5890"
-# subnet_id  			     = "subnet-0d8a5034456df"
-# public_subnet_id		     = "subnet-somepublic"
+vpc_id     			     = "vpc-e3b5890"
+subnet_id  			     = "subnet-0d8a5034456df"
+public_subnet_id		     = "subnet-somepublic"
 
 # If you wish to create your own VPC / Subnet(s), then uncomment these
 # and fill in the cidr for the vpc / subnet(s). Even if you don't use the
@@ -97,13 +97,13 @@ key_name   			     = "Some-PEM-Key"
 # the default will be to utilize private_subnet_1 for almost everything
 # (with some minor differences)
 
-vpc_cidr				= "10.10.0.0/16"
-private_subnet_1_cidr			= "10.10.1.0/24"
-private_subnet_2_cidr			= "10.10.2.0/24"
-public_subnet_1_cidr			= "10.10.3.0/24"
-public_subnet_2_cidr			= "10.10.4.0/24"
-subnet_1_az				= "us-east-1a"
-subnet_2_az				= "us-east-1b"
+# vpc_cidr				= "10.10.0.0/16"
+# private_subnet_1_cidr			= "10.10.1.0/24"
+# private_subnet_2_cidr			= "10.10.2.0/24"
+# public_subnet_1_cidr			= "10.10.3.0/24"
+# public_subnet_2_cidr			= "10.10.4.0/24"
+# subnet_1_az				= "us-east-1a"
+# subnet_2_az				= "us-east-1b"
 
 # Set this variable is you want public ip addresses for each of the instances.
 # Otherwise, only private ip addresses will be assigned.
