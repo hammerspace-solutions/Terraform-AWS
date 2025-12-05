@@ -1,139 +1,209 @@
 # Terraform-AWS
-This project uses Terraform to provision resources on AWS. The deployment is modular, allowing you to deploy client machines, storage servers, and a Hammerspace environment either together or independently.
 
-This project was originally written for internal Hammerspace use to size Hammerspace resources within AWS for inclusion in a LLM model for automated AI sizing. It has since expanded to allow customers to deploy linux clients, linux storage servers, EC Groups, and Hammerspace Anvil's and DSX's for any use that they wish.
+Terraform-AWS is a modular Terraform project for provisioning **Hammerspace-based data environments in AWS**.
 
-Guard-rails have been added to make sure that the deployments are as easy as possible for the uninitiated cloud user.
+It can deploy:
 
-## Table of Contents
-- [Installation](#installation)
-- [Configuration](#configuration)
-  - [Global Variables](#global-variables)
-- [Component Variables](#component-variables)
-  - [Client Variables](#client-variables)
-  - [Storage Server Variables](#storage-server-variables)
-  - [Hammerspace Variables](#hammerspace-variables)
-  - [ECGroup Variables](#ecgroup-variables)
-  - [Amazon MQ Variables](#amazonmq-variables)
-  - [Ansible Variables](#ansible-variables)
-    - [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
-  - [Ansible Configuration Variables](#ansible-configuration-variables)
-- [How to Use](#how-to-use)
-  - [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
-- [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
-- [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
-  - [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
-  - [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
-  - [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
-  - [Important Warning on Capacity Reservation Billing](#important-warning-on-capacity-reservation-billing)
-- [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
-- [Securely Accessing Instances](#securely-accessing-instances)
-- [Production Backend](#production-backend)
-- [Tier-0](#tier-0)
-- [Important Note on Placement Group Deletion](#important-note-on-placement-group-deletion)
-- [Outputs](#outputs)
-- [Modules](#modules)
+* Linux **clients**
+* Linux **storage servers**
+* **Hammerspace** Anvil & DSX nodes
+* **ECGroup** clusters
+* **Amazon MQ (RabbitMQ)** brokers
+* An **Ansible controller** for “Day 2” automation
+
+Originally built for internal Hammerspace use to size Hammerspace resources for an LLM-based sizing engine, it has since evolved into a **general-purpose deployment framework** for customers who want to spin up full lab, POC, or production environments with strong guardrails.
+
+> Guard-rails are built in to help less-experienced cloud users avoid painful misconfigurations, capacity issues, and long “hung” applies.
+
+---
+
+## 📚 Table of Contents
+
+* [Installation](#installation)
+* [Configuration](#configuration)
+
+  * [Global Variables](#global-variables)
+* [Component Variables](#component-variables)
+
+  * [Client Variables](#client-variables)
+  * [Storage Server Variables](#storage-server-variables)
+  * [Hammerspace Variables](#hammerspace-variables)
+  * [ECGroup Variables](#ecgroup-variables)
+  * [AmazonMQ Variables](#amazonmq-variables)
+  * [Ansible Variables](#ansible-variables)
+
+    * [Generating and Storing SSH Keys for Ansible](#generating-and-storing-ssh-keys-for-ansible)
+  * [Ansible Configuration Variables](#ansible-configuration-variables)
+* [How to Use](#how-to-use)
+
+  * [Local Development Setup (AWS Profile)](#local-development-setup-aws-profile)
+* [Infrastructure Guardrails and Validation](#infrastructure-guardrails-and-validation)
+* [Dealing with AWS Capacity and Timeouts](#dealing-with-aws-capacity-and-timeouts)
+
+  * [Controlling API Retries (`max_retries`)](#controlling-api-retries-max_retries)
+  * [Controlling Capacity Timeouts](#controlling-capacity-timeouts)
+  * [Understanding the Timeout Behavior](#understanding-the-timeout-behavior)
+  * [Important Warning on Capacity Reservation Billing](#important-warning-on-capacity-reservation-billing)
+* [Required IAM Permissions for Custom Instance Profile](#required-iam-permissions-for-custom-instance-profile)
+* [Securely Accessing Instances](#securely-accessing-instances)
+* [Production Backend](#production-backend)
+* [Tier-0](#tier-0)
+* [Important Note on Placement Group Deletion](#important-note-on-placement-group-deletion)
+* [Outputs](#outputs)
+* [Modules](#modules)
+
+---
 
 ## Installation
 
-Before running this Terraform configuration, please ensure the following one-time setup tasks are complete for the target AWS account.
+Before running this Terraform configuration, complete the following one-time setup tasks for the target AWS account.
 
-* **Clone AWS Terraform Project**: Clone the project before anything else. Find a place on your local system, cd to that directory and then clone the code.
+### 1. Clone the Terraform-AWS Project
 
-  ```bash
-  mkdir -p ~/Terraform-Projects **This is an example**
-  git clone https://github.com/hammerspace-solutions/Terraform-AWS.git
-  ```
+Pick any working directory on your local system:
 
-* **Install Tools**: You must have [Terraform](https://developer.hashicorp.com/terraform/downloads) and the [AWS CLI](https://aws.amazon.com/cli/) installed and configured on your local machine.
-* **AWS Marketplace Subscription**: This configuration uses partner AMIs (e.g., for Hammerspace) which require a subscription in the AWS Marketplace. If you encounter an `OptInRequired` error during `terraform apply`, the error message will contain a specific URL. You must visit this URL, sign in to your AWS account, and accept the terms to subscribe to the product. This only needs to be done once per AWS account for each product.
-* **Create secret keys in IAM**: You will need to use IAM to create a access key and secret access key for your account. Once that is created, then you will need to place them into a credentials file.
-
-  ```bash
-  mkdir -p ~/.aws
-  cd ~/.aws
-  ```
-* **Create credentials file** - Using your preferred text editor, create a credentials file in the .aws directory. In that file, you will place the access key and secret access keys.
-
-  ```bash
-  vim credentials
-  i
-  [default]
-  aws_access_key_id = INSERT-ACCESS-KEY-HERE
-  aws_secret_access_key = INSERT-SECRET-ACCESS-KEY-HERE
-  [esc]
-  :wq!
-  ```
-
-* **Create config file** - You will need to create a config file in the .aws directory that specifies your default region.
-
-  ```bash
-  vim config
-  i
-  [default]
-  region = us-east-1
-  [esc]
-  :wq!
-  ```
-
-* **Create terraform.tfvars** - You need to create a terraform.tfvars file that contains the variables needed to configure and instantiate your environment. We have included a sample file **example_terraform.tfvars.rename** that you can copy and edit.
-
-  ```bash
-  cp example_terraform.tfvars.rename terraform.tfvars
-  vim terraform.tfvars
-  ```
-* **Edit terraform.tfvars** - Look at the [Configuration](#configuration) section below and make your changes for your environment. At a minimum, you must provide `project_name`, `vpc_id`, `subnet_id`, `key_name`, and the required `*_ami` variables.
-
-
-#### Generating and Storing SSH Keys for Ansible
-
-The Ansible controller uses a public/private SSH key pair to securely configure target instances (clients, storage servers, EC groups, etc.) via SSH. The public key is registered in AWS, and the private key is stored securely in AWS Secrets Manager. Follow these steps to generate and store the key pair:
-
-1. **Generate a Public/Private Key Pair**:
-- On your local machine (with SSH tools installed), run the following command to generate an Ed25519 key pair (recommended for security):
-   
 ```bash
-     ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
+mkdir -p ~/Terraform-Projects   # example
+cd ~/Terraform-Projects
+git clone https://github.com/hammerspace-solutions/Terraform-AWS.git
+cd Terraform-AWS
 ```
 
-- This create two files `ansible_controller_key` (private key) and `ansible_controller_key.pub` (public key). Do not share the private key.
+### 2. Install Required Tools
 
-2. **Store the Private Key in AWS Secrets Manager**:
+You must have:
 
-- Use the AWS CLI to create a secret in Secrets Manager. Replace `<region>` with your AWS region (e.g., `us-west-2`) and `<account-id>` with your AWS account ID.
-     
-```
-   aws secretsmanager create-secret --name ansible-controller-private-key --description "Private SSH key for Ansible controller"  --secret-string file://ansible_controller_key --region <region>
-```
+* [Terraform](https://developer.hashicorp.com/terraform/downloads)
+* [AWS CLI](https://aws.amazon.com/cli/)
 
-- Note the ARN of the created secret (e.g., `arn:aws:secretsmanager:<region>:account-id>:secret:ansible-controller-privagte-key-abc123`).
+installed and configured on your system.
 
-3. **Update terraform.tfvars**:
+### 3. Subscribe to Required AWS Marketplace Products
 
-- In your `terraform.tfvars file, set the following variables:
+This configuration uses partner AMIs (e.g., for Hammerspace) which may require an **AWS Marketplace subscription**.
 
-```
-  ansible_ssh_public_key = "<contents of ansible_controller_key.pub>"
-  ansible_private_key_secret_arn = "<ARN from step 2>"
-```
-  - Example:
+If you see an `OptInRequired` error during `terraform apply`, the error will contain a URL. Open that URL in your browser, sign in, and accept the product terms. This is a **one-time operation per AWS account per product**.
 
-```
-  ansible_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
-  ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
+### 4. Create AWS Credentials
+
+Create an AWS credentials file for your account.
+
+```bash
+mkdir -p ~/.aws
+cd ~/.aws
 ```
 
-- To get the public key contents, run:
+Create `credentials`:
 
+```bash
+vim credentials
+# insert:
+[default]
+aws_access_key_id = INSERT-ACCESS-KEY-HERE
+aws_secret_access_key = INSERT-SECRET-ACCESS-KEY-HERE
+# save & exit
 ```
-  cat ansible_controller_key.pub
+
+### 5. Create AWS Config
+
+Create `config` in the same directory with your default region:
+
+```bash
+vim config
+# insert:
+[default]
+region = us-east-1
+# save & exit
 ```
 
-- Copy the output (including `ssh-ed25519 ...`) and paste it into `terraform.tfvars`.
+### 6. Create `terraform.tfvars`
 
-#### IAM Permissions
+Create a `terraform.tfvars` file based on the provided example:
 
-  - If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, ensure it includes the following permissions for the Ansible instance:
+```bash
+cp example_terraform.tfvars.rename terraform.tfvars
+vim terraform.tfvars
+```
+
+At a minimum you must provide:
+
+* `project_name`
+* `vpc_id` (or VPC creation details in the current design)
+* `subnet_id` / subnet configuration
+* `key_name`
+* Required `*_ami` variables (clients, storage, Hammerspace, ECGroup, Ansible, etc.)
+
+Then refine based on the [Configuration](#configuration) and [Component Variables](#component-variables) sections below.
+
+---
+
+### Generating and Storing SSH Keys for Ansible
+
+The Ansible controller uses an SSH key pair to securely configure target instances (clients, storage servers, ECGroup, etc.) over SSH. The **public key** is registered in AWS; the **private key** is stored in **AWS Secrets Manager**.
+
+#### 1. Generate a Public/Private Key Pair
+
+On your local machine:
+
+```bash
+ssh-keygen -t ed25519 -f ansible_controller_key -C "Ansible Controller Key"
+```
+
+This creates:
+
+* `ansible_controller_key`     → **private key** (keep secret)
+* `ansible_controller_key.pub` → **public key**
+
+#### 2. Store the Private Key in AWS Secrets Manager
+
+```bash
+aws secretsmanager create-secret \
+  --name ansible-controller-private-key \
+  --description "Private SSH key for Ansible controller" \
+  --secret-string file://ansible_controller_key \
+  --region <region>
+```
+
+Take note of the secret ARN, e.g.:
+
+```text
+arn:aws:secretsmanager:<region>:<account-id>:secret:ansible-controller-private-key-abc123
+```
+
+#### 3. Update `terraform.tfvars`
+
+Add:
+
+```hcl
+ansible_ssh_public_key         = "<contents of ansible_controller_key.pub>"
+ansible_private_key_secret_arn = "<ARN from step 2>"
+```
+
+Example:
+
+```hcl
+ansible_ssh_public_key         = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... Ansible Controller Key"
+ansible_private_key_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:ansible-controller-private-key-abc123"
+```
+
+To get the public key contents:
+
+```bash
+cat ansible_controller_key.pub
+```
+
+Copy the entire line (starting with `ssh-ed25519`) into `terraform.tfvars`.
+
+---
+
+### IAM Permissions
+
+If you set `iam_profile_name` in `terraform.tfvars` to use an existing IAM instance profile, that profile must allow:
+
+* Reading the private key from Secrets Manager
+* SSM Session Manager access for control-plane operations
+
+Example IAM policy snippet for the Ansible role:
 
 ```json
 {
@@ -188,41 +258,93 @@ The Ansible controller uses a public/private SSH key pair to securely configure 
 }
 ```
 
-- If `iam_profile_name` is not set, the `iam-core` module automatically creates a profile with these permissions for the Ansible instance.
+If `iam_profile_name` is **not** set, the `iam-core` module will create a suitable profile automatically.
 
-#### Security Best Practices
+> **Security tips**
+>
+> * Store the private key securely and delete the local copy once uploaded to Secrets Manager.
+> * Restrict the secret using IAM (e.g., only the Ansible role can read it).
+> * Use unique key pairs per environment where possible.
 
-- Store the private key (`ansible_controller_key`) securely and delete it from your local machine after uploading to Secrets Manager.
-- Restrict access to the Secrets Manager secret using IAM policies (e.g., only allow the Ansible role to read it).
-- Use a strong, unique key pair for each deployment to avoid reuse risks.
-
-This setup enables the Ansible controller to securely fetch its private key during SSM bootstrapping and use it to SSH into target instances for configuration.
+---
 
 ## Configuration
 
-Configuration is managed through `terraform.tfvars` by setting values for the variables defined in `variables.tf`. In order to make it a little easier for the user, we have supplied an `example_terraform.tfvars.rename` file with all of the possible values. Just rename that file to `terraform.tfvars` and edit it to indicate what you would like to configure. The global and module variables are explained in detail below.
+Configuration is managed through `terraform.tfvars` using variables defined in `variables.tf`.
+
+To simplify setup, the repository includes:
+
+```text
+example_terraform.tfvars.rename
+```
+
+1. Rename it:
+
+```bash
+mv example_terraform.tfvars.rename terraform.tfvars
+```
+
+2. Edit it to match your environment.
+
+The following sections explain **global** variables and **per-component** variables.
+
+---
 
 ### Global Variables
 
-These variables apply to the overall deployment:
+These variables control top-level behavior:
 
-* `capacity_reservation_create_timeout`: The duration to wait for a capacity reservation to be fulfilled before timing out. (Default: `"5m"`).
-* `capacity_reservation_expiration`: The time before capacity reservations are expired. (Default: `"5m"`).
-* `deploy_components`: Components to deploy. Valid values in the list are: "all", "clients", "storage", "hammerspace", "ecgroup", "mq", "ansible".
-* `assign_public_ip`: If `true`, assigns a public IP address to the Ansible instance. If `false`, only a private IP will be assigned.
-* `iam_profile_name`**: The name of an existing IAM Instance Profile to attach to instance(s). If left blank, a new one will be created.
-* `region`: AWS region for all resources (Default: "us-west-2").
-* `allowed_source_cidr_blocks`: A list of additional IPv4 CIDR ranges to allow SSH and all other ingress traffic from (e.g., your corporate VPN range).
-* `custom_ami_owner_ids`: A list of additional AWS Account IDs to search for AMIs. Use this if you are using private or community AMIs shared from other accounts.
-* `vpc_id`: VPC ID for all resources.
-* `subnet_id`: Subnet ID for resources.
-* `public_subnet_id`: The ID of the public subnet to use for instances requiring a public IP. Optional, but required if `assign_public_ip` is true.
-* `key_name`: SSH key pair name.
-* `tags`: Common tags for all resources (Default: `{}`).
-* `project_name`: Project name for tagging and resource naming.
-* `ssh_keys_dir`: Directory containing SSH public keys (Default: `"./ssh_keys"`).
-* `placement_group_name`: Optional: The name of the placement group to create and launch instances into. If left blank, no placement group is used.
-* `placement_group_strategy`: The strategy to use for the placement group: cluster, spread, or partition (Default: `cluster`).
+* `capacity_reservation_create_timeout`
+  Duration to wait for a capacity reservation to become active (Default: `"5m"`).
+
+* `capacity_reservation_expiration`
+  Lifetime of capacity reservations before expiration (Default: `"5m"`).
+
+* `deploy_components`
+  List of components to deploy. Valid values:
+  `"all"`, `"clients"`, `"storage"`, `"hammerspace"`, `"ecgroup"`, `"mq"`, `"ansible"`.
+
+* `assign_public_ip`
+  If `true`, Ansible instances get public IPs; if `false`, only private.
+
+* `iam_profile_name`
+  Name of an **existing** IAM Instance Profile to use. If blank, a profile is created.
+
+* `region`
+  AWS region for all resources (Default: `"us-west-2"`).
+
+* `allowed_source_cidr_blocks`
+  Additional IPv4 CIDRs allowed ingress (e.g., corp VPN).
+
+* `custom_ami_owner_ids`
+  Additional AWS Account IDs to search for private/community AMIs.
+
+* `vpc_id`
+  VPC ID for the deployment (or use VPC creation mode per current code).
+
+* `subnet_id`
+  Subnet ID for resources (or subnet-creation mode depending on design).
+
+* `public_subnet_id`
+  Public subnet ID for instances requiring public IPs. Required if `assign_public_ip = true`.
+
+* `key_name`
+  EC2 key pair name.
+
+* `tags`
+  Common tags for all resources (Default: `{}`).
+
+* `project_name`
+  Project name for tagging and naming.
+
+* `ssh_keys_dir`
+  Directory containing SSH public keys (Default: `"./ssh_keys"`).
+
+* `placement_group_name`
+  Optional placement group name. If blank, no placement group is used.
+
+* `placement_group_strategy`
+  Placement group strategy: `"cluster"`, `"spread"`, or `"partition"` (Default: `"cluster"`).
 
 ---
 
@@ -230,130 +352,135 @@ These variables apply to the overall deployment:
 
 ### Client Variables
 
-These variables configure the client instances and are prefixed with `clients_` in your `terraform.tfvars` file.
+Prefixed with `clients_` in `terraform.tfvars`:
 
-* `clients_instance_count`: Number of client instances.
-* `clients_tier0`: Tier0 RAID config for clients. Blank ('') to skip, or 'raid-0', 'raid-5', 'raid-6'.
-* `clients_tier0_type`: Tier0 RAID config for clients. (raid-0, raid-5, raid-6) (Default: "raid-0")
-* `clients_ami`: AMI for client instances.
-* `clients_instance_type`: Instance type for clients.
-* `clients_boot_volume_size`: Root volume size (GB) for clients (Default: 100).
-* `clients_boot_volume_type`: Root volume type for clients (Default: "gp2").
-* `clients_ebs_count`: Number of extra EBS volumes per client (Default: 0).
-* `clients_ebs_size`: Size of each EBS volume (GB) for clients (Default: 1000).
-* `clients_ebs_type`: Type of EBS volume for clients (Default: "gp3").
-* `clients_ebs_throughput`: Throughput for gp3 EBS volumes for clients (MB/s).
-* `clients_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for clients.
-* `clients_target_user`: Default system user for client EC2s (Default: "ubuntu").
+* `clients_instance_count`
+* `clients_tier0` – `""`, `"raid-0"`, `"raid-5"`, or `"raid-6"`.
+* `clients_tier0_type` – RAID type for Tier-0 (Default: `"raid-0"`).
+* `clients_ami`
+* `clients_instance_type`
+* `clients_boot_volume_size` (Default: `100`)
+* `clients_boot_volume_type` (Default: `"gp2"`)
+* `clients_ebs_count` (Default: `0`)
+* `clients_ebs_size` (Default: `1000`)
+* `clients_ebs_type` (Default: `"gp3"`)
+* `clients_ebs_throughput`
+* `clients_ebs_iops`
+* `clients_target_user` (Default: `"ubuntu"`)
 
 ---
 
 ### Storage Server Variables
 
-These variables configure the storage server instances and are prefixed with `storage_` in your `terraform.tfvars` file.
+Prefixed with `storage_`:
 
-* `storage_instance_count`: Number of storage instances (Default: 0).
-* `storage_ami`: (Required) AMI for storage instances.
-* `storage_instance_type`: Instance type for storage.
-* `storage_boot_volume_size`: Root volume size (GB) for storage (Default: 100).
-* `storage_boot_volume_type`: Root volume type for storage (Default: "gp2").
-* `storage_ebs_count`: Number of extra EBS volumes per storage (Default: 0).
-* `storage_ebs_size`: Size of each EBS volume (GB) for storage (Default: 1000).
-* `storage_ebs_type`: Type of EBS volume for storage (Default: "gp3").
-* `storage_ebs_throughput`: Throughput for gp3 EBS volumes for storage (MB/s).
-* `storage_ebs_iops`: IOPS for gp3/io1/io2 EBS volumes for storage.
-* `storage_target_user`: Default system user for storage EC2s (Default: "ubuntu").
-* `storage_raid_level`: RAID level to configure (raid-0, raid-5, or raid-6) (Default: "raid-5").
+* `storage_instance_count` (Default: `0`)
+* `storage_ami` (**required**)
+* `storage_instance_type`
+* `storage_boot_volume_size` (Default: `100`)
+* `storage_boot_volume_type` (Default: `"gp2"`)
+* `storage_ebs_count` (Default: `0`)
+* `storage_ebs_size` (Default: `1000`)
+* `storage_ebs_type` (Default: `"gp3"`)
+* `storage_ebs_throughput`
+* `storage_ebs_iops`
+* `storage_target_user` (Default: `"ubuntu"`)
+* `storage_raid_level` – `"raid-0"`, `"raid-5"`, `"raid-6"` (Default: `"raid-5"`)
 
 ---
 
 ### Hammerspace Variables
 
-These variables configure the Hammerspace deployment and are prefixed with `hammerspace_` in `terraform.tfvars`.
+Prefixed with `hammerspace_`:
 
-* **`hammerspace_anvil_security_group_id`**: (Optional) An existing security group ID to use for the Anvil nodes.
-* **`hammerspace_dsx_security_group_id`**: (Optional) An existing security group ID to use for the DSX nodes.
-* `hammerspace_ami`: AMI ID for Hammerspace instances.
-* `hammerspace_iam_admin_group_id`: IAM admin group ID for SSH access.
-* `hammerspace_anvil_count`: Number of Anvil instances to deploy (0=none, 1=standalone, 2=HA) (Default: 0).
-* `hammerspace_sa_anvil_destruction`: A safety switch to allow the destruction of a standalone Anvil. Must be set to true for 'terraform destroy' to succeed.
-* `hammerspace_anvil_instance_type`: Instance type for Anvil metadata server (Default: "m5zn.12xlarge").
-* `hammerspace_dsx_instance_type`: Instance type for DSX nodes (Default: "m5.xlarge").
-* `hammerspace_dsx_count`: Number of DSX instances (Default: 1).
-* `hammerspace_anvil_meta_disk_size`: Metadata disk size in GB for Anvil (Default: 1000).
-* `hammerspace_anvil_meta_disk_type`: Type of EBS volume for Anvil metadata disk (Default: "gp3").
-* `hammerspace_anvil_meta_disk_throughput`: Throughput for gp3 EBS volumes for the Anvil metadata disk (MiB/s).
-* `hammerspace_anvil_meta_disk_iops`: IOPS for gp3/io1/io2 EBS volumes for the Anvil metadata disk.
-* `hammerspace_dsx_ebs_size`: Size of each EBS Data volume per DSX node in GB (Default: 200).
-* `hammerspace_dsx_ebs_type`: Type of each EBS Data volume for DSX (Default: "gp3").
-* `hammerspace_dsx_ebs_iops`: IOPS for each EBS Data volume for DSX.
-* `hammerspace_dsx_ebs_throughput`: Throughput for each EBS Data volume for DSX (MiB/s).
-* `hammerspace_dsx_ebs_count`: Number of data EBS volumes to attach to each DSX instance (Default: 1).
-* `hammerspace_dsx_add_vols`: Add non-boot EBS volumes as Hammerspace storage volumes (Default: true).
+* `hammerspace_anvil_security_group_id` (optional)
+* `hammerspace_dsx_security_group_id` (optional)
+* `hammerspace_ami`
+* `hammerspace_iam_admin_group_id`
+* `hammerspace_anvil_count`
+  `0 = none`, `1 = standalone`, `2 = HA` (Default: `0`).
+* `hammerspace_sa_anvil_destruction`
+  Safety switch; must be `true` to destroy a standalone Anvil.
+* `hammerspace_anvil_instance_type` (Default: `"m5zn.12xlarge"`)
+* `hammerspace_dsx_instance_type` (Default: `"m5.xlarge"`)
+* `hammerspace_dsx_count` (Default: `1`)
+* `hammerspace_anvil_meta_disk_size` (Default: `1000`)
+* `hammerspace_anvil_meta_disk_type` (Default: `"gp3"`)
+* `hammerspace_anvil_meta_disk_throughput`
+* `hammerspace_anvil_meta_disk_iops`
+* `hammerspace_dsx_ebs_size` (Default: `200`)
+* `hammerspace_dsx_ebs_type` (Default: `"gp3"`)
+* `hammerspace_dsx_ebs_iops`
+* `hammerspace_dsx_ebs_throughput`
+* `hammerspace_dsx_ebs_count` (Default: `1`)
+* `hammerspace_dsx_add_vols` (Default: `true`)
 
 ---
 
 ### ECGroup Variables
 
-These variables configure the ECGroup storage cluster and are prefixed with `ecgroup_` in your `terraform.tfvars` file.
+Prefixed with `ecgroup_`:
 
-* `ecgroup_instance_type`: EC2 instance type for the cluster nodes (Default: "m6i.16xlarge").
-* `ecgroup_node_count`: Number of EC2 nodes to create (must be between 4 and 16) (Default: 4).
-* `ecgroup_boot_volume_size`: Root volume size (GB) for each node (Default: 100).
-* `ecgroup_boot_volume_type`: Root volume type for each node (Default: "gp2").
-* `ecgroup_metadata_volume_size`: Size of the metadata EBS volume for each node in GiB (Default: 4096).
-* `ecgroup_metadata_volume_type`: Type of EBS metadata volume for each node (Default: "io2").
-* `ecgroup_metadata_volume_throughput`: Throughput for metadata EBS volumes.
-* `ecgroup_metadata_volume_iops`: IOPS for the metadata EBS volumes.
-* `ecgroup_storage_volume_count`: Number of storage volumes to attach to each node (Default: 4).
-* `ecgroup_storage_volume_size`: Size of each EBS storage volume (GB) (Default: 4096).
-* `ecgroup_storage_volume_type`: Type of EBS storage volume (Default: "gp3").
-* `ecgroup_storage_volume_throughput`: Throughput for each EBS storage volume.
-* `ecgroup_storage_volume_iops`: IOPS for each EBS storage volume.
+* `ecgroup_instance_type` (Default: `"m6i.16xlarge"`)
+* `ecgroup_node_count` (Default: `4`, between 4 and 16)
+* `ecgroup_boot_volume_size` (Default: `100`)
+* `ecgroup_boot_volume_type` (Default: `"gp2"`)
+* `ecgroup_metadata_volume_size` (Default: `4096`)
+* `ecgroup_metadata_volume_type` (Default: `"io2"`)
+* `ecgroup_metadata_volume_throughput`
+* `ecgroup_metadata_volume_iops`
+* `ecgroup_storage_volume_count` (Default: `4`)
+* `ecgroup_storage_volume_size` (Default: `4096`)
+* `ecgroup_storage_volume_type` (Default: `"gp3"`)
+* `ecgroup_storage_volume_throughput`
+* `ecgroup_storage_volume_iops`
 
 ---
 
 ### AmazonMQ Variables
 
-These variables configure the Amazon MQ cluster and are prefixed with `amazonmq` in your `terraform.tfvars` file.
+Prefixed with `amazonmq_`:
 
-* `amazonmq_engine_version`: RabbitMQ version for Amazon MQ (Default: "3.11").
-* `amazonmq_instance_type`: Amazon MQ RabbitMQ broker instance type (Default: "mq.m5.large").
-* `amazonmq_admin_username`: Initial admin username for Amazon MQ RabbitMQ.
-* `amazonmq_admin_password`: Initial admin password for Amazon MQ RabbitMQ.
-* `amazonmq_site_admin_username`: Admin username for the administration user on the *site* RabbitMQ containers.
-* `amazonmq_site_admin_password`: Password for the admin user on the *site* RabbitMQ containers.
-* `amazonmq_site_admin_password_hash`: Precomputed RabbitMQ password hash for the site admin user (for definitions.json).
+* `amazonmq_engine_version` – RabbitMQ version (Default: `"3.11"`)
+* `amazonmq_instance_type` – Broker instance type (Default: `"mq.m5.large"`)
+* `amazonmq_admin_username`
+* `amazonmq_admin_password`
+* `amazonmq_site_admin_username`
+* `amazonmq_site_admin_password`
+* `amazonmq_site_admin_password_hash` – precomputed RabbitMQ password hash
 
 ---
 
 ### Ansible Variables
 
-These variables configure the Ansible controller instance. Prefixes are `ansible_` where applicable.
+Prefixed with `ansible_`:
 
-> [!WARNING]
-> These variables are only needed for the ansible controller. They do not configure what Ansible does after instantiation. That is in the next section.
+> **Note**
+> These variables configure the **Ansible controller instance** itself. What Ansible does afterward (playbooks, Day 2 operations) is controlled by the **Ansible configuration variables** in the next section.
 
-* `ansible_instance_count`: Number of Ansible instances (Default: 1).
-* `ansible_ami`: (Required) AMI for Ansible instances.
-* `ansible_instance_type`: Instance type for Ansible (Default: "m5n.8xlarge").
-* `ansible_boot_volume_size`: Root volume size (GB) (Default: 100).
-* `ansible_boot_volume_type`: Root volume type (Default: "gp2").
-* `ansible_target_user`: Default system user for Ansible EC2 (Default: "ubuntu").
-* `ansible_ssh_public_key`: OpenSSH public key for the Ansible controller (e.g., `ssh-ed25519 AAA...`).
-* `ansible_private_key_secret_arn`: AWS Secrets Manager ARN holding the Ansible controller's private SSH key.
-* `ansible_controller_cidr`: CIDR allowed to SSH to target instances (used as a fallback if security group-based SSH is not possible).
+* `ansible_instance_count` (Default: `1`)
+* `ansible_ami` (**required**)
+* `ansible_instance_type` (Default: `"m5n.8xlarge"`)
+* `ansible_boot_volume_size` (Default: `100`)
+* `ansible_boot_volume_type` (Default: `"gp2"`)
+* `ansible_target_user` (Default: `"ubuntu"`)
+* `ansible_ssh_public_key`
+* `ansible_private_key_secret_arn`
+* `ansible_controller_cidr` – fallback CIDR allowed for SSH ingress
+
+---
 
 ### Ansible Configuration Variables
 
-These variables are used by the Ansible Controller to configure services within the Hammerspace environment. Things like adding storage servers, add volumes, configuring volume groups, and adding shares are all covered here.
-Because of the complexity of trying to satisfy the majority of configurations, the ansible configuration is a json variable of the format:
+These variables drive how the Ansible controller configures Hammerspace, ECGroup, and storage volumes.
 
-```json
+Configuration is supplied as a **JSON-like Terraform map**:
+
+```hcl
 config_ansible = {
-  allow_root = true
+  allow_root         = true
   ecgroup_volume_group = "xyz"
-  ecgroup_share_name = "123"
+  ecgroup_share_name   = "123"
   volume_groups = {
     group_1 = {
       volumes = ["1","2","3","4"]
@@ -371,131 +498,157 @@ config_ansible = {
     }
   }
 }
-
 ```
 
-* `allow_root`: Whether ansible will configure the clients so that they can ssh to each other without a password. This is sometimes useful for benchmarking and testing. This will only apply to the **root** user.
-* `ecgroup_volume_group`: (Optional) The volume group name that will be created if ECGroups exist. 
-* `ecgroup_share_name`: (Optional): The share name that will be created if ECGroups exist.
-* `volume_groups`: (Optional): This is a structure that contains one or more volume group structures
-* `group_1`: This is the **name** of the volume group. Obviously, group_1 is just an example.
-* `volumes`: This is a list of indexes that correlate to the storage servers. In this example, storage server "1", "2", "3", and "4" will be placed in the volume group.
-* `share`: The name of the share to create. This share will only reference the volume group called "group_1".
-* `add_groups`: (Optional): This is a list of previously created volume groups to add to this volume group.
+* `allow_root`
+  If `true`, Ansible will configure passwordless SSH between nodes **for the `root` user** (useful for testing/benchmarking).
 
-> [!NOTE]
-> Volume Groups and Shares are only created if you have configured **storage** and **hammerspace** in the deploy_components variable.
+* `ecgroup_volume_group` (optional)
+  Volume group name to create if ECGroup is deployed.
+
+* `ecgroup_share_name` (optional)
+  Share name to create on top of the ECGroup volume group.
+
+* `volume_groups` (optional)
+  Map of volume group definitions:
+
+  * `group_1`, `group_2`, etc. – logical names for volume groups.
+  * `volumes` – list of storage server indices that belong to the group.
+  * `share` – share name bound to that group.
+  * `add_groups` – list of previously defined volume groups to include (e.g. composing multiple groups).
+
+> **Note**
+> Volume Groups and Shares are only created if you have configured **both** `storage` and `hammerspace` in `deploy_components`.
+
 ---
 
 ## How to Use
 
-1.  **Initialize**: `terraform init`
-2.  **Verify**: `terraform validate`
-3.  **Plan**: `terraform plan`
-4.  **Apply**: `terraform apply`
+Once configured:
 
-### Local Development Setup (AWS Profile)
-To use a named profile from your `~/.aws/credentials` file for local runs without affecting the CI/CD pipeline, you should use a local override file. This prevents your personal credentials profile from being committed to source control.
+1. **Initialize**:
 
-1.  **Create an override file**: In the root directory of the project, create a new file named `local_override.tf`.
-2.  **Add the provider configuration**: Place the following code inside `local_override.tf`, replacing `"your-profile-name"` with your actual profile name.
+   ```bash
+   terraform init
+   ```
 
-    ```terraform
-    # Terraform-AWS/local_override.tf
-    # This file is for local development overrides and should not be committed.
+2. **Validate**:
 
-    provider "aws" {
-      profile = "your-profile-name"
-    }
-    ```
-When you run Terraform locally, it will automatically merge this file with `main.tf`, using your profile. The CI/CD system will not have this file and will correctly fall back to using the credentials stored in its environment secrets.
+   ```bash
+   terraform validate
+   ```
 
+3. **Plan**:
+
+   ```bash
+   terraform plan
+   ```
+
+4. **Apply**:
+
+   ```bash
+   terraform apply
+   ```
 
 ---
+
+### Local Development Setup (AWS Profile)
+
+To use a **named AWS profile** locally without affecting CI/CD, you can add a `local_override.tf` that is **not committed** to version control.
+
+1. Create `local_override.tf` in the project root:
+
+   ```hcl
+   # Terraform-AWS/local_override.tf
+   # Local-only provider overrides; do not commit this.
+
+   provider "aws" {
+     profile = "your-profile-name"
+   }
+   ```
+
+2. Terraform will automatically merge this provider block when run locally.
+   CI/CD environments that don’t have this file will fall back to their own configured credentials.
+
+---
+
 ## Infrastructure Guardrails and Validation
 
-To prevent common errors and ensure a smooth deployment, this project includes several "pre-flight" checks that run during the `terraform plan` phase. If any of these checks fail, the plan will stop with a clear error message before any resources are created.
+To prevent common misconfigurations, this project includes **pre-flight checks** evaluated during `terraform plan`:
 
-* **Network Validation**:
-    * **VPC and Subnet Existence**: Verifies that the `vpc_id` and `subnet_id` you provide correspond to real resources in the target AWS region.
-    * **Subnet in VPC**: Confirms that the provided subnet is actually part of the specified VPC.
+* **Network Validation**
 
-* **Resource Availability Validation**:
-    * **Instance Type Availability**: Checks if your chosen EC2 instance types (e.g., `m5n.8xlarge`) are offered by AWS in the specific Availability Zone of your subnet.
-    * **AMI Existence**: Verifies that the AMI IDs you provide for clients, storage, Hammerspace, and Ansible are valid and accessible in the target region. This check supports both public AMIs and private/partner AMIs (via the `custom_ami_owner_ids` variable).
+  * Validates that `vpc_id` and subnet configuration refer to real resources in the selected region.
+  * Confirms that subnets actually belong to the given VPC.
 
-* **Capacity and Provisioning Guardrails**:
-    * **On-Demand Capacity Reservations**: Before attempting to create instances, Terraform will first try to reserve the necessary capacity. If AWS cannot fulfill the reservation due to a real-time capacity shortage, the `terraform apply` will fail quickly instead of hanging.
-    * **Destruction Safety**: The standalone Anvil instance is protected by a `lifecycle` block to prevent accidental deletion. You must explicitly set `sa_anvil_destruction = true` to destroy it.
+* **Resource Availability**
+
+  * Verifies that requested EC2 instance types are available in the target Availability Zone(s).
+  * Validates that AMI IDs (clients, storage, Hammerspace, Ansible, ECGroup, etc.) exist and are accessible (including private/partner AMIs via `custom_ami_owner_ids`).
+
+* **Capacity & Provisioning Guardrails**
+
+  * Uses **On-Demand Capacity Reservations** so capacity failures surface quickly rather than causing Terraform to hang.
+  * Protects a standalone Anvil with a `lifecycle` rule; you must explicitly set `sa_anvil_destruction = true` to destroy it.
 
 ---
 
 ## Dealing with AWS Capacity and Timeouts
 
-When deploying large or specialized EC2 instances, you may encounter `InsufficientInstanceCapacity` errors from AWS. This project includes several advanced features to manage this issue and provide predictable behavior.
+When using larger or specialized instance types, you may see `InsufficientInstanceCapacity` errors. This project includes knobs to tune behavior.
 
 ### Controlling API Retries (`max_retries`)
 
-The AWS provider will automatically retry certain API errors, such as `InsufficientInstanceCapacity`. While normally helpful, this can cause the `terraform apply` command to hang for many minutes before finally failing.
+By default, the AWS provider retries transient errors, which can prolong failures. For **debugging capacity issues**, you can set:
 
-To get immediate feedback, you can instruct the provider not to retry. In your root `main.tf` (or an override file like `local_override.tf`), configure the `provider` block:
-
-```terraform
+```hcl
 provider "aws" {
   region      = var.region
-  
-  # Fail immediately on the first retryable error instead of hanging.
-  # Set to 0 for debugging, or a small number like 2 for production.
   max_retries = 0
 }
 ```
-Setting `max_retries = 0` is excellent for debugging capacity issues, as it ensures the `apply` fails on the very first error.
+
+This causes retryable errors to fail immediately.
 
 ### Controlling Capacity Timeouts
 
-To prevent long hangs, this project first creates On-Demand Capacity Reservations to secure hardware before launching instances. You can control how long Terraform waits for these reservations to be fulfilled using a variable in your `.tfvars` file:
+Capacity reservations are created first to ensure instances will launch. You can control the **wait time** using:
 
-* **`capacity_reservation_create_timeout`**: Sets the timeout for creating capacity reservations. If AWS cannot find the hardware within this period, the `apply` will fail. (Default: `"5m"`)
+* `capacity_reservation_create_timeout` – how long Terraform waits for the reservation to become `active` (Default: `"5m"`).
 
 ### Understanding the Timeout Behavior
 
-It is critical to understand how these settings interact. Even with `max_retries = 0`, you may see Terraform wait for the full duration of the `capacity_reservation_create_timeout`.
+Even with `max_retries = 0`, the AWS provider may still take up to the timeout to fail, because:
 
-This is not a bug; it is the fundamental behavior of the AWS Capacity Reservation system:
-1.  Terraform sends the request to AWS to create the reservation.
-2.  AWS acknowledges the request and places the reservation in a **`pending`** state. The API call itself succeeds, so `max_retries` has no effect.
-3.  AWS now searches for physical hardware to fulfill your request in the background.
-4.  The Terraform provider enters a "waiter" loop, polling AWS every ~15 seconds, asking, "Is the reservation `active` yet?"
-5.  The `Still creating...` message you see during `terraform apply` corresponds to this waiting period.
+1. Terraform requests a capacity reservation.
+2. AWS returns success but sets reservation status to `pending`.
+3. Terraform polls AWS waiting for the reservation to become `active`.
+4. If it does not become `active` before `capacity_reservation_create_timeout`, Terraform fails the `apply`.
 
-The `capacity_reservation_create_timeout` you set applies to this **entire waiting period**. If the reservation does not become `active` within that time (e.g., `"5m"`), Terraform will stop waiting and fail the `apply`. The timeout is working correctly by putting a boundary on the wait, but it will not cause an *instant* failure if the capacity isn't immediately available.
+So `capacity_reservation_create_timeout` bounds **how long you’re willing to wait for capacity**.
 
 ### Important Warning on Capacity Reservation Billing
 
-> [!WARNING]
-> On-Demand Capacity Reservations begin to incur charges at the standard On-Demand rate as soon as they are successfully created, **whether you are running an instance in them or not.**
->
-> In order to avoid unnecessary charges, there is a variable called `capacity_reservation_expiration` that must be tuned. By default, it is set to 5 minutes. The sole purpose of the Capacity Reservation is to make sure that resources
-> are available so that Terraform doesn't hang during the `terraform apply` because those resources are unavailable in your availability zone.
->
-> Another important point is that once a capacity reservation expires, then any changes to terraform that you wish to make to increase clients or storage will fail. This is because terraform will attempt to recreate the capacity reservations
-> and that will terminate the existing running instances in order to recreate them with the additions. In most case, this will not be what you want.
->
-> If, however, you are still within the capacity reservation when you increase the clients or storage, then just that addition will occur.
+> **Warning**
+> On-Demand Capacity Reservations start billing as soon as they’re created, even if **no instances** are running against them.
+
+* `capacity_reservation_expiration` controls how quickly reservations expire (default `5m`), minimizing cost.
+* Once a reservation expires, **increasing** the number of clients/storage nodes later may require **new reservations**, which may attempt to recreate or adjust existing resources.
+* If you scale **within** an existing active reservation window, the adjustments are typically smoother.
 
 ---
 
 ## Required IAM Permissions for Custom Instance Profile
-If you are using the `iam_profile_name` variable to provide a pre-existing IAM Instance Profile, the associated IAM Role must have a policy attached with the following permissions.
 
-**Summary for AWS Administrators:**
-1.  Create an IAM Policy with the JSON below.
-2.  Create an IAM Role for the EC2 Service (`ec2.amazonaws.com`).
-3.  Attach the new policy to the role.
-4.  Create an Instance Profile and attach the role to it.
-5.  Provide the name of the **Instance Profile** to the user running Terraform.
+If you supply `iam_profile_name` (an existing instance profile), the associated IAM role must allow:
 
-**Required IAM Policy JSON:**
+1. Discovering SSH keys/users from IAM if used.
+2. Discovering EC2 instances and tags.
+3. Managing floating IPs for Hammerspace HA.
+4. Reporting usage for AWS Marketplace-based AMIs.
+
+Example policy:
+
 ```json
 {
     "Version": "2012-10-17",
@@ -539,28 +692,28 @@ If you are using the `iam_profile_name` variable to provide a pre-existing IAM I
 }
 ```
 
-**Permission Breakdown:**
-* **SSHKeyAccess**: Allows the instance to fetch SSH public keys from IAM for user access, if `iam_user_access` is enabled.
-* **HAInstanceDiscovery**: Allows the Anvil HA nodes to discover each other's state and tags.
-* **HAFloatingIP**: **(Crucial for HA)** Allows an Anvil node to take over the floating cluster IP address from its partner during a failover.
-* **MarketplaceMetering**: Required for instances launched from the AWS Marketplace to report usage for billing.
-
 ---
 
 ## Securely Accessing Instances
 
-For production or security-conscious environments, allowing ingress traffic from the entire internet (`0.0.0.0/0`) is not recommended. This project defaults to a more secure model. Ingress traffic is only allowed from two sources:
-1.  The CIDR block of the VPC itself, allowing all instances within the deployment to communicate with each other.
-2.  Any additional CIDR blocks you specify in the `allowed_source_cidr_blocks` variable, which is ideal for corporate VPNs or management networks.
+By default, the security model avoids opening instances to the internet:
+
+Ingress is allowed only from:
+
+1. The **VPC CIDR** itself (for internal communication).
+2. Any additional CIDRs in `allowed_source_cidr_blocks` (e.g., VPN/management ranges).
+
+This provides a secure baseline while still allowing flexible access control.
 
 ---
 
 ## Production Backend
 
-A `backend.tf` file defines **where Terraform stores its state.**. For production environments, it is best practice to use a **remote backend like Amazon S3 with DynamoDB for state locking**--ensuring collaboration and preventing corruption.
+For production, you should use a **remote backend** (e.g., S3 + DynamoDB) for state storage and locking.
 
-#### Example `backend.tf` for AWS (S3 + DynamoDB)
-```
+Example `backend.tf`:
+
+```hcl
 terraform {
   backend "s3" {
     bucket         = "my-terraform-state-bucket"
@@ -572,33 +725,21 @@ terraform {
 }
 ```
 
-#### Explanation
+### One-Time Backend Setup
 
-| Parameter        | Purpose                                        |
-| ---------------- | ---------------------------------------------- |
-| `bucket`         | S3 bucket that stores the `.tfstate` file      |
-| `key`            | Path/key within the bucket (like a filename)   |
-| `region`         | AWS region for the S3 bucket and DynamoDB      |
-| `dynamodb_table` | Enables state locking to avoid concurrent runs |
-| `encrypt`        | Ensures the state file is encrypted at rest    |
-
-### One time backend setup commands
-
-You'll need to create the S3 bucket and DynamoDB table **before the first Terraform run**:
-
-```
-# Create the S3 bucket
+```bash
+# Create S3 bucket
 aws s3api create-bucket \
   --bucket my-terraform-state-bucket \
   --region us-west-2 \
   --create-bucket-configuration LocationConstraint=us-west-2
 
-# Enable versioning (recommended)
+# Enable versioning
 aws s3api put-bucket-versioning \
   --bucket my-terraform-state-bucket \
   --versioning-configuration Status=Enabled
 
-# Create DynamoDB table for locking
+# Create DynamoDB table for state locking
 aws dynamodb create-table \
   --table-name terraform-locks \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -607,63 +748,110 @@ aws dynamodb create-table \
   --region us-west-2
 ```
 
+---
+
 ## Tier-0
 
-Tier-0 is the capability of utilizing the local storage within a client.
+Tier-0 enables using **local NVMe storage inside client EC2 instances** as a high-performance storage tier managed by Hammerspace.
 
-Workflows like AI training, checkpointing, inferencing, and agentic AI demand high-throughput, low-latency access to large volumes of unstructured data. To meet performance demands, organizations deploy expensive external flash storage arrays and high-speed networking—delaying AI initiatives and consuming significant budget, power, and rack space.
+Typical AI workloads (training, checkpointing, inference, agentic workflows) require:
 
-Hammerspace Tier 0 and Terraform solves this problem by activating the local NVMe storage within an EC2 instance and turning it into a new tier of high-performance shared storage - managed and protected by Hammerspace.
+* High throughput
+* Low latency
+* Large unstructured data sets
 
-In order for Tier-0 to work within an EC2 instance, you must first choose an instance that has local NVMe storage. Then you enable it by modifying the variable `clients_tier0` to determine whether you want raid-0, raid-5, or raid-6 for that local storage.
+Instead of relying solely on external flash arrays and heavy network infrastructure, **Tier-0 activates local NVMe** and uses Hammerspace to expose it as a shared, managed tier.
 
-> [!NOTE]
-> You must utilize an EC2 instance type that has local NVMe storage attached. Also, there must be multiple drives in order for the Terraform to form a raid for higher performance.
-> | Raid        | Number of NVMe disks required |
-> | ----------- | ----------------------------- |
-> | `raid-0`    | 2                             |
-> | `raid-5`    | 3                             |
-> | `raid-6`    | 4                             |
+To enable Tier-0:
 
-> [!WARNING]
-> Since local NVMe storage is ephemeral, you should *never* stop an instance through the AWS console. Doing this will result in the loss of the Tier-0 array upon restart of the instance. You may reboot an instance at any time as this doesn't affect the status of the Tier-0 array.
+1. Choose instance types with local NVMe.
+2. Set `clients_tier0` to one of:
+
+   * `"raid-0"`
+   * `"raid-5"`
+   * `"raid-6"`
+
+> **Note**
+>
+> Minimum NVMe disk counts per RAID level:
+>
+> | RAID   | Required NVMe Disks |
+> | ------ | ------------------- |
+> | raid-0 | 2                   |
+> | raid-5 | 3                   |
+> | raid-6 | 4                   |
+
+> **Warning**
+> Local NVMe is **ephemeral**. **Do not stop** instances in the AWS console; this destroys the underlying disks and the Tier-0 array.
+> Reboots are safe; full stops are not.
 
 ---
 
 ## Important Note on Placement Group Deletion
 
-When you run `terraform destroy` on a configuration that created a placement group, you may see an error like this:
+When running `terraform destroy`, you may see:
 
-`Error: InvalidPlacementGroup.InUse: The placement group ... is in use and may not be deleted.`
+```text
+Error: InvalidPlacementGroup.InUse: The placement group ... is in use and may not be deleted.
+```
 
-This is normal and expected behavior due to a race condition in the AWS API. It happens because Terraform sends the requests to terminate the EC2 instances and delete the placement group at nearly the same time. If the instances haven't fully terminated on the AWS backend, the API will reject the request to delete the group.
+This is due to an AWS race condition: Terraform tries to delete the placement group while EC2 instances are still being torn down.
 
-**The solution is to simply run `terraform destroy` a second time.** The first run will successfully terminate the instances, and the second run will then be able to successfully delete the now-empty placement group.
+**Workaround:** run `terraform destroy` **a second time**.
+The first run terminates instances; the second deletes the now-empty placement group.
 
 ---
 
 ## Outputs
 
-After a successful `apply`, Terraform will provide the following outputs. Sensitive values will be redacted and can be viewed with `terraform output <output_name>`.
+After a successful `terraform apply`, outputs include:
 
-* `client_instances`: A list of non-sensitive details for each client instance (ID, IP, Name).
-* `storage_instances`: A list of non-sensitive details for each storage instance.
-* `hammerspace_anvil`: **(Sensitive)** A list of detailed information for the deployed Anvil nodes.
-* `hammerspace_dsx`: **(Sensitive)** A list of detailed information for the deployed DSX nodes.
-* `hammerspace_dsx_private_ips`: A list of private IP addresses for the Hammerspace DSX instances.
-* `hammerspace_mgmt_url`: The URL to access the Hammerspace management interface.
-* `ecgroup_nodes`: Details about the deployed ECGroup nodes.
-* `ansible_details`: Details for the deployed Ansible controller.
+* `client_instances` – non-sensitive client instance details (ID, IP, Name).
+* `storage_instances` – non-sensitive storage instance details.
+* `hammerspace_anvil` – **sensitive**: Anvil details.
+* `hammerspace_dsx` – **sensitive**: DSX details.
+* `hammerspace_dsx_private_ips` – DSX private IPs.
+* `hammerspace_mgmt_url` – Hammerspace management URL.
+* `ecgroup_nodes` – ECGroup node details.
+* `ansible_details` – Ansible controller details.
+
+Use:
+
+```bash
+terraform output
+terraform output <output_name>
+```
+
+for more information (sensitive values require the second form).
 
 ---
+
 ## Modules
 
-This project is structured into the following modules:
-* **clients**: Deploys client EC2 instances.
-* **storage_servers**: Deploys storage server EC2 instances with configurable RAID and NFS exports.
-* **hammerspace**: Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
-* **ecgroup**: Deploys a storage cluster that combines all of its storage into an erasure-coded array.
-* **ansible**: Deploys an Ansible controller instance which performs "Day 2" configuration tasks after the primary infrastructure is provisioned. Its key functions are:
-    * **Hammerspace Integration**: It runs a playbook that connects to the Anvil's API to add the newly created storage servers as data nodes, create a volume group, and create a share.
-    * **ECGroup Configuration**: It runs a playbook to configure the ECGroup cluster, create the array, and set up the necessary services.
-    * **Passwordless SSH Setup**: It runs a second playbook that orchestrates a key exchange between all client and storage nodes, allowing them to SSH to each other without passwords for automated scripting.
+This project is composed of several Terraform modules:
+
+* **clients**
+  Deploys client EC2 instances.
+
+* **storage_servers**
+  Deploys storage EC2 instances with RAID and export configuration.
+
+* **hammerspace**
+  Deploys Hammerspace Anvil (metadata) and DSX (data) nodes.
+
+* **ecgroup**
+  Deploys an ECGroup storage cluster using erasure coding.
+
+* **ansible**
+  Deploys an Ansible controller that:
+
+  * Integrates Hammerspace with storage servers (add data nodes, create volume group + share).
+  * Configures the ECGroup cluster and its services.
+  * Orchestrates passwordless SSH between client/storage nodes for automation.
+
+* **amazon_mq** (when enabled)
+  Deploys an Amazon MQ (RabbitMQ) broker and supporting DNS/security infrastructure for site ↔ central message flow.
+
+---
+
+Happy Terraforming! 🌩️
