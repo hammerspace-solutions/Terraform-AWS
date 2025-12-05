@@ -84,7 +84,7 @@ key_name   			     = "Some-PEM-Key"
 # If you wish to use your own, then uncomment these and fill them in
 
 vpc_id     			     = "vpc-e3b5890"
-subnet_id  			     = "subnet-0d8a5034456df"
+private_subnet_id		     = "subnet-0d8a5034456df"
 public_subnet_id		     = "subnet-somepublic"
 
 # If you wish to create your own VPC / Subnet(s), then uncomment these
