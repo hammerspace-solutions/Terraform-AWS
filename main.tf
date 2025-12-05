@@ -1052,7 +1052,7 @@ module "ansible" {
 
 module "amazon_mq" {
   count  = local.deploy_mq ? 1 : 0
-  source = "git::https://github.com/hammerspace-solutions/terraform-aws-amazon-mq.git?ref=v1.0.0"
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-amazon-mq.git?ref=v1.0.2"
 
   project_name	   = var.project_name
   region	   = var.region
