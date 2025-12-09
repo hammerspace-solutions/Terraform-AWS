@@ -9,6 +9,7 @@ It can deploy:
 * **Hammerspace** Anvil & DSX nodes
 * **ECGroup** clusters
 * **Amazon MQ (RabbitMQ)** brokers
+* **Amazon Aurora** database clusters (PostgreSQL/MySQL)
 * An **Ansible controller** for “Day 2” automation
 
 Originally built for internal Hammerspace use to size Hammerspace resources for an LLM-based sizing engine, it has since evolved into a **general-purpose deployment framework** for customers who want to spin up full lab, POC, or production environments with strong guardrails.
@@ -29,6 +30,7 @@ Originally built for internal Hammerspace use to size Hammerspace resources for 
   * [Storage Server Variables](#storage-server-variables)
   * [Hammerspace Variables](#hammerspace-variables)
   * [ECGroup Variables](#ecgroup-variables)
+  * [Aurora Variables](#aurora-variables)
   * [AmazonMQ Variables](#amazonmq-variables)
   * [Ansible Variables](#ansible-variables)
 
@@ -134,6 +136,9 @@ At a minimum you must provide:
 * Required `*_ami` variables (clients, storage, Hammerspace, ECGroup, Ansible, etc.)
 
 Then refine based on the [Configuration](#configuration) and [Component Variables](#component-variables) sections below.
+
+> **Note**
+> If you do not have a vpc_id/subnet_id, then this module can create the VPC and subnet(s) for you. Please lookup the procedure in the [Global Variables](#global-variables) section below.
 
 ---
 
@@ -302,7 +307,7 @@ These variables control top-level behavior:
 
 * `deploy_components`
   List of components to deploy. Valid values:
-  `"all"`, `"clients"`, `"storage"`, `"hammerspace"`, `"ecgroup"`, `"mq"`, `"ansible"`.
+  `"all"`, `"clients"`, `"storage"`, `"hammerspace"`, `"ecgroup"`, `"mq"`, `"aurora"`, `"ansible"`.
 
 * `assign_public_ip`
   If `true`, Ansible instances get public IPs; if `false`, only private.
@@ -327,6 +332,34 @@ These variables control top-level behavior:
 
 * `public_subnet_id`
   Public subnet ID for instances requiring public IPs. Required if `assign_public_ip = true`.
+
+* `vpc_cidr`
+  As an alternative to the vpc_id, you can create your own VPC by supplying the CIDR
+  for an address range. The format is `10.10.1.0/16` (as an example). This is a range in which you will then create your subnet(s) (see next)
+
+* `private_subnet_1_cidr`
+  This is a CIDR for a subnet in which only private addresses are allocated.
+
+* `private_subnet_2_cidr`
+  This is a CIDR for a subnet in which only private addresses are allocated.
+
+* `public_subnet_1_cidr`
+  This is a CIDR for a subnet in which only public addresses are allocated. See `allow_public_ip` above.
+
+* `public_subnet_1_cidr`
+  This is a CIDR for a subnet in which only public addresses are allocated. See `allow_public_ip` above.
+
+* `subnet_1_az`
+  This is the name of the availability zone where the private and public subnet for segment 1 will be created. Example: `us-west-2a`
+
+* `subnet_2_az`
+  This is the name of the availability zone where the private and public subnet for segment 2 will be created. Example: `us-west-2b`
+
+> **Note**
+> We need to create private and public IP(s) in two availability zones for several of the modules (MQ and Aurora). Although you may never utilize these modules or features of this Terraform, we have not taken the time to design that into this Terraform. Hence, you are required to supply both public and private AZ and subnet CIDR(s).
+
+> **Warning**
+> You can either utilize an existing vpc_id or create your own. You cannot define both
 
 * `key_name`
   EC2 key pair name.
@@ -437,6 +470,113 @@ Prefixed with `ecgroup_`:
 
 ---
 
+### Aurora Variables
+
+The Aurora module provisions an **Amazon Aurora** database cluster (PostgreSQL or MySQL) with:
+
+* A dedicated **security group**
+* A **DB subnet group** spanning two private subnets
+* An **Aurora DB cluster** (writer endpoint)
+* One or more **Aurora cluster instances** (readers/writer)
+* Optional **RDS event notifications** via SNS + email
+
+To enable Aurora, add `"aurora"` to `deploy_components` and set the following variables (prefixed with `aurora_`):
+
+#### Networking & Placement
+
+* `aurora_subnet_1_id`
+  First **private** subnet ID for the Aurora DB subnet group (typically in AZ A).
+
+* `aurora_subnet_2_id`
+  Second **private** subnet ID for the Aurora DB subnet group (typically in AZ B).
+
+> **Note**
+> The module looks up the VPC CIDR via `vpc_id` (global variable) and allows inbound DB traffic from the VPC plus any `allowed_source_cidr_blocks`.
+
+#### Engine & Sizing
+
+* `aurora_engine` (Default: `"aurora-postgresql"`)
+  Aurora engine type. Valid values:
+
+  * `"aurora-postgresql"`
+  * `"aurora-mysql"`
+
+* `aurora_engine_version` (Default: `"15.3"`)
+  Aurora engine version. If set to `""`, AWS chooses a default.
+
+* `aurora_instance_class` (Default: `"db.r6g.large"`)
+  Aurora instance class (e.g., `"db.r6g.large"`, `"db.r7g.large"`).
+
+* `aurora_instance_count` (Default: `2`)
+  Number of Aurora instances in the cluster (must be ≥ 1).
+
+* `aurora_db_name` (Default: `"projecthouston"`)
+  Initial database name in the Aurora cluster.
+
+* `aurora_master_username` (**required**)
+  Master username for Aurora.
+
+* `aurora_master_password` (**required**, sensitive)
+  Master password for Aurora.
+
+#### Durability, Backups, Maintenance
+
+* `aurora_backup_retention_days` (Default: `7`)
+  How many days to retain automated backups.
+
+* `aurora_preferred_backup_window` (Default: `"04:00-05:00"`)
+  Preferred backup window (UTC), e.g. `"04:00-05:00"`.
+
+* `aurora_preferred_maintenance_window` (Default: `"sun:06:00-sun:07:00"`)
+  Preferred maintenance window (UTC), e.g. `"sun:06:00-sun:07:00"`.
+
+* `aurora_deletion_protection` (Default: `true`)
+  Enables deletion protection on the Aurora cluster.
+
+* `aurora_storage_encrypted` (Default: `true`)
+  Encrypt Aurora storage.
+
+* `aurora_kms_key_id` (Default: `""`)
+  KMS key ID/ARN for encryption. If empty and `aurora_storage_encrypted = true`, the AWS default KMS key is used.
+
+* `aurora_skip_final_snapshot` (Default: `true`)
+  Whether to skip creating a final snapshot when destroying the cluster.
+
+* `aurora_final_snapshot_identifier` (Default: `""`)
+  Identifier for the final snapshot when destroying the cluster.
+  Must be **non-empty** if `aurora_skip_final_snapshot = false`.
+
+#### Performance Insights
+
+* `aurora_enable_performance_insights` (Default: `true`)
+  Enable Performance Insights for Aurora instances.
+
+* `aurora_performance_insights_retention_period` (Default: `7`)
+  Performance Insights retention in days (e.g., `7`, `731`, `1095`).
+
+* `aurora_performance_insights_kms_key_id` (Default: `""`)
+  KMS key ID/ARN for Performance Insights (optional).
+
+#### Data API (HTTP Endpoint)
+
+* `aurora_enable_http_endpoint` (Default: `false`)
+  Enable the Aurora Data API (HTTP endpoint) for the cluster.
+  Useful for serverless or non-EC2 clients using HTTPS instead of direct TCP.
+
+#### Event Notifications
+
+* `aurora_event_email` (Default: `""`)
+  Email address to receive Aurora/RDS events.
+  If non-empty, the module creates:
+
+  * An SNS topic `${project_name}-aurora-events`
+  * An email subscription to that topic
+  * A DB event subscription for the Aurora cluster
+
+If `aurora_event_email` is empty, no event-related resources are created.
+
+---
+
 ### AmazonMQ Variables
 
 Prefixed with `amazonmq_`:
@@ -478,7 +618,7 @@ Configuration is supplied as a **JSON-like Terraform map**:
 
 ```hcl
 config_ansible = {
-  allow_root         = true
+  allow_root           = true
   ecgroup_volume_group = "xyz"
   ecgroup_share_name   = "123"
   volume_groups = {
@@ -814,6 +954,11 @@ After a successful `terraform apply`, outputs include:
 * `hammerspace_mgmt_url` – Hammerspace management URL.
 * `ecgroup_nodes` – ECGroup node details.
 * `ansible_details` – Ansible controller details.
+* `aurora_cluster_endpoint` – Writer endpoint for the Aurora cluster (use for reads and writes).
+* `aurora_reader_endpoint` – Reader endpoint for the Aurora cluster (use for read-only traffic).
+* `aurora_security_group_id` – Security group ID associated with Aurora.
+* `aurora_cluster_id` – **sensitive**: Aurora cluster ID/identifier.
+* `aurora_cluster_arn` – **sensitive**: Aurora cluster ARN.
 
 Use:
 
@@ -841,6 +986,15 @@ This project is composed of several Terraform modules:
 
 * **ecgroup**
   Deploys an ECGroup storage cluster using erasure coding.
+
+* **aurora** (when enabled)
+  Deploys an Amazon Aurora database cluster (PostgreSQL or MySQL) including:
+
+  * Security group allowing DB access from the VPC and configured CIDRs.
+  * DB subnet group spanning two private subnets.
+  * Aurora cluster with encrypted storage, backups, and maintenance windows.
+  * N Aurora instances with optional Performance Insights.
+  * Optional RDS event notifications via SNS + email.
 
 * **ansible**
   Deploys an Ansible controller that:
