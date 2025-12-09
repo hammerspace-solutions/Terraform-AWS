@@ -484,14 +484,18 @@ To enable Aurora, add `"aurora"` to `deploy_components` and set the following va
 
 #### Networking & Placement
 
-* `aurora_subnet_1_id`
+* `private_subnet_1_id`
   First **private** subnet ID for the Aurora DB subnet group (typically in AZ A).
 
-* `aurora_subnet_2_id`
+* `private_subnet_2_id`
   Second **private** subnet ID for the Aurora DB subnet group (typically in AZ B).
 
 > **Note**
 > The module looks up the VPC CIDR via `vpc_id` (global variable) and allows inbound DB traffic from the VPC plus any `allowed_source_cidr_blocks`.
+
+> **Note**
+> If you do not have a VPC already defined, this module will create one for you. Please
+> read about creating a VPC and Subnet(s) in the [Global Variables](#global-variables) section.
 
 #### Engine & Sizing
 
