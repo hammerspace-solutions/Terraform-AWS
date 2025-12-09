@@ -192,14 +192,14 @@ variable "allow_root" {
 }
 
 variable "deploy_components" {
-  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\"."
+  description = "Components to deploy. Valid values in the list are: \"all\", \"clients\", \"storage\", \"hammerspace\", \"ecgroup\", \"mq (amazon mq)\", \"aurora\"."
   type        = list(string)
   default     = ["all"]
   validation {
     condition = alltrue([
-      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup", "mq"], c)
+      for c in var.deploy_components : contains(["all", "clients", "storage", "hammerspace", "ecgroup", "mq", "aurora"], c)
     ])
-    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", \"ecgroup\", \"hammerspace\" or \"mq (amazon mq)\"."
+    error_message = "Each item in deploy_components must be one of: \"all\", \"clients\", \"storage\", \"ecgroup\", \"hammerspace\", \"mq (amazon mq)\", or \"aurora\"."
   }
 }
 

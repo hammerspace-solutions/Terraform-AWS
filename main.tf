@@ -73,6 +73,44 @@ check "az_config_guard" {
 }
 
 # -----------------------------------------------------------------------------
+# Validate that we have the necessary network resources if they want to enable
+# Aurora support
+# -----------------------------------------------------------------------------
+
+check "aurora_network_prereqs" {
+  assert {
+    condition = (
+      # If Aurora isn't being deployed, nothing to check.
+      !local.deploy_aurora
+      ||
+      # If Aurora *is* being deployed:
+      (
+        local.vpc_id_effective != null &&
+        local.private_subnet_1_id_effective != null &&
+        local.private_subnet_2_id_effective != null &&
+        local.private_subnet_1_id_effective != local.private_subnet_2_id_effective
+      )
+    )
+
+    error_message = <<-EOT
+      Invalid Aurora network configuration:
+
+      Aurora is enabled (deploy_components includes "aurora" or "all"),
+      but one or more prerequisites are missing:
+
+        - vpc_id must be set to an existing VPC
+        - private_subnet_1_id and private_subnet_2_id must both be set
+        - private_subnet_1_id and private_subnet_2_id must not be the same
+
+      Please update terraform.tfvars so that:
+        * vpc_id points to your VPC
+        * private_subnet_1_id and private_subnet_2_id are two private subnets
+          (ideally in different Availability Zones)
+    EOT
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Validate that amazon mq credentials are set when amazon mq is enabled
 # -----------------------------------------------------------------------------
 
@@ -827,6 +865,7 @@ locals {
   deploy_hammerspace = contains(var.deploy_components, "all") || contains(var.deploy_components, "hammerspace")
   deploy_ecgroup     = contains(var.deploy_components, "all") || contains(var.deploy_components, "ecgroup")
   deploy_mq	     = contains(var.deploy_components, "all") || contains(var.deploy_components, "mq")
+  deploy_aurora	     = contains(var.deploy_components, "all") || contains(var.deploy_components, "aurora")
   deploy_ansible     = var.ansible_instance_count > 0
 
   all_ssh_nodes = concat(
@@ -1072,6 +1111,52 @@ module "amazon_mq" {
   depends_on = [
     module.iam_core
   ]
+}
+
+# Deploy the Aurora Database (completely optional)
+
+module "aurora" {
+  source = "git::https://github.com/hammerspace-solutions/terraform-aws-aurora.git?ref=v1.0.0"
+
+  # Optional: gate with deploy_components
+  count = local.deploy_aurora ? 1 : 0
+
+  project_name = var.project_name
+  region       = var.region
+
+  vpc_id        = local.vpc_id_effective
+  subnet_1_id	   = local.private_subnet_1_id_effective
+  subnet_2_id	   = local.private_subnet_2_id_effective
+  allowed_source_cidr_blocks = var.allowed_source_cidr_blocks
+
+  tags = var.tags
+
+  engine         = var.aurora_engine
+  engine_version = var.aurora_engine_version
+
+  instance_class = var.aurora_instance_class
+  instance_count = var.aurora_instance_count
+
+  db_name         = var.aurora_db_name
+  master_username = var.aurora_master_username
+  master_password = var.aurora_master_password
+
+  backup_retention_days        = var.aurora_backup_retention_days
+  preferred_backup_window      = var.aurora_preferred_backup_window
+  preferred_maintenance_window = var.aurora_preferred_maintenance_window
+
+  deletion_protection = var.aurora_deletion_protection
+  storage_encrypted   = var.aurora_storage_encrypted
+  kms_key_id          = var.aurora_kms_key_id
+
+  enable_performance_insights          = var.aurora_enable_performance_insights
+  performance_insights_retention_period = var.aurora_performance_insights_retention_period
+  performance_insights_kms_key_id       = var.aurora_performance_insights_kms_key_id
+
+  enable_http_endpoint = var.aurora_enable_http_endpoint
+  skip_final_snapshot = var.aurora_skip_final_snapshot
+  final_snapshot_identifier = var.aurora_final_snapshot_identifier
+  event_email = var.aurora_event_email
 }
 
 # Deploy the clients module if requested

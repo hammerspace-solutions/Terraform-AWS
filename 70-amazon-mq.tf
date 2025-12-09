@@ -21,12 +21,8 @@
 # variables.tf
 #
 # This file defines all the variables for the creation and maintenance of
-# MSK (Kafka) in AWS for Project Houston
+# AmazonMQ (rabbitmq) for Project Houston
 # -----------------------------------------------------------------------------
-
-# variables.tf - Define variables for customization
-
-# RabbitMQ (Amazon MQ) settings
 
 variable "amazonmq_engine_version" {
   description = "RabbitMQ engine version for Amazon MQ"

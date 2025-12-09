@@ -132,3 +132,27 @@ output "amazonmq_hosted_zone_id" {
   description = "Route 53 private hosted zone ID created for RabbitMQ (if any)"
   value       = local.deploy_mq ? module.amazon_mq[0].hosted_zone_id : null
 }
+
+# Aurora Outputs
+
+output "aurora_cluster_endpoint" {
+  description = "Writer endpoint for the Aurora cluster (null if Aurora not deployed)."
+  value       = local.deploy_aurora ? module.aurora[0].aurora_cluster_endpoint : null
+}
+
+output "aurora_reader_endpoint" {
+  description = "Reader endpoint for the Aurora cluster (null if Aurora not deployed)."
+  value       = local.deploy_aurora ? module.aurora[0].aurora_reader_endpoint : null
+}
+
+output "aurora_security_group_id" {
+  description = "Security group ID for the Aurora cluster (null if Aurora not deployed)."
+  value       = local.deploy_aurora ? module.aurora[0].aurora_security_group_id : null
+}
+
+output "aurora_cluster_arn" {
+  description = "ARN for the Aurora cluster (null if Aurora not deployed)."
+  value       = local.deploy_aurora ? module.aurora[0].aurora_cluster_arn : null
+  sensitive   = true
+}
+

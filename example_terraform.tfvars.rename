@@ -252,3 +252,45 @@ amazonmq_admin_password		     = "Pl3as3F1ll1n"
 amazonmq_site_admin_username	     = "admin"
 amazonmq_site_admin_password	     = "Pl3as3F1ll1n"
 amazonmq_site_admin_password_hash    = "This is a hash created by rabbitmq"
+
+# Aurora Database Service
+
+aurora_engine			     = "aurora-postgresql"
+aurora_engine_version		     = "15.3"
+
+# Cluster Instances
+
+aurora_instance_class		     = "db.r6g.large"
+aurora_instance_count		     = 2
+
+# Database name and credentails
+
+aurora_db_name			     = "houston"
+aurora_master_username		     = "houston_admin"
+aurora_master_password		     = "CHANGE-To-A-Strong-Password!"
+
+# Backup / Maintenance
+
+aurora_backup_retention_days         = 7
+aurora_preferred_backup_window	     = "07:00-08:00"
+aurora_preferred_maintenance_window  = "sun:09:00-sun:10:00"
+
+# Safety / encryption
+
+aurora_deletion_protection	     = false
+aurora_storage_encrypted	     = true
+aurora_kms_key_id		     = ""
+
+# Connectivity
+
+aurora_database_port	             = 5432
+aurora_enable_http_endpoint	     = false
+
+# Skip the final snapshot?
+
+aurora_skip_final_snapshot	     = false
+aurora_final_snapshot_identifier     = "houston-aurora-final"
+
+# Email for errors (Optional)
+
+aurora_event_email		     = ""
