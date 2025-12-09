@@ -958,6 +958,12 @@ After a successful `terraform apply`, outputs include:
 * `hammerspace_mgmt_url` – Hammerspace management URL.
 * `ecgroup_nodes` – ECGroup node details.
 * `ansible_details` – Ansible controller details.
+* `amazonmq_broker_id` - **sensitive**: ID of the Amazon MQ Broker
+* `amazonmq_broker_arn` - **sensitive**: ARN of the Amazon MQ Broker
+* `amazonmq_security_group_id` - **sensitive**: Security Group ID for the Amazon MQ Broker
+* `amazonmq_amqps_endpoint` - Endpoint used by applications to talk to the Amazon MQ Broker
+* `amazonmq_console_url` - Web address of the Amazon MQ Broker console
+* `amazonmq_hosted_zone_id` - Route 53 hosted zone ID needed by the Amazon MQ Broker
 * `aurora_cluster_endpoint` – Writer endpoint for the Aurora cluster (use for reads and writes).
 * `aurora_reader_endpoint` – Reader endpoint for the Aurora cluster (use for read-only traffic).
 * `aurora_security_group_id` – Security group ID associated with Aurora.

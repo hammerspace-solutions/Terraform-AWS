@@ -98,7 +98,7 @@ output "ansible_details" {
 # These will be null when MQ is not deployed (deploy_components excludes "mq")
 # -----------------------------------------------------------------------------
 
-output "amazonemq_broker_id" {
+output "amazonmq_broker_id" {
   description = "ID of the Amazon MQ RabbitMQ broker"
   value       = local.deploy_mq ? module.amazon_mq[0].amazonmq_broker_id : null
   sensitive   = true
