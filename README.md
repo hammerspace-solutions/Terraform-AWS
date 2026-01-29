@@ -14,7 +14,7 @@ Terraform infrastructure-as-code for deploying Hammerspace Global Data Environme
 - [Deployment Scenarios](#deployment-scenarios)
   - [Scenario 1: Standalone Anvil Only](#scenario-1-standalone-anvil-only)
   - [Scenario 2: Anvil + DSX Nodes](#scenario-2-anvil--dsx-nodes)
-  - [Scenario 3: Hammerspace HA](#scenario-3-hammerspace-ha)
+  - [Scenario 3: High-Availability (HA) Deployment with 2 Anvils](#scenario-3-high-availability-ha-deployment-with-2-anvils)
   - [Scenario 4: Hammerspace + ECGroup](#scenario-4-hammerspace--ecgroup)
   - [Scenario 5: Hammerspace + Storage Servers](#scenario-5-hammerspace--storage-servers)
   - [Scenario 6: Full Production Stack](#scenario-6-full-production-stack)
@@ -133,10 +133,10 @@ This Terraform project provides a modular, production-ready deployment of Hammer
 
 ### Required
 
-- **Terraform** >= 1.0.0
-- **AWS CLI** configured with valid credentials
-- **AWS Account** with appropriate permissions
-- **Hammerspace AMI** subscription (AWS Marketplace)
+- **[Terraform](https://developer.hashicorp.com/terraform/downloads)** >= 1.0.0
+- **[AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** configured with valid credentials
+- **[AWS Account](https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/)** with appropriate permissions
+- **[Hammerspace AMI](https://aws.amazon.com/marketplace/pp/prodview-3foicv5pgwl46)** subscription (AWS Marketplace)
 
 ### AWS Credentials
 
@@ -297,7 +297,7 @@ hammerspace_dsx_ebs_count = 4
 hammerspace_dsx_ebs_size  = 500  # GB per volume
 ```
 
-### Scenario 3: Hammerspace HA
+### Scenario 3: High-Availability (HA) Deployment with 2 Anvils
 
 High-availability deployment with 2 Anvils:
 
@@ -501,7 +501,7 @@ aurora_master_password = "SecurePassword123!"
 
 ## Tier-0 Local NVMe
 
-Enable high-performance local storage on client instances:
+[Tier-0](https://hammerspace.com/tier-0/) provides high-performance local storage on client instances for caching frequently accessed data:
 
 ```hcl
 clients_tier0      = "raid-0"  # raid-0, raid-5, or raid-6
@@ -567,10 +567,17 @@ This configuration includes automatic validation during `terraform plan`:
 Error: The specified AMI (ami-xxxxx) does not exist in region us-west-2
 ```
 
+**Solution**: Verify the AMI ID is correct for your region. Hammerspace AMIs vary by region—check the [AWS Marketplace](https://aws.amazon.com/marketplace/pp/prodview-3foicv5pgwl46) for the correct AMI ID in your target region. Ensure you've subscribed to the Hammerspace AMI before deployment.
+
 **Instance type unavailable:**
 ```
 Error: Instance type m5zn.12xlarge is not available in us-west-2a
 ```
+
+**Solution**: Not all instance types are available in every Availability Zone. Try one of the following:
+- Change `subnet_1_az` or `subnet_2_az` to a different AZ in your region
+- Use a different instance type (e.g., `m5.12xlarge` instead of `m5zn.12xlarge`)
+- Check [AWS instance type availability](https://aws.amazon.com/ec2/instance-types/) for your region
 
 ## Troubleshooting
 
